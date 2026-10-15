@@ -1,0 +1,6 @@
+{
+  "name": "MarsNav: AI-Powered Terrain Analysis and Rover Navigation",
+  "description": "Cinematic Mars mission control platform featuring AI-driven terrain segmentation, 3D digital elevation models, and A* rover route planning.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

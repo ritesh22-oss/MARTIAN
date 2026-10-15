@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MarsNav — AI Terrain Analysis & Rover Navigation</title>
+    <meta name="description" content="Cinematic Mars mission control platform featuring AI terrain intelligence, 3D HiRISE elevation models, and A* pathfinding." />
+    <meta property="og:title" content="MarsNav — AI Terrain Analysis & Rover Navigation" />
+    <meta property="og:description" content="Cinematic Mars mission control platform featuring AI terrain intelligence, 3D HiRISE elevation models, and A* pathfinding." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // Defensive guard for browser extensions attempting to proxy window.fetch
+      try {
+        let _activeFetch = window.fetch;
+        Object.defineProperty(window, 'fetch', {
+          get() {
+            return _activeFetch;
+          },
+          set(newFetch) {
+            _activeFetch = newFetch;
+          },
+          configurable: true,
+          enumerable: true
+        });
+      } catch (e) {
+        // Safe fallback if environment prohibits redefinition
+      }
+    </script>
+  </head>
+  <body class="bg-[#050813] text-slate-100 antialiased selection:bg-orange-500 selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

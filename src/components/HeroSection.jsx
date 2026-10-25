@@ -602,10 +602,20 @@ export default function HeroSection({ setActiveSection }) {
       {/* HERO TEXT & INTERACTIVE BRANDING OVERLAY */}
       <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 relative z-20 pt-28 pb-16 pointer-events-none">
         <div className="max-w-2xl space-y-7 pointer-events-auto text-left">
-          {/* Top Label */}
-          <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-orange-500/10 border border-orange-500/30 backdrop-blur-md shadow-inner">
-            <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping" />
-            <span className="text-xs font-mono tracking-widest uppercase text-orange-300 font-semibold">
+          {/* Top Label with Unique Micro Radar Sweep */}
+          <div className="inline-flex items-center space-x-2.5 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-white/10 hover:border-cyan-400/40 backdrop-blur-md transition-colors">
+            {/* Unique Micro Radar Sweep Scanner (Replaces generic blinking dot) */}
+            <div className="relative w-3.5 h-3.5 rounded-full border border-cyan-400/50 bg-[#040814] flex items-center justify-center overflow-hidden shrink-0 shadow-[0_0_6px_rgba(0,218,243,0.35)]">
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-full h-px bg-cyan-400/25" />
+                <div className="h-full w-px bg-cyan-400/25 absolute" />
+              </div>
+              <div className="absolute inset-0 rounded-full animate-spin [animation-duration:2.5s] bg-[conic-gradient(from_0deg,_transparent_0deg,_transparent_270deg,_rgba(0,218,243,0.85)_360deg)]" />
+              <div className="relative w-1 h-1 rounded-full bg-cyan-300" />
+            </div>
+
+            {/* Simple Clean Title */}
+            <span className="text-xs font-mono tracking-widest uppercase text-slate-200 font-semibold">
               MARSNAV • AI TERRAIN INTELLIGENCE
             </span>
           </div>

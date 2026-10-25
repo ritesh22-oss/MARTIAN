@@ -1,9 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Cpu, ShieldAlert, Navigation, Layers, Compass, Zap } from 'lucide-react';
+import TerrainIntelligenceVerifyModal from './TerrainIntelligenceVerifyModal';
+import RiskAwareNavVerifyModal from './RiskAwareNavVerifyModal';
+import RouteOptimizationVerifyModal from './RouteOptimizationVerifyModal';
 
 export default function MissionOverview() {
+  const [activeVerifyModal, setActiveVerifyModal] = useState<'terrain' | 'risk' | 'route' | null>(null);
+
   const features = [
     {
+      id: 'terrain' as const,
       icon: <Cpu className="w-6 h-6 text-orange-400" />,
       title: "Terrain Intelligence",
       description:
@@ -11,6 +17,7 @@ export default function MissionOverview() {
       badge: "PyTorch Vision"
     },
     {
+      id: 'risk' as const,
       icon: <ShieldAlert className="w-6 h-6 text-red-400" />,
       title: "Risk-Aware Navigation",
       description:
@@ -18,6 +25,7 @@ export default function MissionOverview() {
       badge: "Cost Weighting"
     },
     {
+      id: 'route' as const,
       icon: <Navigation className="w-6 h-6 text-amber-400" />,
       title: "Route Optimization",
       description:
@@ -48,10 +56,11 @@ export default function MissionOverview() {
 
         {/* 3 Feature Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {features.map((feature, idx) => (
+          {features.map((feature) => (
             <div
-              key={idx}
-              className="group relative bg-[#0B1020]/80 border border-white/10 hover:border-orange-500/50 rounded-3xl p-8 backdrop-blur-xl shadow-xl transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-orange-600/10 flex flex-col justify-between"
+              key={feature.id}
+              onClick={() => setActiveVerifyModal(feature.id)}
+              className="group relative bg-[#0B1020]/80 border border-white/10 hover:border-orange-500/50 rounded-3xl p-8 backdrop-blur-xl shadow-xl transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-orange-600/10 flex flex-col justify-between cursor-pointer"
             >
               <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/5 rounded-bl-full pointer-events-none group-hover:bg-orange-500/10 transition-colors" />
 
@@ -77,7 +86,7 @@ export default function MissionOverview() {
 
               <div className="pt-6 mt-6 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-400">
                 <span>Module Status: Operational</span>
-                <span className="text-orange-400 group-hover:translate-x-1 transition-transform inline-flex items-center">
+                <span className="text-orange-400 group-hover:translate-x-1 transition-transform inline-flex items-center font-bold">
                   Verify &rarr;
                 </span>
               </div>
@@ -85,6 +94,20 @@ export default function MissionOverview() {
           ))}
         </div>
       </div>
+
+      {/* Verification Modals for the 3 Cards */}
+      <TerrainIntelligenceVerifyModal
+        isOpen={activeVerifyModal === 'terrain'}
+        onClose={() => setActiveVerifyModal(null)}
+      />
+      <RiskAwareNavVerifyModal
+        isOpen={activeVerifyModal === 'risk'}
+        onClose={() => setActiveVerifyModal(null)}
+      />
+      <RouteOptimizationVerifyModal
+        isOpen={activeVerifyModal === 'route'}
+        onClose={() => setActiveVerifyModal(null)}
+      />
     </section>
   );
 }

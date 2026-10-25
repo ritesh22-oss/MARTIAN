@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Compass, Menu, X, Rocket, Cloud, LogIn, LogOut, User, CheckCircle2 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { Compass, Menu, X, Cloud, BookOpen } from 'lucide-react';
 
-export default function Navbar({ activeSection, setActiveSection, backendStatus, onOpenMissions }) {
+export default function Navbar({ activeSection, setActiveSection, backendStatus, onOpenMissions, onOpenGuide }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const { user, userProfile, login, logout } = useAuth();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -18,11 +15,14 @@ export default function Navbar({ activeSection, setActiveSection, backendStatus,
 
   const navLinks = [
     { id: 'overview', label: 'Overview' },
-    { id: 'terrain-3d', label: '3D Terrain' },
+    { id: 'terrain-3d', label: '3D Map' },
     { id: 'terrain-ai', label: 'Terrain AI' },
-    { id: 'route-planner', label: 'Route Planner' },
-    { id: 'dataset', label: 'Dataset' },
-    { id: 'methodology', label: 'Methodology' },
+    { id: 'dataset-catalogue', label: 'Data Cat' },
+    { id: 'hazard-analysis', label: 'Hazards' },
+    { id: 'route-laboratory', label: 'Routes' },
+    { id: 'scenario-testing', label: 'Stress Test' },
+    { id: 'validation-harness', label: 'Tests' },
+    { id: 'audit-report', label: 'Audit' },
   ];
 
   const scrollToSection = (id) => {
@@ -85,97 +85,38 @@ export default function Navbar({ activeSection, setActiveSection, backendStatus,
             ))}
           </nav>
 
-          {/* Right Action & Status */}
-          <div className="hidden md:flex items-center space-x-3">
-            {/* Missions Cloud Drawer Button */}
+          {/* Right Action Buttons: Guide & Missions */}
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            {/* Guide Button */}
+            <button
+              onClick={onOpenGuide}
+              className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-orange-600/10 hover:bg-orange-600/20 border border-orange-500/30 hover:border-orange-500 text-xs font-mono text-orange-300 hover:text-white transition-all shadow-sm cursor-pointer"
+              title="Open MARSNAV Guide & Manual"
+            >
+              <BookOpen className="w-4 h-4 text-orange-400" />
+              <span className="font-medium tracking-wide hidden sm:inline">Guide</span>
+            </button>
+
+            {/* Missions Drawer Trigger Button */}
             <button
               onClick={onOpenMissions}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-xs font-mono text-slate-300 hover:text-white transition-all cursor-pointer"
+              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 hover:border-cyan-500/40 text-xs font-mono text-slate-200 hover:text-white transition-all shadow-sm cursor-pointer"
               title="Open Cloud Missions Log"
             >
-              <Cloud className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Missions</span>
+              <Cloud className="w-4 h-4 text-cyan-400" />
+              <span className="font-medium tracking-wide">Missions</span>
             </button>
 
-            {/* Auth / Profile Button */}
-            {user ? (
-              <div className="relative">
-                <button
-                  onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-xs font-mono text-slate-200 transition-colors cursor-pointer"
-                >
-                  {user.photoURL ? (
-                    <img
-                      src={user.photoURL}
-                      alt={user.displayName || 'User'}
-                      className="w-5 h-5 rounded-full border border-orange-500/50"
-                    />
-                  ) : (
-                    <User className="w-3.5 h-3.5 text-orange-400" />
-                  )}
-                  <span className="truncate max-w-[100px] text-[11px]">
-                    {user.displayName?.split(' ')[0] || 'Commander'}
-                  </span>
-                </button>
-
-                {userMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-52 bg-[#0B1020] border border-white/20 rounded-xl shadow-2xl p-2 z-50 text-xs font-mono space-y-1">
-                    <div className="p-2 border-b border-white/10 text-slate-400 text-[10px]">
-                      Signed in as:
-                      <div className="text-white truncate font-sans text-xs font-semibold">{user.email}</div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        onOpenMissions();
-                      }}
-                      className="w-full flex items-center space-x-2 px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/5 transition-colors text-left"
-                    >
-                      <Cloud className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Saved Missions</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        logout();
-                      }}
-                      className="w-full flex items-center space-x-2 px-2.5 py-1.5 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors text-left"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Sign Out</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
+            {/* Mobile Menu Icon with responsive padding next to mission button */}
+            <div className="flex lg:hidden items-center pl-1">
               <button
-                onClick={login}
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-xs font-mono text-slate-300 hover:text-white transition-all cursor-pointer"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 hover:text-white transition-colors focus:outline-none cursor-pointer"
+                aria-label="Toggle menu"
               >
-                <LogIn className="w-3.5 h-3.5 text-orange-400" />
-                <span>Sign In</span>
+                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </button>
-            )}
-
-            {/* Launch Console Button */}
-            <button
-              onClick={() => scrollToSection('route-planner')}
-              className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-gradient-to-r from-orange-600 via-orange-500 to-red-600 hover:from-orange-500 hover:to-red-500 text-white text-xs font-semibold tracking-wider uppercase shadow-lg shadow-orange-600/25 transition-all duration-200 hover:scale-105 active:scale-95 border border-orange-400/40 cursor-pointer"
-            >
-              <Rocket className="w-3.5 h-3.5" />
-              <span>Launch</span>
-            </button>
-          </div>
-
-          {/* Mobile Hamburger */}
-          <div className="flex lg:hidden items-center space-x-3">
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-lg bg-white/5 border border-white/10 text-slate-200 hover:text-white focus:outline-none"
-              aria-label="Toggle menu"
-            >
-              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-            </button>
+            </div>
           </div>
         </div>
       </div>
@@ -201,44 +142,22 @@ export default function Navbar({ activeSection, setActiveSection, backendStatus,
               <button
                 onClick={() => {
                   setMobileMenuOpen(false);
+                  onOpenGuide();
+                }}
+                className="w-full flex items-center justify-center space-x-2 py-2.5 rounded-xl bg-orange-600/20 hover:bg-orange-600/30 border border-orange-500/40 text-orange-300 text-xs font-mono cursor-pointer"
+              >
+                <BookOpen className="w-4 h-4 text-orange-400" />
+                <span>MARSNAV Interactive Guide</span>
+              </button>
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
                   onOpenMissions();
                 }}
-                className="w-full flex items-center justify-center space-x-2 py-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-200 text-xs font-mono"
+                className="w-full flex items-center justify-center space-x-2 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-xs font-mono cursor-pointer"
               >
                 <Cloud className="w-4 h-4 text-cyan-400" />
                 <span>Cloud Missions Database</span>
-              </button>
-
-              {user ? (
-                <button
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    logout();
-                  }}
-                  className="w-full flex items-center justify-center space-x-2 py-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-mono"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Sign Out ({user.displayName?.split(' ')[0] || user.email})</span>
-                </button>
-              ) : (
-                <button
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    login();
-                  }}
-                  className="w-full flex items-center justify-center space-x-2 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-xs font-mono"
-                >
-                  <LogIn className="w-4 h-4 text-orange-400" />
-                  <span>Sign In with Google</span>
-                </button>
-              )}
-
-              <button
-                onClick={() => scrollToSection('route-planner')}
-                className="w-full flex items-center justify-center space-x-2 py-3 rounded-xl bg-gradient-to-r from-orange-600 to-red-600 text-white text-sm font-semibold tracking-wider uppercase shadow-lg shadow-orange-600/30"
-              >
-                <Rocket className="w-4 h-4" />
-                <span>Launch Console</span>
               </button>
             </div>
           </div>

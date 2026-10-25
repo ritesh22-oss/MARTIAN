@@ -1,1 +1,91 @@
 @import "tailwindcss";
+
+@layer base {
+  :root {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  }
+
+  body {
+    background-color: #05070E;
+    color: #F1F5F9;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  code, pre, kbd, samp, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom scrollbar for high-density engineering panels */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1E293B;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* MARSNAV Mission Overview Hero Container */
+.overview-hero-card {
+  container-type: inline-size;
+}
+
+.overview-hero-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+@container (min-width: 680px) {
+  .overview-hero-grid {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+@media (min-width: 1280px) {
+  .overview-hero-grid {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+.overview-hero-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .overview-hero-actions {
+    flex-direction: row;
+    width: auto;
+  }
+}
+
+@container (min-width: 680px) {
+  .overview-hero-actions {
+    width: 210px;
+    flex-direction: column;
+  }
+}
+
+@media (min-width: 1280px) {
+  .overview-hero-actions {
+    width: 210px;
+    flex-direction: column;
+  }
+}

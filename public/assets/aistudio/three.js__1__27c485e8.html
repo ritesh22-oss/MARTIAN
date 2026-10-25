@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+    }
+  </style>
+</head>
+<body>
+<!-- STITCH_THREEJS_START:ANIMATION_2 class="fixed inset-0 w-full h-full bg-transparent" -->
+<div class="fixed inset-0 w-full h-full bg-transparent" style="display:block;">
+<script src="https://ajax.googleapis.com/ajax/libs/threejs/r125/three.min.js"></script>
+<div id="threejs-container-ANIMATION_2" style="width:100%;height:100%"></div>
+<script>
+(function() {
+  const container = document.getElementById('threejs-container-ANIMATION_2');
+  const devicePixelRatio = window.devicePixelRatio || 1;
+  // Three.js 3D Martian Landscape & Perseverance Rover Simulator
+// Setup container and renderer with robust dimension fallbacks
+const width = container.clientWidth || window.innerWidth;
+const height = container.clientHeight || window.innerHeight;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a0b06);
+scene.fog = new THREE.FogExp2(0xd65d2b, 0.009);
+
+const camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 1000);
+camera.position.set(28, 22, 38);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+renderer.setSize(width, height);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+container.appendChild(renderer.domElement);
+
+// Lighting: Cinematic Martian Low Sun & Ambient Radiance
+const ambientLight = new THREE.AmbientLight(0x733216, 1.4);
+scene.add(ambientLight);
+
+const sunLight = new THREE.DirectionalLight(0xffecd4, 3.2);
+sunLight.position.set(45, 38, -30);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.width = 2048;
+sunLight.shadow.mapSize.height = 2048;
+sunLight.shadow.camera.near = 0.5;
+sunLight.shadow.camera.far = 180;
+const d = 50;
+sunLight.shadow.camera.left = -d;
+sunLight.shadow.camera.right = d;
+sunLight.shadow.camera.top = d;
+sunLight.shadow.camera.bottom = -d;
+sunLight.shadow.bias = -0.0005;
+scene.add(sunLight);
+
+// Sky / Horizon Hemisphere Rim Glow
+const hemiLight = new THREE.HemisphereLight(0xde7944, 0x1c0903, 1.0);
+scene.add(hemiLight);
+
+// 1. MARTIAN TERRAIN GENERATION (Elevation, Craters, Dunes)
+const terrainSize = 140;
+const terrainSegments = 160;
+const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
+terrainGeo.rotateX(-Math.PI / 2);
+
+// Mathematical elevation function for accurate ground clamping
+function getMarsElevation(x, z) {
+  // Broad rolling hills
+  let y = Math.sin(x * 0.04) * Math.cos(z * 0.038) * 2.8;
+  // Sand dunes / ripples
+  y += Math.sin(x * 0.15 + z * 0.08) * 0.85;
+  y += Math.cos(x * 0.07 - z * 0.12) * 1.1;
+  // Distant crater rims
+  const crater1Dist = Math.hypot(x + 18, z - 8);
+  if (crater1Dist < 12) {
+    const t = crater1Dist / 12;
+    y -= (Math.cos(t * Math.PI) + 1.0) * 2.4;
+    y += Math.sin(t * Math.PI * 2) * 0.6; // rim
+  }
+  const crater2Dist = Math.hypot(x - 22, z + 16);
+  if (crater2Dist < 16) {
+    const t2 = crater2Dist / 16;
+    y -= (Math.cos(t2 * Math.PI) + 1.0) * 3.2;
+    y += Math.sin(t2 * Math.PI * 2) * 0.8;
+  }
+  // Subtle micro-roughness
+  y += Math.sin(x * 0.4) * Math.sin(z * 0.4) * 0.18;
+  return y;
+}
+
+const posAttr = terrainGeo.attributes.position;
+const colorAttr = [];
+const colorLow = new THREE.Color(0x822910);
+const colorMid = new THREE.Color(0xb84319);
+const colorHigh = new THREE.Color(0xdb682a);
+const colorRim = new THREE.Color(0xf2914b);
+
+for (let i = 0; i < posAttr.count; i++) {
+  const vx = posAttr.getX(i);
+  const vz = posAttr.getZ(i);
+  const vy = getMarsElevation(vx, vz);
+  posAttr.setY(i, vy);
+
+  // Procedural vertex coloring based on height and slopes
+  const nY = vy / 5.0;
+  const col = new THREE.Color().lerpColors(colorLow, colorMid, Math.min(Math.max((vy + 4) / 8, 0), 1));
+  if (vy > 1.2) col.lerp(colorHigh, 0.6);
+  if (vy > 2.6) col.lerp(colorRim, 0.4);
+  colorAttr.push(col.r, col.g, col.b);
+}
+terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(colorAttr, 3));
+terrainGeo.computeVertexNormals();
+
+const terrainMat = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  roughness: 0.92,
+  metalness: 0.08,
+  flatShading: false
+});
+const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
+terrainMesh.receiveShadow = true;
+scene.add(terrainMesh);
+
+// 2. SCATTERED BOULDERS, ROCKS & HAZARD ANOMALIES
+const rockGroup = new THREE.Group();
+const rockGeo = new THREE.DodecahedronGeometry(1, 1);
+const rockMat = new THREE.MeshStandardMaterial({
+  color: 0x9e3816,
+  roughness: 0.95,
+  metalness: 0.05,
+  flatShading: true
+});
+
+const hazards = [
+  { x: -12, z: 2, radius: 2.2, label: 'HAZARD-01: Deep Fissure' },
+  { x: 4, z: -10, radius: 2.8, label: 'HAZARD-02: Sharp Boulder Clust' },
+  { x: 14, z: 12, radius: 3.0, label: 'HAZARD-03: Sand Pit Traps' },
+  { x: -6, z: 22, radius: 2.5, label: 'HAZARD-04: Steep Incline 34°' },
+  { x: 26, z: -4, radius: 3.2, label: 'HAZARD-05: Unstable Basalt' }
+];
+
+// Spawn realistic rocks along terrain
+for (let i = 0; i < 90; i++) {
+  const rock = new THREE.Mesh(rockGeo, rockMat);
+  const rx = (Math.random() - 0.5) * 110;
+  const rz = (Math.random() - 0.5) * 110;
+  const ry = getMarsElevation(rx, rz);
+  const scale = 0.25 + Math.random() * 0.9;
+  rock.scale.set(scale * (0.8 + Math.random() * 0.5), scale * (0.5 + Math.random() * 0.6), scale * (0.8 + Math.random() * 0.5));
+  rock.position.set(rx, ry + scale * 0.35, rz);
+  rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+  rock.castShadow = true;
+  rock.receiveShadow = true;
+  rockGroup.add(rock);
+}
+scene.add(rockGroup);
+
+// Hazard Holographic Rings & Markers
+const hazardMeshGroup = new THREE.Group();
+hazards.forEach(h => {
+  const hy = getMarsElevation(h.x, h.z) + 0.15;
+  const ringGeo = new THREE.RingGeometry(h.radius * 0.7, h.radius, 32);
+  ringGeo.rotateX(-Math.PI / 2);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0xff3b30,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.75
+  });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.position.set(h.x, hy, h.z);
+  hazardMeshGroup.add(ring);
+
+  // Pulse vertical beacon line
+  const lineGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(h.x, hy, h.z),
+    new THREE.Vector3(h.x, hy + 4.5, h.z)
+  ]);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xff453a, transparent: true, opacity: 0.85 });
+  const beacon = new THREE.Line(lineGeo, lineMat);
+  hazardMeshGroup.add(beacon);
+});
+scene.add(hazardMeshGroup);
+
+// 3. WAYPOINTS & TRAJECTORY PATHS (Optimal & Alternative)
+const optimalPoints = [
+  new THREE.Vector3(-28, 0, -22),
+  new THREE.Vector3(-18, 0, -14),
+  new THREE.Vector3(-5, 0, -6),
+  new THREE.Vector3(2, 0, 4),
+  new THREE.Vector3(12, 0, 8),
+  new THREE.Vector3(22, 0, 16),
+  new THREE.Vector3(32, 0, 24)
+];
+
+const altPoints = [
+  new THREE.Vector3(-28, 0, -22),
+  new THREE.Vector3(-24, 0, -5),
+  new THREE.Vector3(-16, 0, 12),
+  new THREE.Vector3(0, 0, 24),
+  new THREE.Vector3(18, 0, 26),
+  new THREE.Vector3(32, 0, 24)
+];
+
+// Clamping waypoint elevations to terrain
+optimalPoints.forEach(p => { p.y = getMarsElevation(p.x, p.z) + 0.18; });
+altPoints.forEach(p => { p.y = getMarsElevation(p.x, p.z) + 0.16; });
+
+const optimalCurve = new THREE.CatmullRomCurve3(optimalPoints);
+const altCurve = new THREE.CatmullRomCurve3(altPoints);
+
+// Optimal Route Ribbon
+const optimalSplinePoints = optimalCurve.getPoints(120);
+optimalSplinePoints.forEach(pt => { pt.y = getMarsElevation(pt.x, pt.z) + 0.18; });
+const optimalPathGeo = new THREE.BufferGeometry().setFromPoints(optimalSplinePoints);
+const optimalPathMat = new THREE.LineBasicMaterial({ color: 0x30d158, linewidth: 3, transparent: true, opacity: 0.95 });
+const optimalLine = new THREE.Line(optimalPathGeo, optimalPathMat);
+scene.add(optimalLine);
+
+// Alternative Route Ribbon (Amber/Yellow)
+const altSplinePoints = altCurve.getPoints(100);
+altSplinePoints.forEach(pt => { pt.y = getMarsElevation(pt.x, pt.z) + 0.16; });
+const altPathGeo = new THREE.BufferGeometry().setFromPoints(altSplinePoints);
+const altPathMat = new THREE.LineDashedMaterial({ color: 0xff9f0a, dashSize: 0.8, gapSize: 0.4, linewidth: 2, transparent: true, opacity: 0.85 });
+const altLine = new THREE.Line(altPathGeo, altPathMat);
+altLine.computeLineDistances();
+scene.add(altLine);
+
+// Start & Destination Markers
+function createMarker(pos, colorHex, label) {
+  const group = new THREE.Group();
+  const poleGeo = new THREE.CylinderGeometry(0.08, 0.08, 5, 8);
+  const poleMat = new THREE.MeshBasicMaterial({ color: colorHex });
+  const pole = new THREE.Mesh(poleGeo, poleMat);
+  pole.position.y = 2.5;
+  group.add(pole);
+
+  const ringGeo = new THREE.RingGeometry(0.8, 1.3, 24);
+  ringGeo.rotateX(-Math.PI / 2);
+  const ringMat = new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.position.y = 0.05;
+  group.add(ring);
+
+  const beaconGeo = new THREE.OctahedronGeometry(0.7);
+  const beaconMat = new THREE.MeshStandardMaterial({ color: colorHex, emissive: colorHex, emissiveIntensity: 0.7, roughness: 0.3 });
+  const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+  beacon.position.y = 5.4;
+  group.add(beacon);
+
+  group.position.copy(pos);
+  return group;
+}
+
+const startMarker = createMarker(optimalPoints[0], 0x0a84ff, 'ORIGIN: JEZERO OCT 24');
+const endMarker = createMarker(optimalPoints[optimalPoints.length - 1], 0x30d158, 'TARGET: DELTA FRONT-A');
+scene.add(startMarker);
+scene.add(endMarker);
+
+// 4. DETAILED NASA PERSEVERANCE-STYLE 6-WHEELED ROVER MODEL
+const rover = new THREE.Group();
+
+// Main Chassis / Warm Electronics Box (WEB)
+const chassisGeo = new THREE.BoxGeometry(2.4, 1.0, 1.8);
+const chassisMat = new THREE.MeshStandardMaterial({
+  color: 0xd9dede, // Off-white aerospace thermal insulation foil
+  roughness: 0.45,
+  metalness: 0.65
+});
+const chassis = new THREE.Mesh(chassisGeo, chassisMat);
+chassis.position.y = 1.35;
+chassis.castShadow = true;
+rover.add(chassis);
+
+// Gold Multi-layer insulation (MLI) accent foil on top
+const mliGeo = new THREE.BoxGeometry(1.6, 0.22, 1.4);
+const mliMat = new THREE.MeshStandardMaterial({
+  color: 0xcca03d,
+  roughness: 0.3,
+  metalness: 0.8
+});
+const mli = new THREE.Mesh(mliGeo, mliMat);
+mli.position.set(-0.2, 1.95, 0);
+mli.castShadow = true;
+rover.add(mli);
+
+// Remote Sensing Mast (RSM / "Neck" & SuperCam Head)
+const mastPoleGeo = new THREE.CylinderGeometry(0.09, 0.09, 1.9, 12);
+const mastMat = new THREE.MeshStandardMaterial({ color: 0x3a3f47, metalness: 0.8, roughness: 0.3 });
+const mastPole = new THREE.Mesh(mastPoleGeo, mastMat);
+mastPole.position.set(0.85, 2.3, 0.35);
+mastPole.castShadow = true;
+rover.add(mastPole);
+
+// MastCam-Z / SuperCam Stereo Camera Head
+const camHeadGeo = new THREE.BoxGeometry(0.4, 0.35, 0.6);
+const camMat = new THREE.MeshStandardMaterial({ color: 0x1f2329, metalness: 0.9, roughness: 0.2 });
+const camHead = new THREE.Mesh(camHeadGeo, camMat);
+camHead.position.set(0.85, 3.3, 0.35);
+camHead.rotation.y = -0.2;
+rover.add(camHead);
+
+// Camera Lenses (Dual optics + Laser window)
+const lensGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.15, 12);
+lensGeo.rotateZ(Math.PI / 2);
+const lensMat = new THREE.MeshBasicMaterial({ color: 0x30d158 });
+const lens1 = new THREE.Mesh(lensGeo, lensMat);
+lens1.position.set(1.05, 3.3, 0.2);
+rover.add(lens1);
+const lens2 = new THREE.Mesh(lensGeo, lensMat);
+lens2.position.set(1.05, 3.3, 0.5);
+rover.add(lens2);
+
+// Robotic Arm (Turret & Drill at front)
+const armGroup = new THREE.Group();
+const shoulderGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.3, 8);
+const arm1Geo = new THREE.CylinderGeometry(0.07, 0.07, 1.1, 8);
+arm1Geo.rotateZ(-Math.PI / 3);
+const armMat = new THREE.MeshStandardMaterial({ color: 0x484e56, metalness: 0.7, roughness: 0.4 });
+const armSegment = new THREE.Mesh(arm1Geo, armMat);
+armSegment.position.set(1.4, 1.1, -0.4);
+armSegment.castShadow = true;
+armGroup.add(armSegment);
+
+const drillGeo = new THREE.CylinderGeometry(0.15, 0.12, 0.45, 10);
+drillGeo.rotateX(Math.PI / 2);
+const drillMat = new THREE.MeshStandardMaterial({ color: 0x1c1e22, metalness: 0.9, roughness: 0.2 });
+const drill = new THREE.Mesh(drillGeo, drillMat);
+drill.position.set(1.9, 0.8, -0.4);
+armGroup.add(drill);
+rover.add(armGroup);
+
+// Multi-Mission Radioisotope Thermoelectric Generator (MMRTG - Nuclear Battery at rear)
+const rtgGeo = new THREE.CylinderGeometry(0.35, 0.35, 1.1, 12);
+rtgGeo.rotateZ(Math.PI / 2);
+const rtgMat = new THREE.MeshStandardMaterial({ color: 0x24282e, roughness: 0.6, metalness: 0.7 });
+const rtg = new THREE.Mesh(rtgGeo, rtgMat);
+rtg.position.set(-1.45, 1.45, 0);
+rtg.castShadow = true;
+rover.add(rtg);
+
+// High-Gain Antenna (HGA Dish)
+const dishGeo = new THREE.CylinderGeometry(0.38, 0.05, 0.12, 16);
+const dishMat = new THREE.MeshStandardMaterial({ color: 0x9fa4ab, metalness: 0.8, roughness: 0.3 });
+const dish = new THREE.Mesh(dishGeo, dishMat);
+dish.position.set(-0.6, 1.95, -0.55);
+dish.rotation.x = 0.4;
+dish.rotation.z = -0.2;
+rover.add(dish);
+
+// 6 Wheels with Rocker-Bogie Suspension Rigging
+const wheels = [];
+const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.42, 18);
+wheelGeo.rotateX(Math.PI / 2);
+
+// Textured cleat treads on wheels
+const wheelMat = new THREE.MeshStandardMaterial({
+  color: 0x1a1d21,
+  roughness: 0.85,
+  metalness: 0.4
+});
+const wheelHubMat = new THREE.MeshStandardMaterial({
+  color: 0xc8aa42, // Gold anodized titanium spokes
+  roughness: 0.35,
+  metalness: 0.85
+});
+
+const wheelPositions = [
+  { x: 1.25, z: 1.35 },   // Front-Left
+  { x: 1.25, z: -1.35 },  // Front-Right
+  { x: 0.05, z: 1.45 },   // Mid-Left
+  { x: 0.05, z: -1.45 },  // Mid-Right
+  { x: -1.25, z: 1.35 },  // Rear-Left
+  { x: -1.25, z: -1.35 }   // Rear-Right
+];
+
+const bogieMat = new THREE.MeshStandardMaterial({ color: 0x363a40, metalness: 0.7, roughness: 0.4 });
+
+wheelPositions.forEach((wp, index) => {
+  const wMesh = new THREE.Mesh(wheelGeo, wheelMat);
+  wMesh.castShadow = true;
+
+  // Hub cap
+  const hubGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.45, 12);
+  hubGeo.rotateX(Math.PI / 2);
+  const hub = new THREE.Mesh(hubGeo, wheelHubMat);
+  wMesh.add(hub);
+
+  wMesh.position.set(wp.x, 0.38, wp.z);
+  rover.add(wMesh);
+  wheels.push(wMesh);
+
+  // Suspension strut arm connecting wheel to chassis
+  const strutGeo = new THREE.CylinderGeometry(0.045, 0.045, 1.1, 6);
+  strutGeo.rotateZ(wp.x > 0 ? 0.3 : -0.3);
+  const strut = new THREE.Mesh(strutGeo, bogieMat);
+  strut.position.set(wp.x * 0.75, 0.85, wp.z * 0.8);
+  rover.add(strut);
+});
+
+// Real-time Dynamic Wheel Dust Trail Particles
+const dustCount = 80;
+const dustGeo = new THREE.BufferGeometry();
+const dustPositions = new Float32Array(dustCount * 3);
+const dustAlphas = new Float32Array(dustCount);
+for (let i = 0; i < dustCount; i++) {
+  dustPositions[i * 3] = 0;
+  dustPositions[i * 3 + 1] = -100;
+  dustPositions[i * 3 + 2] = 0;
+  dustAlphas[i] = 0;
+}
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+const dustMat = new THREE.PointsMaterial({
+  color: 0xde7944,
+  size: 0.45,
+  transparent: true,
+  opacity: 0.6,
+  blending: THREE.AdditiveBlending
+});
+const dustParticles = new THREE.Points(dustGeo, dustMat);
+scene.add(dustParticles);
+
+let dustIndex = 0;
+function emitDust(pos) {
+  const idx = (dustIndex % dustCount) * 3;
+  dustPositions[idx] = pos.x + (Math.random() - 0.5) * 0.8;
+  dustPositions[idx + 1] = pos.y + 0.1 + Math.random() * 0.3;
+  dustPositions[idx + 2] = pos.z + (Math.random() - 0.5) * 0.8;
+  dustGeo.attributes.position.needsUpdate = true;
+  dustIndex++;
+}
+
+scene.add(rover);
+
+// 5. MOTION STATE & TELEMETRY CONTROLS
+let missionActive = true;
+let progress = 0.08;
+const missionSpeed = 0.00035;
+let currentPathCurve = optimalCurve;
+let activeRouteName = 'OPTIMAL_DELTA_01';
+
+// Global hooks so HTML UI controls can manipulate simulation
+window.MarsSimulator = {
+  toggleMission: function(state) {
+    if (typeof state === 'boolean') missionActive = state;
+    else missionActive = !missionActive;
+    return missionActive;
+  },
+  resetMission: function() {
+    progress = 0.0;
+    missionActive = true;
+  },
+  setRoute: function(routeType) {
+    if (routeType === 'alt') {
+      currentPathCurve = altCurve;
+      activeRouteName = 'ALTERNATIVE_VALLEY_02';
+      optimalLine.visible = false;
+      altLine.visible = true;
+    } else {
+      currentPathCurve = optimalCurve;
+      activeRouteName = 'OPTIMAL_DELTA_01';
+      optimalLine.visible = true;
+      altLine.visible = true;
+    }
+    progress = 0.0;
+  },
+  toggleHazards: function(visible) {
+    hazardMeshGroup.visible = visible;
+  },
+  setCameraView: function(viewMode) {
+    if (viewMode === 'follow') {
+      camTargetMode = 'follow';
+    } else if (viewMode === 'topdown') {
+      camTargetMode = 'topdown';
+    } else {
+      camTargetMode = 'orbit';
+    }
+  }
+};
+
+let camTargetMode = 'orbit';
+
+// 6. INTERACTIVE ORBIT, PAN & ZOOM (Pointer controls)
+let isDragging = false;
+let prevPointerX = 0;
+let prevPointerY = 0;
+let spherical = { radius: 46, theta: 0.85, phi: 1.05 };
+const targetLookAt = new THREE.Vector3(0, 2, 0);
+
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  isDragging = true;
+  prevPointerX = e.clientX;
+  prevPointerY = e.clientY;
+});
+
+window.addEventListener('pointermove', (e) => {
+  if (!isDragging) return;
+  const dx = e.clientX - prevPointerX;
+  const dy = e.clientY - prevPointerY;
+  prevPointerX = e.clientX;
+  prevPointerY = e.clientY;
+
+  spherical.theta -= dx * 0.006;
+  spherical.phi = Math.max(0.18, Math.min(Math.PI / 2.05, spherical.phi - dy * 0.006));
+});
+
+window.addEventListener('pointerup', () => { isDragging = false; });
+window.addEventListener('pointercancel', () => { isDragging = false; });
+
+renderer.domElement.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  spherical.radius = Math.max(12, Math.min(105, spherical.radius + e.deltaY * 0.04));
+}, { passive: false });
+
+// Window resize handling
+function onResize() {
+  const w = container.clientWidth || window.innerWidth;
+  const h = container.clientHeight || window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+}
+window.addEventListener('resize', onResize);
+
+// 7. MAIN RENDER LOOP & REALISTIC TRAJECTORY INTERPOLATION
+let lastTime = performance.now();
+
+function animate(time) {
+  requestAnimationFrame(animate);
+
+  const delta = (time - lastTime) * 0.001;
+  lastTime = time;
+
+  // Advance rover progress along current trajectory
+  if (missionActive) {
+    progress += missionSpeed;
+    if (progress > 1.0) progress = 0.0; // Loop or end
+  }
+
+  // Sample position & tangent from Bezier/Catmull trajectory
+  const roverPos = currentPathCurve.getPointAt(progress);
+  // Re-clamp precisely onto dynamic terrain height
+  roverPos.y = getMarsElevation(roverPos.x, roverPos.z);
+  rover.position.copy(roverPos);
+
+  // Calculate tangent for forward heading orientation
+  const lookAheadProgress = Math.min(progress + 0.015, 1.0);
+  const lookTarget = currentPathCurve.getPointAt(lookAheadProgress);
+  lookTarget.y = getMarsElevation(lookTarget.x, lookTarget.z);
+  rover.lookAt(lookTarget);
+
+  // Calculate terrain pitch/roll tilt
+  const sampleRadius = 1.2;
+  const frontY = getMarsElevation(roverPos.x + Math.sin(rover.rotation.y) * sampleRadius, roverPos.z + Math.cos(rover.rotation.y) * sampleRadius);
+  const backY = getMarsElevation(roverPos.x - Math.sin(rover.rotation.y) * sampleRadius, roverPos.z - Math.cos(rover.rotation.y) * sampleRadius);
+  const pitch = Math.atan2(frontY - backY, sampleRadius * 2);
+  rover.rotation.x = pitch * 0.6;
+
+  // Rotate wheels proportional to ground displacement
+  if (missionActive) {
+    wheels.forEach(w => {
+      w.rotation.z += 0.06;
+    });
+    // Emit occasional dust puff
+    if (Math.random() < 0.4) {
+      emitDust(roverPos);
+    }
+  }
+
+  // Update dust particles (subtle rise and fade)
+  for (let i = 0; i < dustCount; i++) {
+    const py = dustPositions[i * 3 + 1];
+    if (py > -50) {
+      dustPositions[i * 3 + 1] += delta * 0.45;
+      dustPositions[i * 3] += delta * 0.2; // wind drift
+    }
+  }
+  dustGeo.attributes.position.needsUpdate = true;
+
+  // Hazard rings pulsation
+  hazardMeshGroup.children.forEach((c, idx) => {
+    if (c.isMesh) {
+      c.material.opacity = 0.45 + Math.sin(time * 0.004 + idx) * 0.3;
+    }
+  });
+
+  // Dynamic Camera Views
+  if (camTargetMode === 'follow') {
+    targetLookAt.lerp(new THREE.Vector3(roverPos.x, roverPos.y + 1.5, roverPos.z), 0.08);
+    const offset = new THREE.Vector3(-14, 9, -14).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y);
+    camera.position.lerp(new THREE.Vector3(roverPos.x + offset.x, roverPos.y + offset.y, roverPos.z + offset.z), 0.06);
+    camera.lookAt(targetLookAt);
+  } else if (camTargetMode === 'topdown') {
+    targetLookAt.lerp(new THREE.Vector3(roverPos.x, roverPos.y, roverPos.z), 0.05);
+    camera.position.lerp(new THREE.Vector3(roverPos.x, 62, roverPos.z + 0.01), 0.05);
+    camera.lookAt(targetLookAt);
+  } else {
+    // Cinematic Orbit mode
+    targetLookAt.lerp(new THREE.Vector3(roverPos.x, roverPos.y + 1.2, roverPos.z), 0.04);
+    const camX = targetLookAt.x + spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+    const camY = targetLookAt.y + spherical.radius * Math.cos(spherical.phi);
+    const camZ = targetLookAt.z + spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+    camera.position.set(camX, camY, camZ);
+    camera.lookAt(targetLookAt);
+  }
+
+  // Broadcast live telemetry telemetry to HUD DOM
+  if (window.updateTelemetryHUD) {
+    const totalDist = 4820; // 4.82 km
+    const traveled = Math.round(progress * totalDist);
+    const remaining = totalDist - traveled;
+    const estSec = Math.round((1.0 - progress) * 240);
+    const mins = Math.floor(estSec / 60);
+    const secs = estSec % 60;
+    window.updateTelemetryHUD({
+      status: missionActive ? 'EXPLORING / ACTIVE DRIVE' : 'TELEOP IDLE / HOLD',
+      isActive: missionActive,
+      progressPct: Math.round(progress * 100),
+      xCoord: (roverPos.x * 12.4).toFixed(2),
+      zCoord: (roverPos.z * 12.4).toFixed(2),
+      elev: (roverPos.y * 3.8 + 184).toFixed(1),
+      traveledM: traveled,
+      remainingM: remaining,
+      eta: `${mins}m ${secs < 10 ? '0' : ''}${secs}s`,
+      route: activeRouteName,
+      inclineDeg: (Math.abs(pitch) * (180 / Math.PI)).toFixed(1)
+    });
+  }
+
+  renderer.render(scene, camera);
+}
+
+animate(performance.now());
+
+})();
+</script>
+</div>
+<!-- STITCH_THREEJS_END:ANIMATION_2 -->
+</body>
+</html>

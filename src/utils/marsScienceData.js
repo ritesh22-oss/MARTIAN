@@ -234,6 +234,9 @@ export function martianFBM(x, z, octaves = 4) {
 export function getMartianElevation(x, z) {
   let e = 0;
 
+  // Add procedural noise for organic variability
+  e += martianFBM(x, z, 5) * 2.5;
+
   // 1. Regional Continental Basin Tilt & Drainage Slope
   e += Math.sin(x * 0.014 + 0.2) * 4.2;
   e += Math.cos(z * 0.012 - 0.4) * 3.6;

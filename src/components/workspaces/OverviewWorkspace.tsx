@@ -13,7 +13,8 @@ import {
   Terminal,
   Activity,
   Sliders,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Check
 } from 'lucide-react';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { MARS_REFERENCE_DATUM } from '../../utils/marsScienceData';
@@ -266,35 +267,64 @@ export default function OverviewWorkspace() {
       {/* 4. Operations Checklist & Recent Analysis Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         {/* Pre-Flight Engineering Checklist */}
-        <div className="bg-[#090D1A] border border-slate-800/80 p-5 rounded-xl space-y-3">
-          <div className="flex items-center justify-between border-b border-slate-800/60 pb-2.5">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                Pre-Flight Traversal Verification
-              </h3>
+        <div className="bg-[#090D1A] border border-slate-800/80 p-6 rounded-xl space-y-5 flex flex-col h-full shadow-lg">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                </div>
+                <h3 className="text-[13px] font-bold text-white uppercase tracking-wider">
+                  Pre-Flight Traversal Verification
+                </h3>
+              </div>
+              <span className="text-[11px] text-slate-400 font-mono bg-white/5 px-2 py-1 rounded border border-white/5">
+                {checklist.filter(c => c.done).length} / {checklist.length} Complete
+              </span>
             </div>
-            <span className="text-[11px] text-slate-400 font-mono">
-              {checklist.filter(c => c.done).length} / {checklist.length} Complete
-            </span>
+
+            {/* Premium Progress Bar */}
+            <div className="space-y-2">
+              <div className="h-1.5 w-full bg-slate-800/50 rounded-full overflow-hidden border border-white/5 shadow-inner">
+                <div 
+                  className="h-full bg-gradient-to-r from-cyan-500 to-teal-400 transition-all duration-700 ease-out shadow-[0_0_8px_rgba(34,211,238,0.4)]"
+                  style={{ width: `${(checklist.filter(c => c.done).length / checklist.length) * 100}%` }}
+                />
+              </div>
+            </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 overflow-y-auto pr-1">
             {checklist.map((item) => (
-              <label
+              <button
                 key={item.id}
-                className="flex items-start gap-2.5 p-2 rounded-md hover:bg-slate-900/60 transition-colors cursor-pointer text-xs"
+                onClick={() => toggleChecklistItem(item.id)}
+                className={`w-full flex items-center gap-4 p-3.5 rounded-xl transition-all duration-300 group relative border text-left outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50 ${
+                  item.done 
+                    ? 'bg-emerald-500/[0.03] border-emerald-500/20 hover:bg-emerald-500/[0.06] hover:border-emerald-500/30' 
+                    : 'bg-[#060912] border-white/[0.03] hover:border-white/10 hover:bg-white/[0.02]'
+                }`}
+                aria-label={`Mark ${item.label} as ${item.done ? 'incomplete' : 'complete'}`}
               >
-                <input
-                  type="checkbox"
-                  checked={item.done}
-                  onChange={() => toggleChecklistItem(item.id)}
-                  className="mt-0.5 rounded border-slate-700 text-orange-500 focus:ring-0 cursor-pointer"
-                />
-                <span className={item.done ? 'text-slate-300 line-through' : 'text-slate-200'}>
+                {/* Circular Status Control */}
+                <div className="shrink-0 relative">
+                  <div className={`w-5 h-5 rounded-full border transition-all duration-300 flex items-center justify-center ${
+                    item.done 
+                      ? 'bg-cyan-500 border-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.4)] scale-110' 
+                      : 'border-slate-600 bg-transparent group-hover:border-slate-400'
+                  }`}>
+                    {item.done && (
+                      <Check className="w-3 h-3 text-white stroke-[3px] animate-in zoom-in duration-300" />
+                    )}
+                  </div>
+                </div>
+
+                <span className={`text-[12px] leading-relaxed transition-colors duration-300 flex-1 ${
+                  item.done ? 'text-slate-400' : 'text-slate-200'
+                }`}>
                   {item.label}
                 </span>
-              </label>
+              </button>
             ))}
           </div>
         </div>

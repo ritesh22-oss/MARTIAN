@@ -50,6 +50,7 @@ export default function AppSidebar() {
       name: 'Mission',
       items: [
         { id: 'overview', label: 'Mission Overview', icon: <LayoutDashboard className="w-4 h-4" /> },
+        { id: 'marsnav-v4', label: 'MARSNAV v4.0 Planner', icon: <Navigation className="w-4 h-4 text-orange-400" />, badge: 'v4.0' },
         { id: 'live-mission-data', label: 'Live NASA Stream', icon: <Radio className="w-4 h-4 text-emerald-400" />, badge: 'LIVE' },
         { id: 'explorer-3d', label: '3D Terrain Explorer', icon: <Compass className="w-4 h-4 text-orange-400" />, badge: '3D' },
         { id: 'mission-data', label: 'Mission Data & DEM', icon: <Layers className="w-4 h-4" /> },
@@ -93,12 +94,12 @@ export default function AppSidebar() {
 
   return (
     <aside
-      className={`h-screen bg-[#080B14] border-r border-slate-800/80 flex flex-col shrink-0 select-none z-30 transition-all duration-200 relative ${
+      className={`h-screen bg-[#080B14] border-r border-slate-800/80 flex flex-col shrink-0 select-none z-30 transition-all duration-200 relative overflow-y-auto overflow-x-visible ${
         sidebarCollapsed ? 'w-[58px]' : 'w-[230px]'
       }`}
     >
-      {/* Top Application Brand Header */}
-      <div className="h-12 px-3.5 border-b border-slate-800/80 flex items-center justify-between bg-[#060812]">
+      {/* Top Application Brand Header - Sticky */}
+      <div className="sticky top-0 h-12 px-3.5 border-b border-slate-800/80 flex items-center justify-between bg-[#060812] z-20">
         <div className="flex items-center gap-2.5 overflow-hidden">
           <div className="w-7 h-7 rounded-md bg-gradient-to-br from-red-600 via-orange-600 to-amber-700 flex items-center justify-center shrink-0 shadow-sm">
             <Orbit className="w-4 h-4 text-white" />
@@ -118,8 +119,8 @@ export default function AppSidebar() {
         </div>
       </div>
 
-      {/* Navigation Groups List */}
-      <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+      {/* Navigation Groups List - No local overflow to prevent clipping */}
+      <div className="flex-1 px-2 py-3 space-y-4">
         {groups.map((group) => (
           <div key={group.name} className="space-y-0.5">
             {!sidebarCollapsed ? (
@@ -138,7 +139,7 @@ export default function AppSidebar() {
                     key={item.id}
                     onClick={() => setActiveWorkspace(item.id)}
                     title={sidebarCollapsed ? item.label : undefined}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-normal transition-colors text-left group cursor-pointer ${
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-normal transition-colors text-left group cursor-pointer relative ${
                       isActive
                         ? 'bg-orange-500/15 text-orange-200 font-medium'
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
@@ -148,7 +149,7 @@ export default function AppSidebar() {
                       {item.icon}
                     </div>
 
-                    {!sidebarCollapsed && (
+                    {!sidebarCollapsed ? (
                       <div className="flex-1 flex items-center justify-between truncate">
                         <span className="truncate">{item.label}</span>
                         {item.badge && (
@@ -156,6 +157,17 @@ export default function AppSidebar() {
                             {item.badge}
                           </span>
                         )}
+                      </div>
+                    ) : (
+                      /* Custom Tooltip - positioned slightly offset to ensure visibility */
+                      <div className="absolute left-full ml-4 px-3 py-1.5 bg-slate-800 border border-slate-600 text-white text-[11px] font-semibold rounded-lg hidden group-hover:block pointer-events-none z-[9999] shadow-2xl whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.6)]" />
+                          {item.label}
+                          {item.badge && <span className="ml-1 text-[9px] text-slate-400 font-mono">[{item.badge}]</span>}
+                        </div>
+                        {/* Simple Triangle */}
+                        <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-2 bg-slate-800 border-l border-b border-slate-600 rotate-45" />
                       </div>
                     )}
                   </button>
@@ -166,8 +178,8 @@ export default function AppSidebar() {
         ))}
       </div>
 
-      {/* Bottom Collapse / Expand Toggle Button */}
-      <div className="p-2 border-t border-slate-800/80 bg-[#060812]">
+      {/* Bottom Collapse / Expand Toggle Button - Sticky */}
+      <div className="sticky bottom-0 p-2 border-t border-slate-800/80 bg-[#060812] z-20">
         <button
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           className="w-full flex items-center justify-center gap-2 py-1.5 px-2 rounded-md hover:bg-slate-800/50 text-slate-400 hover:text-slate-200 text-xs transition-colors cursor-pointer"

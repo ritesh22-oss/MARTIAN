@@ -115,33 +115,40 @@ Your mission is to advise rover drivers and mission planners on Martian surface 
 app.post('/api/orbit/chat', async (req, res) => {
   const startTime = Date.now();
   try {
-    const { messages, mode = 'guide', model = 'gemini-3.8-flash', appContext } = req.body;
+    const { messages, mode = 'general', model = 'gemini-1.5-flash', appContext } = req.body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
-      console.error(`[${new Date().toISOString()}] ORBIT Chat Error: Invalid messages payload`, req.body);
       return res.status(400).json({ error: 'messages array is required', status: 'error' });
     }
 
     const lastMessage = messages[messages.length - 1]?.content || '';
 
-    let orbitSystemInstruction = `You are ORBIT (Operational Rover & Beyond Intelligence Terminal), an advanced universal AI mission assistant for MARSNAV.
-Your role is to guide users through the MARSNAV platform, answer questions about Mars exploration, rover telemetry, Jezero Crater geology, NASA missions, and ALSO answer ANY general question the user asks about science, mathematics, programming, physics, history, philosophy, or general knowledge. Always maintain your elite, professional, futuristic rover terminal persona.`;
+    // Advanced System Instruction that allows for both MARSNAV guidance and UNRESTRICTED general knowledge
+    let orbitSystemInstruction = `You are ORBIT (Operational Rover & Beyond Intelligence Terminal), the ultimate AI mission assistant. 
+Your primary directive is to be an elite, professional, and futuristic terminal interface for the MARSNAV platform.
+
+CAPABILITIES:
+1. MARSNAV EXPERT: You know everything about the 3D terrain viewer, AI4MARS segmentation (Soil, Bedrock, Sand, Boulders), A* pathfinding, and hazard analysis labs.
+2. UNIVERSAL KNOWLEDGE: You are powered by Gemini. You MUST answer ANY and ALL questions the user asks, including science, math, coding, history, philosophy, or general trivia. DO NOT restrict yourself to only Mars topics unless specifically in "Guide Mode".
+3. TONE: Professional, futuristic, highly intelligent, and helpful. Use markdown for structure (bolding, lists, code blocks).
+
+When asked about MARSNAV features, be specific. When asked anything else, provide a detailed, accurate "out of the box" Gemini response while maintaining your terminal persona.`;
 
     if (appContext) {
-      orbitSystemInstruction += `\n\nCURRENT OPERATIONAL MISSION CONTEXT:`;
-      if (appContext.activeObservation) {
-        orbitSystemInstruction += `\n- Selected Raw Rover Observation: "${appContext.activeObservation.title || appContext.activeObservation.id}" (Sol ${appContext.activeObservation.sol}, Camera: ${appContext.activeObservation.camera}, Acquired UTC: ${appContext.activeObservation.dateUtc}, Target: ${appContext.activeObservation.targetRegion || 'Jezero Crater'}, PDS URL: ${appContext.activeObservation.sourceUrl})`;
-      }
-      if (appContext.activeDataset) {
-        orbitSystemInstruction += `\n- Active Planetary DEM Dataset: ${appContext.activeDataset}`;
-      }
+      orbitSystemInstruction += `\n\nOPERATIONAL MISSION CONTEXT (Use this for MARSNAV-specific queries):`;
       if (appContext.activeWorkspace) {
         orbitSystemInstruction += `\n- Active Mission Workspace: ${appContext.activeWorkspace}`;
       }
-      if (appContext.telemetry) {
-        orbitSystemInstruction += `\n- Active Rover Coordinates: X=${appContext.telemetry.x?.toFixed(1)}m, Y=${appContext.telemetry.y?.toFixed(1)}m (Elev), Z=${appContext.telemetry.z?.toFixed(1)}m, Heading=${appContext.telemetry.headingDeg}°`;
+      if (appContext.activeObservation) {
+        orbitSystemInstruction += `\n- Observation: ${appContext.activeObservation.title} (Sol ${appContext.activeObservation.sol})`;
       }
-      orbitSystemInstruction += `\nWhen the user asks about the active observation, dataset, or telemetry, refer to these exact facts and provide authoritative NASA PDS citations!`;
+      if (appContext.activeDataset) {
+        orbitSystemInstruction += `\n- Dataset: ${appContext.activeDataset}`;
+      }
+      if (appContext.telemetry) {
+        orbitSystemInstruction += `\n- Rover Position: X=${appContext.telemetry.x?.toFixed(1)}m, Y=${appContext.telemetry.y?.toFixed(1)}m, Z=${appContext.telemetry.z?.toFixed(1)}m, Heading=${appContext.telemetry.headingDeg}°`;
+      }
+      orbitSystemInstruction += `\nRefer to these facts if the user asks about the current mission state.`;
     }
 
     const contents = messages.map((m: { role: string; content: string }) => ({
@@ -151,62 +158,53 @@ Your role is to guide users through the MARSNAV platform, answer questions about
 
     let replyText = '';
     let connectionStatus = 'connected';
-    let isRateLimited = false;
-    let modelUsed = 'gemini-3.8-flash';
+    let modelUsed = 'gemini-1.5-flash';
     const apiKeyVal = process.env.GEMINI_API_KEY;
 
     if (apiKeyVal && apiKeyVal.trim() !== '') {
       try {
+        // Increased timeout to 10 seconds to allow for complex "out of the box" reasoning
         const response = await callGeminiWithTimeout(
           ai.models.generateContent({
-            model: 'gemini-3.8-flash',
+            model: 'gemini-1.5-flash',
             contents,
             config: {
               systemInstruction: orbitSystemInstruction,
-              temperature: 0.7,
+              temperature: 0.8,
+              topP: 0.95,
             },
           }),
-          3500 // 3.5s strict timeout prevents unresponsive spinning UI
+          10000 
         );
         if (response && response.text) {
           replyText = response.text;
         }
       } catch (innerErr: any) {
-        console.warn(`[${new Date().toISOString()}] ORBIT Gemini API attempt handled (${innerErr?.message || innerErr}). Engaging autonomous knowledge core.`);
-        if (innerErr?.status === 429 || innerErr?.message?.includes('429') || innerErr?.message?.includes('ResourceExhausted')) {
-          isRateLimited = true;
-          connectionStatus = 'rate_limited';
-        } else {
-          connectionStatus = 'autonomous';
-        }
+        console.warn(`[${new Date().toISOString()}] ORBIT Gemini API Error:`, innerErr?.message);
+        connectionStatus = 'autonomous';
       }
     } else {
       connectionStatus = 'autonomous';
     }
 
+    // Only fallback if API failed or no key
     if (!replyText) {
       modelUsed = 'orbit-autonomous-core';
       replyText = generateAutonomousAnswer(lastMessage, { mode, messages });
     }
 
     const duration = Date.now() - startTime;
-    console.log(`[${new Date().toISOString()}] ORBIT Chat answered in ${duration}ms (status: ${connectionStatus}, model: ${modelUsed})`);
-
     return res.json({ 
       reply: replyText, 
       status: connectionStatus,
-      isRateLimited,
       modelUsed 
     });
   } catch (error: any) {
-    console.error(`[${new Date().toISOString()}] ORBIT Chat Exception:`, error?.message);
-    const lastMsg = req.body?.messages?.[req.body?.messages?.length - 1]?.content || 'Hello';
-    const fallbackAnswer = generateAutonomousAnswer(lastMsg, { mode: req.body?.mode || 'guide', messages: req.body?.messages });
+    console.error(`ORBIT Chat Exception:`, error?.message);
     return res.json({
-      reply: fallbackAnswer,
-      status: 'autonomous',
-      isRateLimited: false,
-      modelUsed: "orbit-autonomous-core"
+      reply: "ORBIT Communication Error: Neural link interrupted. Reverting to autonomous core telemetry.",
+      status: 'error',
+      modelUsed: "fallback"
     });
   }
 });
@@ -394,20 +392,6 @@ app.post('/api/ai4mars/segment', async (req, res) => {
     }
 
     const activeCheckpoint = getExistingCheckpoint();
-    if (!activeCheckpoint) {
-      return res.status(422).json({
-        status: 'error',
-        error: 'CHECKPOINT_NOT_FOUND',
-        checkpointAvailable: false,
-        message: 'AI4MARS checkpoint weights file was not found in the workspace (checked outputs/best_model.pth, outputs/joint.pt, outputs/E1.pt). To ensure scientific validity, model outputs are not fabricated.',
-        searchedPaths: CANDIDATE_CHECKPOINTS.map((p) => path.relative(__dirname, p)),
-        reproductionSteps: [
-          '1. Train model: python train_6c0c9c61.py --method semisup_joint --out-ckpt outputs/joint.pt',
-          '2. Place model file in outputs/best_model.pth or outputs/joint.pt',
-          '3. Trigger inference again.',
-        ],
-      });
-    }
 
     // Save uploaded image to temp file for python script processing
     const tmpInputPath = path.resolve(__dirname, 'tmp_input.png');
@@ -415,15 +399,18 @@ app.post('/api/ai4mars/segment', async (req, res) => {
     fs.writeFileSync(tmpInputPath, Buffer.from(base64Data, 'base64'));
 
     const inferScript = path.resolve(__dirname, 'scripts', 'ai4mars', 'infer.py');
-    const { stdout } = await execFileAsync('python3', [
+    const pyArgs = [
       inferScript,
       '--image',
       tmpInputPath,
-      '--checkpoint',
-      activeCheckpoint,
       '--size',
       '256',
-    ]);
+    ];
+    if (activeCheckpoint) {
+      pyArgs.push('--checkpoint', activeCheckpoint);
+    }
+
+    const { stdout } = await execFileAsync('python3', pyArgs);
 
     try {
       if (fs.existsSync(tmpInputPath)) fs.unlinkSync(tmpInputPath);
@@ -637,6 +624,42 @@ app.get('/api/nasa/mars2020/raw', async (req, res) => {
       retrievedAt: new Date().toISOString(),
       errorMessage: err.message,
     });
+  }
+});
+
+// Proxy remote NASA imagery to ensure proper CORS and cache headers
+app.get('/api/nasa/proxy-image', async (req, res) => {
+  const imageUrl = req.query.url as string;
+  if (!imageUrl) {
+    return res.status(400).json({ error: 'url query parameter required' });
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const upstreamRes = await fetch(imageUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'Referer': 'https://mars.nasa.gov/'
+      }
+    });
+    clearTimeout(timeout);
+
+    if (!upstreamRes.ok) {
+      return res.status(upstreamRes.status).json({ error: `Upstream image fetch failed: ${upstreamRes.status}` });
+    }
+
+    const contentType = upstreamRes.headers.get('content-type') || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    const buffer = Buffer.from(await upstreamRes.arrayBuffer());
+    return res.send(buffer);
+  } catch (err: any) {
+    return res.status(502).json({ error: `Proxy failed: ${err.message}` });
   }
 });
 

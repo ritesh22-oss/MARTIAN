@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Search } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
 import { WorkspaceProvider, useWorkspace, WorkspaceId } from './context/WorkspaceContext';
 import BootScreen from './components/BootScreen';
@@ -9,6 +10,7 @@ import CommandPalette from './components/shell/CommandPalette';
 
 // Workspaces
 import OverviewWorkspace from './components/workspaces/OverviewWorkspace';
+import MarsNavV4Workspace from './components/workspaces/MarsNavV4Workspace';
 import Explorer3DWorkspace from './components/workspaces/Explorer3DWorkspace';
 import { LiveMissionDataWorkspace } from './components/workspaces/LiveMissionDataWorkspace';
 import MissionDataWorkspace from './components/workspaces/MissionDataWorkspace';
@@ -34,7 +36,7 @@ import MarsNavGuide from './components/MarsNavGuide';
 import OrbitChat from './components/OrbitChat';
 
 function WorkstationMain() {
-  const { activeWorkspace, setActiveWorkspace, inspectorOpen } = useWorkspace();
+  const { activeWorkspace, setActiveWorkspace, inspectorOpen, setCommandPaletteOpen } = useWorkspace();
   const [missionsModalOpen, setMissionsModalOpen] = useState(false);
   const [guideModalOpen, setGuideModalOpen] = useState(false);
 
@@ -43,6 +45,8 @@ function WorkstationMain() {
     switch (activeWorkspace) {
       case 'overview':
         return <OverviewWorkspace />;
+      case 'marsnav-v4':
+        return <MarsNavV4Workspace />;
       case 'explorer-3d':
         return <Explorer3DWorkspace onOpenMissions={() => setMissionsModalOpen(true)} />;
       case 'live-mission-data':
@@ -135,6 +139,23 @@ function WorkstationMain() {
           onOpenMissions={() => setMissionsModalOpen(true)}
           onOpenGuideModal={() => setGuideModalOpen(true)}
         />
+
+        {/* Large Search Bar Below Navbar */}
+        <div className="px-6 py-3.5 bg-[#080B18] border-b border-slate-800/80 shrink-0 flex items-center justify-center">
+          <button
+            onClick={() => setCommandPaletteOpen(true)}
+            className="w-full max-w-5xl h-12 bg-slate-900/90 hover:bg-slate-900 border border-slate-700/80 hover:border-orange-500/60 rounded-2xl px-5 flex items-center justify-between text-slate-300 hover:text-white transition-all shadow-lg group cursor-pointer"
+          >
+            <div className="flex items-center space-x-3.5">
+              <Search className="w-5 h-5 text-orange-400 group-hover:scale-110 transition-transform" />
+              <span className="text-sm font-medium tracking-wide">Search missions, analysis modules, tools, and tutorials...</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <kbd className="px-2 py-1 rounded bg-black/60 text-xs text-slate-400 font-mono border border-slate-700">⌘</kbd>
+              <kbd className="px-2 py-1 rounded bg-black/60 text-xs text-slate-400 font-mono border border-slate-700">K</kbd>
+            </div>
+          </button>
+        </div>
 
         {/* Central Active Engineering Workspace */}
         <main className="flex-1 overflow-y-auto bg-[#070913] relative">

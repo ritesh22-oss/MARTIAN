@@ -21,39 +21,41 @@ import {
   Terminal,
   Zap
 } from 'lucide-react';
+import { useWorkspace } from '../context/WorkspaceContext';
 import { generateAutonomousAnswer } from '../utils/orbitKnowledgeEngine';
 
 export default function OrbitChat({ onOpenGuide }) {
+  const { activeWorkspace, activeDataset, telemetry } = useWorkspace();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [chatMode, setChatMode] = useState('guide'); // 'guide' | 'general'
+  const [chatMode, setChatMode] = useState('general'); // Default to general for "out of the box" feel
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: 'Welcome to **ORBIT**, your MARSNAV mission assistant. I am currently in **MARSNAV Guide Mode**, ready to explain our 3D terrain viewer, AI4MARS segmentation, route planning, and hazard analysis. You can also switch to **General AI Mode** anytime to ask questions on any topic!'
+      content: 'Welcome to **ORBIT**, your advanced mission intelligence terminal. I am powered by Gemini and ready to assist with MARSNAV operations or answer any question about science, coding, history, and beyond. How can I help you today?'
     }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
-  const [connectionStatus, setConnectionStatus] = useState('connected'); // 'connected' | 'autonomous' | 'rate_limited' | 'error'
+  const [connectionStatus, setConnectionStatus] = useState('connected');
   const [errorMessage, setErrorMessage] = useState(null);
   const messagesEndRef = useRef(null);
 
   const suggestedPrompts = chatMode === 'guide' ? [
     "How do I use MARSNAV?",
-    "Explain the 3D Mars Explorer",
-    "How does the AI4MARS terrain segmentation work?",
-    "What are the four terrain classes?",
-    "How do I plan rover routes?",
-    "Explain the three Verify cards"
+    "Explain AI4MARS terrain classes",
+    "How does A* pathfinding work?",
+    "Show me how to plan a route",
+    "What are the hazard zones?",
+    "Explain the Mission Academy"
   ] : [
-    "Why is Mars red?",
-    "Calculate rover travel time for 4.8 km at 0.04 km/h",
-    "Write Python code for A* pathfinding",
-    "Explain quantum computing in simple terms",
-    "Tell me about Jezero Crater and Perseverance",
-    "How does the rocker-bogie suspension work?"
+    "Tell me a fun fact about Mars",
+    "Explain quantum superposition",
+    "Write a React component for a timer",
+    "What is the history of Jezero Crater?",
+    "Solve 15 * 4.2 / 3",
+    "Why is the sky blue?"
   ];
 
   useEffect(() => {
@@ -73,58 +75,35 @@ export default function OrbitChat({ onOpenGuide }) {
     setLoading(true);
     setErrorMessage(null);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
-    const startTime = Date.now();
-
     try {
       const response = await fetch('/api/orbit/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
         body: JSON.stringify({ 
           messages: updatedMessages,
-          mode: chatMode 
+          mode: chatMode,
+          appContext: {
+            activeWorkspace,
+            activeDataset,
+            telemetry
+          }
         })
       });
 
-      clearTimeout(timeoutId);
-      const duration = Date.now() - startTime;
-
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status} (${response.statusText})`);
+        throw new Error(`Neural link timeout or error.`);
       }
 
       const data = await response.json();
-      console.log(`[${new Date().toISOString()}] ORBIT Chat Response received in ${duration}ms:`, data);
-
-      if (data.status === 'rate_limited' || data.isRateLimited) {
-        setConnectionStatus('rate_limited');
-        setErrorMessage('AI Model Rate Limited (429): Operating on autonomous mission intelligence.');
-      } else if (data.status === 'autonomous') {
-        setConnectionStatus('autonomous');
-      } else {
-        setConnectionStatus('connected');
-      }
-
-      const replyContent = data.reply || generateAutonomousAnswer(query, { mode: chatMode, messages: updatedMessages });
+      setConnectionStatus(data.status);
+      
+      const replyContent = data.reply || "Connection interrupted. Re-establishing link...";
       setMessages([...updatedMessages, { role: 'assistant', content: replyContent }]);
     } catch (err) {
-      clearTimeout(timeoutId);
-      const timestamp = new Date().toISOString();
-      console.warn(`[${timestamp}] ORBIT Network/API handled with Autonomous Core:`, err.message);
-
-      // Instant autonomous fallback guaranteed to answer the query
+      console.warn(`ORBIT API Fallback:`, err.message);
       setConnectionStatus('autonomous');
       const autonomousReply = generateAutonomousAnswer(query, { mode: chatMode, messages: updatedMessages });
-
-      setMessages([
-        ...updatedMessages,
-        { 
-          role: 'assistant', 
-          content: autonomousReply 
-        }
-      ]);
+      setMessages([...updatedMessages, { role: 'assistant', content: autonomousReply }]);
     } finally {
       setLoading(false);
     }
@@ -281,7 +260,7 @@ export default function OrbitChat({ onOpenGuide }) {
                   </span>
                 </div>
                 <p className="text-[10px] text-slate-400 font-mono">
-                  {connectionStatus === 'connected' ? 'Neural Link Active (Gemini)' : 'Autonomous Mission Intelligence Active'}
+                  {connectionStatus === 'connected' ? 'Neural Link Active (Gemini 1.5)' : 'Autonomous Mission Intelligence Active'}
                 </p>
               </div>
             </div>

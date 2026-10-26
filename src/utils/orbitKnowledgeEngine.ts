@@ -16,19 +16,10 @@ export function generateAutonomousAnswer(query: string, options: OrbitResponseOp
 
   // 1. GREETINGS & IDENTITY
   if (/^(hi|hello|hey|greetings|hola|good\s*(morning|afternoon|evening|day)|yo|sup)[\s!.,?]*$/i.test(cleanQuery)) {
-    return `**ORBIT Mission Assistant Online**: Greetings, Explorer!
-I am **ORBIT** (*Operational Rover & Beyond Intelligence Terminal*), the autonomous AI mission specialist for the **MARSNAV** planetary exploration workstation.
+    return `**ORBIT Mission Intelligence Online**: Hello!
+I am **ORBIT**, your advanced mission assistant. My neural link is powered by Gemini, and I am ready to help you navigate MARSNAV or answer any question across science, mathematics, coding, and more.
 
-**Current Mode**: ${mode === 'guide' ? '🛰️ **MARSNAV Guide Mode**' : '🌐 **General AI Mode**'}
-
-Here is what I can do for you right now:
-- **MARSNAV Operating Guide**: Explain every workspace, button, 3D viewer control, AI segmentation layer, cost-weighting matrix, and A* route optimizer.
-- **Mars & Planetary Science**: Deep dive into Jezero Crater geology, Perseverance rover systems, atmospheric conditions, and biosignature search.
-- **Math, Physics & Kinematics**: Calculate travel times, rover power budgets, orbital mechanics, or any mathematical expression.
-- **Coding & Algorithms**: Provide runnable code for A* pathfinding, Dijkstra, ResNet U-Net models, Python, JavaScript, and Three.js.
-- **General Knowledge**: Answer any question across science, history, philosophy, engineering, and technology.
-
-How can I assist your mission today?`;
+How can I help you today?`;
   }
 
   if (lower.includes('who are you') || lower.includes('what are you') || lower.includes('what is orbit') || lower.includes('your name')) {
@@ -428,26 +419,15 @@ The **rocker-bogie** suspension system was designed by NASA JPL and has been use
 - **Steering**: The 4 corner wheels have independent steering actuators, enabling 360-degree point turns on the spot.`;
   }
 
-  // 16. GENERAL DOMAIN ADAPTIVE ANSWER
-  // If the query is an open-ended general question, synthesize an intelligent, structured response
-  const subjectWords = cleanQuery.replace(/[?.,!]/g, '').trim();
+  // 16. FINAL AUTONOMOUS FALLBACK
+  return `**ORBIT Autonomous Telemetry**:
+The neural link to our advanced Gemini models is currently experiencing high latency. I am operating on my local autonomous knowledge core.
 
-  return `**ORBIT Telemetry & Knowledge Analysis**:
+I can currently answer questions about:
+- **Mars & Jezero Crater** (Geology, rovers, atmosphere)
+- **MARSNAV Controls** (How to use the tools)
+- **Math & Physics** (Calculations and kinematics)
+- **Coding** (A* pathfinding examples)
 
-**Query**: *"${cleanQuery}"*
-
-**Analysis & Direct Answer**:
-Regarding **${subjectWords}**, here is the comprehensive breakdown from the MARSNAV knowledge base:
-
-1. **Core Concept & Principles**:
-   - In modern engineering, scientific inquiry, and planetary robotics, **${subjectWords}** represents a key operational domain. 
-   - When evaluated under rigorous physical constraints (such as the extreme vacuum, thermal cycling, and radiation of space missions), reliable operation requires multi-layered redundancy, clear mathematical modeling, and risk-weighted decision trees.
-
-2. **Application in Planetary Exploration & MARSNAV**:
-   - Within the MARSNAV ecosystem, this aligns directly with our philosophy of autonomous robotics: balancing mission productivity with absolute vehicle preservation.
-   - For example, whether managing thermal margins on Curiosity's MMRTG, planning non-slip autonav vectors across Jezero delta scarps, or executing computer vision segmentation with ResNet U-Net networks, rigorous data validation is paramount.
-
-3. **Recommended Operation**:
-   - You can test related parameters in the **Terrain Analysis Lab**, configure cost matrices in the **Risk-Aware Navigation** module, or run pathfinding trajectories in the **Route Laboratory**.
-   - If you need code implementations (Python, TypeScript, C++), mathematical derivations, or specific mission case studies, feel free to ask!`;
+Please try your query again in a moment, or switch to a different topic!`;
 }

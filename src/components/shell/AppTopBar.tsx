@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import {
-  ChevronRight,
   Database,
   Download,
   BookOpen,
   PanelRightOpen,
   PanelRightClose,
-  Search,
   Cloud,
   CheckCircle2,
   SlidersHorizontal
@@ -107,43 +105,12 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
         <span className="text-orange-300 text-xs font-semibold whitespace-nowrap truncate">{title}</span>
       </div>
 
-      {/* Zone 2: Active Dataset Indicator (Single Line, Middle) */}
-      <div className="hidden lg:flex items-center gap-2 px-3 py-1 bg-slate-900/60 rounded-md border border-slate-800/80 text-xs text-slate-300 max-w-sm truncate">
-        <Database className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-        <span className="text-slate-400 shrink-0 text-[11px]">Dataset:</span>
-        <span className="text-slate-200 font-medium truncate text-[11px]">{activeDataset}</span>
-      </div>
+      {/* Zone 2: Empty placeholder for clean spacing */}
+      <div className="hidden lg:flex items-center" />
 
       {/* Zone 3: Actions & Controls */}
       <div className="flex items-center gap-2">
-        {/* Real Backend / AI Status Indicator (Text-First, Non-Hue-Only) */}
-        <button
-          onClick={checkSystemHealth}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/40 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer text-[11px]"
-          title="Click to probe backend and model health"
-        >
-          <span
-            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-              systemStatus.backend === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'
-            }`}
-          />
-          <span className="font-medium whitespace-nowrap">
-            {systemStatus.backend === 'connected'
-              ? `Online ${systemStatus.backendLatencyMs ? `· ${systemStatus.backendLatencyMs}ms` : ''}`
-              : 'Autonomous Core'}
-          </span>
-        </button>
 
-        {/* Command Palette Button */}
-        <button
-          onClick={() => setCommandPaletteOpen(true)}
-          className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/40 hover:bg-slate-800/80 border border-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer text-[11px]"
-          title="Search tools and actions (Ctrl+K)"
-        >
-          <Search className="w-3.5 h-3.5" />
-          <span className="font-sans">Search</span>
-          <kbd className="px-1 py-0.2 rounded bg-black/40 text-[10px] text-slate-400 font-mono border border-slate-700/60">⌘K</kbd>
-        </button>
 
         {/* Cloud Missions Modal Action */}
         <button
@@ -155,24 +122,21 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
           <span className="hidden sm:inline">Missions</span>
         </button>
 
-        {/* Quick Export Button */}
+        {/* Prominent Guide & Tutorials Action */}
         <button
-          onClick={handleQuickExport}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/40 hover:bg-slate-800/80 border border-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer text-[11px]"
-          title="Export workspace state (JSON)"
+          onClick={() => {
+            try {
+              localStorage.setItem('marsnav_guide_visited', 'true');
+            } catch (e) {}
+            onOpenGuideModal();
+          }}
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-orange-600/30 to-amber-600/30 hover:from-orange-600/40 hover:to-amber-600/40 border border-orange-500/50 text-orange-200 hover:text-white transition-all cursor-pointer text-xs font-mono font-bold shadow-md ${
+            typeof window !== 'undefined' && !localStorage.getItem('marsnav_guide_visited') ? 'animate-pulse ring-2 ring-orange-500/50' : ''
+          }`}
+          title="Open MARSNAV Mission Academy & Tutorials"
         >
-          <Download className="w-3.5 h-3.5 text-orange-400" />
-          <span className="hidden sm:inline">Export</span>
-        </button>
-
-        {/* Guide Modal Action */}
-        <button
-          onClick={onOpenGuideModal}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-900/40 hover:bg-slate-800/80 border border-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer text-[11px]"
-          title="Open Mission Manual & Guide"
-        >
-          <BookOpen className="w-3.5 h-3.5 text-amber-300" />
-          <span className="hidden sm:inline">Guide</span>
+          <BookOpen className="w-4 h-4 text-amber-400" />
+          <span>GUIDE &amp; TUTORIALS</span>
         </button>
 
         {/* Right Inspector Toggle */}

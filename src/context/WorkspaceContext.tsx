@@ -4,6 +4,7 @@ import type { MarsRawImage } from '../services/nasaDataService';
 
 export type WorkspaceId =
   | 'overview'
+  | 'marsnav-v4'
   | 'explorer-3d'
   | 'live-mission-data'
   | 'mission-data'
@@ -61,6 +62,26 @@ export interface AnalysisRecord {
   details: string;
 }
 
+export interface SharedTerrainSession {
+  terrainImage: string;
+  imageProvenance: {
+    source: string;
+    rover: string;
+    camera: string;
+    sol: number;
+    acquisitionUtc: string;
+    identifier: string;
+    sourceUrl: string;
+  };
+  startPoint: { x: number; y: number };
+  destinationPoint: { x: number; y: number };
+  obstacles: Array<{ id: string; x: number; y: number; type: 'rock' | 'sand' | 'crater' | 'user'; blocked: boolean; radius: number }>;
+  scienceTargets: Array<{ id: string; name: string; x: number; y: number; evidence: string; uncertainty: string }>;
+  selectedStrategy: 'alpha' | 'beta' | 'gamma' | 'delta';
+  uncertaintyPenalty: number;
+  maxSlopeLimit: number;
+}
+
 interface WorkspaceContextType {
   activeWorkspace: WorkspaceId;
   setActiveWorkspace: (id: WorkspaceId) => void;
@@ -84,6 +105,8 @@ interface WorkspaceContextType {
   setSelectedObservation: (obs: MarsRawImage | null) => void;
   activeTerrainSource: 'hirise-jezero' | 'hirise-belva' | 'custom' | 'procedural';
   setActiveTerrainSource: (source: 'hirise-jezero' | 'hirise-belva' | 'custom' | 'procedural') => void;
+  sharedSession: SharedTerrainSession;
+  updateSharedSession: (partial: Partial<SharedTerrainSession>) => void;
 }
 
 const defaultSettings: WorkspaceSettings = {
@@ -109,6 +132,34 @@ const defaultTelemetry: RoverTelemetry = {
   ambientTempC: JEZERO_ENVIRONMENTAL_CONTEXT.airTemperature.currentSimulated,
   atmosPressurePa: JEZERO_ENVIRONMENTAL_CONTEXT.atmosphericPressure.currentSimulated,
   dustTau: JEZERO_ENVIRONMENTAL_CONTEXT.dustOpticalDepth.tau
+};
+
+const defaultSharedSession: SharedTerrainSession = {
+  terrainImage: '',
+  imageProvenance: {
+    source: '',
+    rover: 'Perseverance (Mars 2020)',
+    camera: 'NAVCAM_LEFT',
+    sol: 0,
+    acquisitionUtc: '',
+    identifier: '',
+    sourceUrl: ''
+  },
+  startPoint: { x: 35, y: 220 },
+  destinationPoint: { x: 220, y: 45 },
+  obstacles: [
+    { id: 'obs-1', x: 100, y: 120, type: 'rock', blocked: true, radius: 14 },
+    { id: 'obs-2', x: 130, y: 125, type: 'rock', blocked: true, radius: 12 },
+    { id: 'obs-3', x: 115, y: 160, type: 'sand', blocked: true, radius: 16 },
+    { id: 'obs-4', x: 170, y: 100, type: 'crater', blocked: true, radius: 18 },
+  ],
+  scienceTargets: [
+    { id: 'sci-1', name: 'Exposed Bedrock Outcrop A', x: 200, y: 70, evidence: 'High-contrast stratification visible in NavCam stereoscopic pair', uncertainty: 'Visual estimate pending compositional spectrometer confirmation' },
+    { id: 'sci-2', name: 'Sedimentary Ripple Layer B', x: 90, y: 190, evidence: 'Fine-grained aeolian ripple alignment near crater rim', uncertainty: 'Surface loose regolith depth unverified by subsurface radar' }
+  ],
+  selectedStrategy: 'alpha',
+  uncertaintyPenalty: 1.5,
+  maxSlopeLimit: 14
 };
 
 const WorkspaceContext = createContext<WorkspaceContextType | null>(null);
@@ -157,6 +208,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [activeTerrainSource, setActiveTerrainSource] = useState<'hirise-jezero' | 'hirise-belva' | 'custom' | 'procedural'>('hirise-jezero');
   const [settings, setSettings] = useState<WorkspaceSettings>(defaultSettings);
   const [telemetry, setTelemetry] = useState<RoverTelemetry>(defaultTelemetry);
+  const [sharedSession, setSharedSession] = useState<SharedTerrainSession>(defaultSharedSession);
+
+  const updateSharedSession = (partial: Partial<SharedTerrainSession>) => {
+    setSharedSession(prev => ({ ...prev, ...partial }));
+  };
+
   const [recentAnalyses, setRecentAnalyses] = useState<AnalysisRecord[]>([
     {
       timestamp: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
@@ -263,7 +320,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         selectedObservation,
         setSelectedObservation,
         activeTerrainSource,
-        setActiveTerrainSource
+        setActiveTerrainSource,
+        sharedSession,
+        updateSharedSession
       }}
     >
       {children}

@@ -24,10 +24,17 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
     checkSystemHealth,
     inspectorOpen,
     setInspectorOpen,
-    setCommandPaletteOpen
+    setCommandPaletteOpen,
+    activeMission,
+    setMissionManagerOpen
   } = useWorkspace();
 
   const [exportNotice, setExportNotice] = useState<string | null>(null);
+
+  const handleOpenMissionManager = () => {
+    setMissionManagerOpen(true);
+    if (onOpenMissions) onOpenMissions();
+  };
 
   const getWorkspaceCategory = (id: WorkspaceId): { category: string; title: string } => {
     switch (id) {
@@ -49,6 +56,8 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
         return { category: 'Analysis', title: 'Hazard Analysis' };
       case 'risk-assessment':
         return { category: 'Analysis', title: 'Risk Assessment' };
+      case 'marsnav-v4':
+        return { category: 'Navigation', title: 'Mission Planner v4.0' };
       case 'route-lab':
         return { category: 'Navigation', title: 'Route Laboratory' };
       case 'route-comparison':
@@ -105,21 +114,45 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
         <span className="text-orange-300 text-xs font-semibold whitespace-nowrap truncate">{title}</span>
       </div>
 
-      {/* Zone 2: Empty placeholder for clean spacing */}
-      <div className="hidden lg:flex items-center" />
+      {/* Zone 2: Active Mission Indicator */}
+      <div className="flex items-center">
+        {activeMission && (
+          <button
+            onClick={handleOpenMissionManager}
+            className="flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/40 text-cyan-200 hover:text-white transition-all cursor-pointer shadow-sm text-xs font-mono group"
+            title="Active Mission workspace - click to switch or manage missions"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                activeMission.status === 'Completed' ? 'bg-emerald-400' :
+                activeMission.status === 'Blocked' ? 'bg-rose-400' :
+                activeMission.status === 'In Progress' ? 'bg-cyan-400' : 'bg-amber-400'
+              }`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                activeMission.status === 'Completed' ? 'bg-emerald-500' :
+                activeMission.status === 'Blocked' ? 'bg-rose-500' :
+                activeMission.status === 'In Progress' ? 'bg-cyan-500' : 'bg-amber-500'
+              }`}></span>
+            </span>
+            <span className="text-[10px] uppercase tracking-wider text-cyan-400 font-bold">ACTIVE MSN:</span>
+            <span className="font-semibold text-slate-100 max-w-[160px] sm:max-w-[220px] truncate">{activeMission.name}</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-black/40 text-cyan-300 border border-cyan-800/60 hidden md:inline">
+              {activeMission.status || 'In Progress'}
+            </span>
+          </button>
+        )}
+      </div>
 
       {/* Zone 3: Actions & Controls */}
       <div className="flex items-center gap-2">
-
-
         {/* Cloud Missions Modal Action */}
         <button
-          onClick={onOpenMissions}
+          onClick={handleOpenMissionManager}
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/40 hover:bg-slate-800/80 border border-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer text-[11px]"
-          title="Open saved missions"
+          title="Open mission manager"
         >
           <Cloud className="w-3.5 h-3.5 text-cyan-400" />
-          <span className="hidden sm:inline">Missions</span>
+          <span className="hidden sm:inline">All Missions</span>
         </button>
 
         {/* Prominent Guide & Tutorials Action */}

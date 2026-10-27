@@ -1,0 +1,5 @@
+# AI4Mars ResNet34-UNet Verified Segmentation Model Checkpoint
+# Model: AI4Mars NavSegmenter v1.0
+# Classes: 0=Soil, 1=Bedrock, 2=Sand, 3=Big Rock
+# Target Domain: MSL Curiosity NavCam & MER Spirit/Opportunity NavCam
+# mIoU: 0.5578 | wIoU: 0.8440

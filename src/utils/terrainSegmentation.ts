@@ -44,22 +44,44 @@ export function pointToSegmentDistance(p: Point, a: Point, b: Point): number {
 }
 
 /**
- * Determines if a hazard lies within the active route corridor between start and goal
+ * Determines if a hazard lies within the active route corridor (along a path or between start/goal)
  */
 export function isHazardInRouteCorridor(
   hazard: SegmentedHazard,
-  start: Point,
-  goal: Point,
-  corridorMargin = 45
+  startOrPath: Point | Point[],
+  goalOrMargin?: Point | number,
+  margin = 45
 ): boolean {
-  // Check centroid distance
-  if (pointToSegmentDistance(hazard.centroid, start, goal) <= corridorMargin) {
-    return true;
+  let path: Point[] = [];
+  let corridorMargin = margin;
+
+  if (Array.isArray(startOrPath)) {
+    path = startOrPath;
+    if (typeof goalOrMargin === 'number') {
+      corridorMargin = goalOrMargin;
+    }
+  } else if (goalOrMargin && typeof goalOrMargin === 'object' && 'x' in goalOrMargin) {
+    path = [startOrPath, goalOrMargin as Point];
+    if (typeof margin === 'number') {
+      corridorMargin = margin;
+    }
   }
-  // Check polygon vertices
-  for (const pt of hazard.polygon) {
-    if (pointToSegmentDistance(pt, start, goal) <= corridorMargin) {
+
+  if (!path || path.length === 0) return true;
+  if (path.length === 1) {
+    return Math.hypot(hazard.centroid.x - path[0].x, hazard.centroid.y - path[0].y) <= corridorMargin;
+  }
+
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i];
+    const b = path[i + 1];
+    if (pointToSegmentDistance(hazard.centroid, a, b) <= corridorMargin) {
       return true;
+    }
+    for (const pt of hazard.polygon) {
+      if (pointToSegmentDistance(pt, a, b) <= corridorMargin) {
+        return true;
+      }
     }
   }
   return false;

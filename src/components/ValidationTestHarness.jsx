@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { CheckCircle2, Play, ShieldCheck, Terminal, RefreshCw } from 'lucide-react';
+import { useWorkspace } from '../context/WorkspaceContext';
 
 export default function ValidationTestHarness() {
+  const { runMissionValidation, logMissionEvent } = useWorkspace();
   const [testResults, setTestResults] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
 
@@ -21,6 +23,9 @@ export default function ValidationTestHarness() {
       ];
       setTestResults(results);
       setIsRunning(false);
+      if (runMissionValidation) {
+        runMissionValidation();
+      }
     }, 800);
   };
 

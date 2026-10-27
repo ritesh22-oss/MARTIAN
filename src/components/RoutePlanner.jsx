@@ -3,7 +3,10 @@ import { AStarGrid } from '../utils/astar';
 import { Navigation, Play, RotateCcw, Sliders, Cloud, Save, Gauge, Info } from 'lucide-react';
 import SaveMissionModal from './SaveMissionModal';
 
+import { useWorkspace } from '../context/WorkspaceContext';
+
 export default function RoutePlanner({ onOpenMissions }) {
+  const { logMissionEvent, updateActiveMission } = useWorkspace();
   const [astarInstance] = useState(() => new AStarGrid(28, 16));
   const [gridState, setGridState] = useState(() => [...astarInstance.grid]);
   const [startPos, setStartPos] = useState({ ...astarInstance.start });
@@ -50,6 +53,28 @@ export default function RoutePlanner({ onOpenMissions }) {
 
     const res = astarInstance.findPath();
     setPathResult(res);
+
+    if (res.success && logMissionEvent) {
+      logMissionEvent({
+        type: 'A* Pathfinding Search',
+        status: 'Success',
+        details: `Computed ${res.distanceM} m vector (${res.cost} cost units, ${res.path.length} waypoints).`,
+        method: 'Weighted A* Graph Search'
+      });
+      if (updateActiveMission) {
+        updateActiveMission({
+          startPoint: { x: startPos.x, y: startPos.y },
+          destinationPoint: { x: goalPos.x, y: goalPos.y },
+          routeMetrics: {
+            distanceM: res.distanceM,
+            energyWh: res.energyWh,
+            nodeCount: res.path.length,
+            pathfindingStatus: 'Path Found (A*)'
+          },
+          rawRoutePath: res.path
+        });
+      }
+    }
 
     if (animSpeed === 'instant' || !res.success) {
       setAnimatedExplored(res.exploredNodes || []);

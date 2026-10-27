@@ -1,0 +1,563 @@
+# MARSNAV: COMPLETE NASA DATA INTEGRATION, TERRAIN INTELLIGENCE & MARSWALK PLANNING UPGRADE
+
+You are working on my existing project, **MARSNAV: AI-Powered Terrain Analysis and Rover Navigation**, developed for the NASA Space Apps Challenge, “Interplanetary Survival Guide: Martian Map.”
+
+Your task is to **audit, repair, upgrade, and complete the existing application** so it becomes a scientifically grounded Mars terrain analysis and human Marswalk route-planning system.
+
+## CRITICAL INSTRUCTION
+
+Before changing anything, inspect the entire existing codebase, components, routes, data services, backend, state management, APIs, map/3D renderer, image-processing pipeline, route algorithms, and current feature implementations.
+
+For EVERY feature below:
+
+- If it already exists and works with genuine data, preserve it and improve its reliability, accuracy, usability, and integration.
+- If it exists only as a UI, mockup, hardcoded value, simulated result, placeholder, or disconnected button, connect it to a real implementation.
+- If it is broken, debug and repair the underlying cause rather than hiding the error.
+- If it is missing, implement it and integrate it into the existing application.
+- Reuse existing components, dependencies, backend services, and styling where appropriate. Do not unnecessarily rebuild the project from scratch.
+- Do not remove working features or replace real functionality with static demonstrations.
+
+**Do not merely create additional UI panels. Every important button, layer, metric, analysis result, and mission action must perform its stated function.**
+
+If an external API, dataset, model checkpoint, or backend credential is unavailable, clearly identify the missing dependency and display an honest status. Never fabricate live data, successful API responses, model predictions, scientific measurements, mission events, or completed analyses.
+
+---
+
+# 1. REAL NASA DATA INTEGRATION
+
+Build a centralized NASA data integration service that retrieves, validates, caches, timestamps, and manages actual Mars observation data.
+
+Prioritize official sources and documented public APIs:
+
+### A. NASA Mars Rover imagery
+Integrate genuine imagery from NASA's Mars exploration archives, including Perseverance and Curiosity where appropriate.
+
+Sources to investigate:
+- NASA Mars 2020 Perseverance raw images: https://mars.nasa.gov/mars2020/multimedia/raw-images/
+- NASA Mars exploration imagery and mission archives.
+- NASA/JPL image archives and documented APIs where available.
+- NASA PDS archives when downloadable scientific products are needed.
+
+Requirements:
+- Display the actual original rover image, not a generated Mars landscape.
+- Show mission, rover, camera/instrument, image identifier, acquisition time or sol when supplied, source URL, and available location metadata.
+- Allow filtering by rover, camera, date/sol, and available image categories.
+- Support front and rear Hazcam images, Navcam imagery, and other relevant cameras when available.
+- Include a functional refresh/reload control that requests fresh results from the source or cache according to its documented behavior.
+- Clearly distinguish newly retrieved data from previously cached or archived data.
+- Display the actual acquisition time separately from the time retrieved by MARSNAV.
+- Never label archived observations as a live camera feed. Mars rover imagery is generally downlinked data, not continuous live video.
+
+### B. Mars orbital terrain and elevation data
+Integrate genuine spatial datasets where technically available and suitable, including:
+
+- Mars Orbiter Laser Altimeter (MOLA) elevation products.
+- Mars Reconnaissance Orbiter (MRO) Context Camera imagery.
+- HiRISE high-resolution orbital imagery and digital terrain models where available.
+- Other suitable official NASA/PDS products with documented coverage and resolution.
+
+Use official mission archives and documented data endpoints. Do not assume that every archive provides a simple REST API. If a product must be downloaded, parsed, tiled, or processed, implement the appropriate data pipeline or clearly document the remaining dependency.
+
+Support a selected Mars location or region and retrieve the appropriate available products for that region.
+
+Display dataset coverage, spatial resolution, coordinate reference system, acquisition or product date, source, and limitations.
+
+### C. Multiple NASA mission integration
+This is a central requirement of the challenge.
+
+Create a unified, geographically registered view that combines multiple relevant NASA mission datasets when compatible data exist for the selected location.
+
+Potential layers include:
+- Orbital basemap imagery.
+- Elevation and terrain relief.
+- Slope and roughness derived from elevation data.
+- Rover ground imagery.
+- Geological or mineralogical observations from suitable orbital instruments, such as CRISM, where spatial coverage and product compatibility permit.
+- Relevant environmental or atmospheric observations when valid data and spatial/temporal coverage are available.
+- Scientific targets and observations from compatible datasets.
+
+Do not simply place unrelated photographs from different Mars locations beside each other and call that integration.
+
+Each layer must retain its original spatial reference, coverage, resolution, source, and temporal context. Reproject and align compatible layers before combining them. If two products cannot be registered accurately, keep them separate and explain why.
+
+Show a **Data Provenance** panel listing each source, mission/instrument, product or observation ID, acquisition date when known, retrieval timestamp, coverage, processing method, and data-quality limitations.
+
+### D. Current data status
+Every data panel must distinguish:
+- Live API response or newly retrieved archive record.
+- Cached NASA data.
+- Historical observation.
+- User-uploaded image with unverified provenance.
+- Derived product calculated by MARSNAV.
+- Simulated demonstration.
+- Unavailable or failed data source.
+
+Use real timestamps and actual source responses. Never generate random timestamps or claim that an endpoint was refreshed if no request occurred.
+
+If an API fails, show the error, retain usable cached data when possible, and provide a retry option.
+
+---
+
+# 2. REAL MARS LOCATION AND GEOSPATIAL LAYER VIEWER
+
+Implement a functional Mars region selector and map viewer.
+
+Requirements:
+- Allow users to select a known rover location, a supported named region, or valid Mars coordinates.
+- Support longitude/latitude or the appropriate Mars coordinate system required by each source. Explicitly document the coordinate convention and reference system.
+- Show the selected region and its data coverage.
+- Allow users to choose a manageable region of interest before downloading high-resolution products.
+- Fetch imagery and terrain products for that region when the source supports it.
+- Add independent layer controls for imagery, elevation, slope, roughness, geology/mineralogy, science targets, and detected hazards.
+- Include opacity controls, layer visibility toggles, legends, zoom, pan, coordinate readout, and a clear active-layer indicator.
+- Provide a synchronized 2D map and 3D terrain view when valid elevation data exists.
+- Ensure both views reference the same selected location and coordinate system.
+- Show missing-data areas instead of filling them with fabricated terrain.
+
+The 3D terrain must be generated from actual compatible elevation data whenever available. If only an RGB image is available, do not claim the resulting 3D appearance represents measured terrain elevation. Clearly label any image-based visual approximation.
+
+---
+
+# 3. REAL ELEVATION, SLOPE, ROUGHNESS AND TRAVERSABILITY
+
+Build a terrain analysis pipeline using actual georeferenced elevation data when available.
+
+Calculate:
+- Elevation and relative elevation.
+- Local slope.
+- Terrain roughness.
+- Surface discontinuities where supported by the data.
+- Potentially difficult terrain regions.
+- Data coverage and confidence or uncertainty.
+
+Use suitable numerical methods and preserve the source resolution. Document the algorithms and units.
+
+Generate terrain cost layers that can be used by the route planner.
+
+Important scientific limitations:
+- A rover photograph alone cannot reliably determine absolute elevation, physical distance, slope, depth, or real-world object dimensions without suitable calibration or spatial data.
+- Image brightness and color must not be treated as direct elevation measurements.
+- Do not infer precise slope or depth from a single uncalibrated image.
+- When only image-space analysis is possible, label results as image-space estimates or visual heuristics.
+- Never display invented elevation values or false spatial accuracy.
+
+---
+
+# 4. AUTOMATIC HAZARD DETECTION AND TRUE OBJECT-LEVEL SEGMENTATION
+
+Upgrade the existing terrain detection and hazard analysis features.
+
+The system must automatically analyze the selected terrain image or georeferenced terrain region without requiring the user to manually draw every obstacle.
+
+### A. Segmentation pipeline
+Inspect the existing machine-learning code and identify whether actual trained weights, preprocessing, inference code, and class mappings are connected.
+
+If a trained model is already available, verify that it loads successfully and produces real inference results.
+
+If the model is not connected:
+- Do not claim that a trained model is running.
+- Implement a working classical computer-vision baseline where appropriate.
+- Create a clean interface for connecting a compatible trained segmentation model later.
+- Display the actual active detection method and its limitations.
+- Provide a clear “Model not connected” or equivalent status when appropriate.
+
+Do not invent a model checkpoint or pretend that an exploratory notebook contains trained weights.
+
+### B. Object-shaped masks
+Identify potential:
+- Large rocks and boulders.
+- Holes, pits, or depressions when supported by the imagery.
+- Sand or loose-surface regions.
+- Bedrock or rough terrain.
+- Steep slopes when derived from suitable elevation data.
+- Other relevant terrain hazards.
+
+For image-based analysis, produce segmentation masks or contours that follow the detected regions' actual shapes.
+
+Requirements:
+- Use distinct, configurable overlays for each hazard category.
+- Preserve alignment with the original image.
+- Display bounding regions, contours, mask area in pixels, and detection method.
+- Support mask visibility and opacity controls.
+- Allow users to inspect a detected object and view its category, confidence when legitimately available, and evidence.
+- Do not represent a circular marker as an object segmentation mask.
+- Do not claim that a pit has a known depth unless suitable measurements exist.
+
+### C. Detection quality and uncertainty
+Show:
+- Model or algorithm name and version.
+- Actual inference status.
+- Confidence scores only if produced by the model or valid statistical method.
+- Processing duration measured by the application.
+- Known limitations and uncertainty.
+- Whether the detection is an actual model prediction, a classical CV result, or a human annotation.
+
+Allow users to correct false positives and false negatives manually. Keep human corrections distinct from the original automatic result.
+
+If detection fails, report the error and allow a retry. Never silently substitute fake detections.
+
+---
+
+# 5. OBSTACLE-AWARE MARSWALK ROUTE PLANNING
+
+Upgrade the existing Mission Planner, Route Laboratory, Route Comparison, and Scenario Testing features instead of creating duplicate tools.
+
+### A. Start and destination
+Allow users to:
+- Select a start and destination on a georeferenced map or supported terrain image.
+- Set and edit both points using visible controls.
+- View their coordinates and the coordinate system.
+- Confirm that both points lie within valid map coverage.
+- Reset or move either point.
+
+Validate the points before computing a route. If a point is outside the available coverage or inside a blocked region, explain the problem and suggest valid alternatives.
+
+### B. Real pathfinding
+Use an actual pathfinding algorithm such as A* or Dijkstra over a grid or graph built from the available terrain and hazard cost layers.
+
+The algorithm must:
+- Respect detected or validated obstacles.
+- Apply configurable safety buffers around hazards.
+- Prevent diagonal corner-cutting through blocked cells.
+- Account for terrain cost, slope, roughness, and uncertainty only when the corresponding data exist.
+- Handle start and destination validation.
+- Detect when no safe path exists.
+- Return an explicit failure state instead of drawing an invalid straight-line route.
+- Revalidate the final route against the complete cost and obstacle grid.
+
+Uncertain hazards should receive an appropriate uncertainty penalty when evidence is insufficient. Do not automatically treat every uncertain pixel as either perfectly safe or permanently impassable.
+
+### C. Accurate route rendering
+The displayed route must:
+- Begin precisely at the selected start point.
+- End precisely at the selected destination.
+- Remain aligned with the map or image coordinate system.
+- Avoid blocked cells and safety buffers.
+- Update whenever the endpoints, hazard masks, terrain layers, or planning parameters change.
+- Be drawn over the actual selected image or geospatial layer.
+- Include direction arrows and identifiable start/destination markers.
+
+Do not display unrelated decorative lines or random routes.
+
+### D. Route strategies
+Retain and improve the existing route alternatives:
+
+1. **Alpha: Shortest feasible route**
+2. **Beta: Lowest terrain-cost route**
+3. **Gamma: Uncertainty-aware conservative route**
+4. **Delta: Science-priority route**
+
+Each route must be calculated using its own documented objective function and the same selected region, endpoints, and available evidence.
+
+Explain the actual trade-offs between route length, terrain cost, hazard exposure, uncertainty, and scientific value.
+
+Do not simply generate four different-looking lines. If two strategies produce the same optimal route, show that result honestly.
+
+Allow users to compare routes using a table and map overlay. Show the calculation assumptions behind every score.
+
+### E. Physical distance
+Only calculate physical distance when a valid map scale, georeferencing, or spatial coordinate conversion is available.
+
+When the route is calculated on an uncalibrated image:
+- Report image-space path length in pixels.
+- Do not convert pixels into metres using an arbitrary scale.
+- Display “Physical distance unavailable” until a defensible conversion is available.
+
+When physical distance is available, show the measurement method, units, source resolution, and any relevant uncertainty.
+
+---
+
+# 6. SCIENCE-AWARE ROUTE PLANNING
+
+The challenge is not merely to avoid rocks. The system must help plan a safe, scientifically valuable Marswalk.
+
+Implement a science-target system using actual available observations and documented target metadata.
+
+Potential targets:
+- Geological formations.
+- Exposed bedrock.
+- Mineralogical anomalies supported by relevant orbital products.
+- Scientifically significant terrain features.
+- Documented rover observation sites.
+- Other validated targets from compatible sources.
+
+Requirements:
+- Display each target's location, source, evidence, and scientific relevance.
+- Distinguish observed targets from algorithmically suggested targets.
+- Let users select target priorities.
+- Allow the planner to evaluate routes that pass near selected targets without violating safety constraints.
+- Show the additional distance or terrain cost of visiting each target when calculable.
+- Explain why a route is scientifically valuable.
+- If no verified science targets are available in the selected region, show a truthful empty state.
+
+Do not invent discoveries, mineral detections, scientific importance scores, or observations.
+
+---
+
+# 7. ENVIRONMENTAL CONTEXT AND HUMAN MARSWALK SAFETY
+
+Add an environmental and mission-conditions panel using genuine available datasets where applicable.
+
+Investigate suitable sources for:
+- Atmospheric pressure and temperature observations.
+- Dust and atmospheric conditions.
+- Solar radiation or radiation-related measurements where suitable data are available.
+- Illumination and solar geometry.
+- Terrain-related exposure and travel constraints.
+- Time-dependent environmental products from appropriate NASA missions or scientific models.
+
+For each value, display:
+- Actual value and units.
+- Source and instrument or model.
+- Measurement or model timestamp.
+- Spatial and temporal applicability.
+- Whether it is observed, model-derived, historical, or estimated.
+- Relevant uncertainty and limitations.
+
+Do not imply that a historical rover measurement describes current conditions at every point on Mars.
+
+Do not invent real-time Mars weather, radiation readings, astronaut biometrics, or mission telemetry.
+
+If reliable data are unavailable, show “Unavailable for this location/time” and explain what data are required.
+
+Treat human Marswalk planning as a research and decision-support capability, not as certified operational safety software.
+
+---
+
+# 8. HONEST RESOURCE AND TRAVEL ESTIMATES
+
+Upgrade the existing Rover, Resources, and Mission Configuration panels.
+
+Where valid route distance and documented assumptions are available, estimate:
+- Travel duration.
+- Walking or rover speed assumptions.
+- Terrain-related slowdown.
+- Planned science-stop duration.
+- Resource consumption.
+- Safety margin and uncertainty.
+
+Clearly separate human Marswalk estimates from rover mobility estimates. They are not interchangeable.
+
+Use configurable assumptions and explain the calculation. Label estimates as estimates, not live measurements.
+
+Never display fake battery percentage, actual rover telemetry, fuel consumption, or astronaut life-support status.
+
+If distance or other required inputs are unavailable, show which estimates cannot be calculated.
+
+---
+
+# 9. INTERACTIVE 3D MARS TERRAIN EXPLORER
+
+Upgrade the existing 3D Terrain Explorer to show the same selected region and terrain layers as the 2D map.
+
+Requirements:
+- Use actual elevation products for terrain geometry when available.
+- Provide orbit, pan, zoom, and reset-camera controls.
+- Display selected start, destination, route, hazard regions, and science targets in the correct spatial positions.
+- Keep the 2D and 3D views synchronized.
+- Show elevation exaggeration settings if vertical exaggeration is used.
+- Label visual approximations clearly.
+- Prevent broken geometry, floating objects, texture stretching, or inconsistent coordinate transforms.
+- Do not replace actual terrain data with a randomly generated landscape and present it as NASA terrain.
+
+If valid elevation data are unavailable, offer a 2D imagery mode and clearly label any optional 3D preview as illustrative.
+
+---
+
+# 10. MISSION MANAGEMENT AND PERSISTENCE
+
+Upgrade the existing mission management system and use the project's existing backend or database where appropriate.
+
+Users must be able to:
+- Create a mission with a name and description.
+- Save the selected Mars region and source datasets.
+- Save start and destination points.
+- Save hazard detection results and their provenance.
+- Save route alternatives, parameters, and calculation results.
+- Save selected science targets.
+- Save user annotations and corrections.
+- Save analysis warnings and unresolved dependencies.
+- Reopen, resume, duplicate, rename, and switch between missions.
+- Review the previous mission state and the last successful operation.
+
+Each mission must maintain isolated state. Switching missions must never mix images, routes, hazard masks, targets, or configuration settings.
+
+Persist real results rather than only saving the dashboard layout.
+
+Use actual event timestamps and record what operation succeeded or failed. Do not create fictional traversal logs or automatically mark a mission checkpoint complete merely because a page was opened.
+
+If persistence fails, show an error and preserve recoverable unsaved work where possible.
+
+---
+
+# 11. DATA QUALITY, AUDIT TRAIL AND VALIDATION HARNESS
+
+Turn the existing Validation Harness and Mission Audit tools into meaningful verification systems.
+
+For each mission, record:
+- Data sources and product identifiers.
+- Retrieval timestamps and cache status.
+- Coordinate reference systems and transformations.
+- Data coverage and resolution.
+- Model/algorithm versions.
+- Detection parameters and actual outputs.
+- Route algorithm, cost weights, safety buffers, and result.
+- Physical-distance calibration method where applicable.
+- Warnings, errors, and user corrections.
+- Whether a result was observed, calculated, predicted, manually annotated, simulated, or unavailable.
+
+Implement validation checks for:
+- Missing or mismatched datasets.
+- Invalid coordinates.
+- Unregistered or incompatible layers.
+- Missing elevation coverage.
+- Invalid start or destination points.
+- Routes intersecting blocked regions.
+- Routes passing inside safety buffers.
+- Unsupported physical-distance estimates.
+- Missing model weights or failed inference.
+- Stale cached data where freshness matters.
+- Unavailable science or environmental layers.
+
+Show passed, failed, and not-testable checks separately. A check must not pass simply because no error was thrown.
+
+Provide an exportable mission report containing sources, methods, results, assumptions, uncertainty, and outstanding limitations.
+
+---
+
+# 12. LIVE DATA REFRESH AND RELIABILITY
+
+Create a shared data-refresh mechanism for all integrated NASA data services.
+
+Requirements:
+- Fetch fresh information from the actual source where supported.
+- Respect API limits, source availability, and documented caching requirements.
+- Avoid repeated unnecessary downloads of large scientific products.
+- Cache reusable products with source timestamps and cache-expiration policies.
+- Show loading, success, partial-success, stale-cache, and failure states.
+- Allow retries without resetting the entire application.
+- Preserve usable cached results when a refresh fails.
+- Never display a success state before the request and validation have succeeded.
+- Do not call historical datasets “real-time” merely because they were fetched moments ago.
+
+If API keys or credentials are required, use secure backend environment variables or the project's supported secrets mechanism. Never expose private keys in frontend code.
+
+If a public API does not exist, do not invent an endpoint. Use the documented archive access method and explain the implementation requirements.
+
+---
+
+# 13. USER INTERFACE AND EXISTING NAVIGATION
+
+Keep the current MARSNAV visual identity, dark navy interface, cyan highlights, orange hazard accents, and existing navigation structure.
+
+Improve and connect the current pages rather than creating duplicate pages for the same functionality.
+
+The existing Mission Overview, Mission Planner, Live NASA Stream, 3D Terrain Explorer, Mission Data & DEM, Mission Configuration, Terrain Intelligence, Dataset Catalogue, Hazard Analysis, Risk Assessment, Route Laboratory, Route Comparison, Scenario Testing, Validation Harness, Model Evaluation, Mission Audit, Mission Manual, and ORBIT AI Assistant should use the same underlying mission state and data services where relevant.
+
+Every panel must display actual data from the shared system. Remove hardcoded statistics, random graph values, fake mission statuses, disconnected controls, and placeholder success messages from production workflows.
+
+For empty states, explain what data are missing and provide a relevant action to obtain or import them.
+
+Keep error messages understandable and provide useful recovery actions.
+
+---
+
+# 14. ORBIT AI ASSISTANT
+
+Connect ORBIT AI to the actual selected mission state and available analysis results.
+
+It should answer questions such as:
+- What evidence supports this route?
+- Which hazards are most relevant?
+- What are the limitations of the current terrain analysis?
+- Which datasets cover this region?
+- Why did a route fail?
+- How does another route compare?
+- Which science targets are supported by observations?
+- Which data or model components are missing?
+
+The assistant must use actual mission results and data provenance. It must not invent measurements, source citations, model outputs, or NASA findings.
+
+Clearly distinguish retrieved evidence from interpretation and recommendation. If the system lacks the required evidence, say so.
+
+---
+
+# 15. REQUIRED ACCEPTANCE TESTS
+
+After implementation, run the existing test suite and add tests for the following:
+
+1. NASA imagery is loaded from a real, documented source or an honest unavailable/error state is shown.
+2. The displayed source, image ID, and timestamps match the actual response metadata.
+3. Archived observations are never falsely labeled as live video.
+4. Multiple compatible datasets can be loaded and spatially aligned for a selected region.
+5. Incompatible or missing spatial layers produce warnings instead of false alignment.
+6. Elevation and slope values are calculated from suitable data, not guessed from RGB colors.
+7. Hazard masks are generated by the actual connected model or clearly identified baseline algorithm.
+8. A disconnected model never reports successful ML inference.
+9. Start and destination coordinates map correctly to the planning grid and display.
+10. The calculated route begins and ends at the selected points.
+11. A route never crosses blocked cells or configured safety buffers.
+12. No-safe-route cases display a genuine failure state.
+13. Route alternatives are calculated using documented objective functions.
+14. Physical distances are shown only when supported by valid calibration or georeferencing.
+15. Science targets are linked to actual source evidence.
+16. Missing environmental data never produce fabricated values.
+17. Saving and reopening a mission restores its actual state.
+18. Switching missions never mixes mission data.
+19. Failed API requests show errors and do not create false success messages.
+20. The application builds successfully and existing working features continue to function.
+
+Use real, reproducible test fixtures. Clearly distinguish tests performed with real NASA data from synthetic test fixtures used only to test algorithms.
+
+---
+
+# 16. IMPLEMENTATION ORDER
+
+Work in the following order:
+
+**Phase 1: Audit**
+Inspect the codebase and identify which existing features are real, partially functional, simulated, disconnected, or missing. Fix foundational bugs first.
+
+**Phase 2: NASA data foundation**
+Implement the shared data-service layer, source metadata, error handling, caching, and provenance.
+
+**Phase 3: Geospatial integration**
+Implement region selection, coordinate handling, compatible image/elevation layers, layer alignment, and data coverage indicators.
+
+**Phase 4: Terrain intelligence**
+Implement valid elevation-derived analysis and automatic hazard segmentation with explicit model status.
+
+**Phase 5: Route planning**
+Connect the real terrain and hazard cost layers to pathfinding, safety validation, route alternatives, and defensible distance calculations.
+
+**Phase 6: Science-aware planning**
+Integrate verified science targets and explain their effects on route selection.
+
+**Phase 7: Mission persistence**
+Save real mission data, configuration, analysis evidence, routes, and audit history.
+
+**Phase 8: Validation**
+Run the tests, fix regressions, and report what actually works.
+
+Do not stop after producing an implementation plan. Make the actual code changes, connect the features, and verify the results.
+
+If the full scope cannot be completed in one pass, prioritize a complete, working end-to-end workflow for one small, real, well-documented Mars region over numerous disconnected features.
+
+---
+
+# FINAL DELIVERY REPORT
+
+When finished, provide a concise but detailed report listing:
+
+1. Features that were already working and preserved.
+2. Features that were upgraded to use real NASA data.
+3. Features newly implemented.
+4. Actual NASA sources and endpoints integrated.
+5. Dataset and coordinate compatibility limitations.
+6. Whether a trained segmentation model is genuinely connected.
+7. Whether elevation-based 3D terrain and slope analysis are genuinely connected.
+8. Whether route distances are physically calibrated or remain image-space estimates.
+9. Tests executed and their actual results.
+10. Remaining missing dependencies, credentials, or unfinished tasks.
+
+**Success means the application uses real evidence, connects its scientific layers, produces reproducible analysis, and tells the truth about uncertainty. A polished interface alone does not satisfy this requirement.**

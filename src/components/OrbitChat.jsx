@@ -25,7 +25,7 @@ import { useWorkspace } from '../context/WorkspaceContext';
 import { generateAutonomousAnswer } from '../utils/orbitKnowledgeEngine';
 
 export default function OrbitChat({ onOpenGuide }) {
-  const { activeWorkspace, activeDataset, telemetry } = useWorkspace();
+  const { activeWorkspace, activeDataset, telemetry, activeMission } = useWorkspace();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [chatMode, setChatMode] = useState('general'); // Default to general for "out of the box" feel
@@ -85,7 +85,17 @@ export default function OrbitChat({ onOpenGuide }) {
           appContext: {
             activeWorkspace,
             activeDataset,
-            telemetry
+            telemetry,
+            activeMission: activeMission ? {
+              id: activeMission.id,
+              name: activeMission.name,
+              status: activeMission.status,
+              roverProfile: activeMission.roverProfile,
+              startPoint: activeMission.startPoint,
+              destinationPoint: activeMission.destinationPoint,
+              hazardsCount: Array.isArray(activeMission.segmentedHazards) ? activeMission.segmentedHazards.length : 0,
+              checkpointsPassed: Array.isArray(activeMission.checkpoints) ? activeMission.checkpoints.filter((c) => c.status === 'Completed').length : 0
+            } : null
           }
         })
       });

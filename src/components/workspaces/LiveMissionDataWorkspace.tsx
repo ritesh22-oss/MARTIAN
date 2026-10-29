@@ -15,7 +15,8 @@ export const LiveMissionDataWorkspace: React.FC = () => {
     selectedObservation,
     setSelectedObservation,
     setActiveTerrainSource,
-    addAnalysisRecord
+    addAnalysisRecord,
+    updateSharedSession
   } = useWorkspace();
 
   // Active sub-tab: 'surface' (Rover Raw Images) | 'orbital' (HiRISE DTM Products)
@@ -28,6 +29,7 @@ export const LiveMissionDataWorkspace: React.FC = () => {
   const [cameraFilter, setCameraFilter] = useState<string>('all');
   const [solInput, setSolInput] = useState<string>('latest');
   const [appliedSol, setAppliedSol] = useState<string>('latest');
+  const [order, setOrder] = useState<'newest' | 'oldest'>('newest');
   const [missionSelect, setMissionSelect] = useState<'mars2020' | 'msl'>('mars2020');
   const [page, setPage] = useState<number>(0);
   const [totalImages, setTotalImages] = useState<number>(0);
@@ -68,8 +70,10 @@ export const LiveMissionDataWorkspace: React.FC = () => {
     try {
       const solParam = appliedSol === 'latest' ? undefined : parseInt(appliedSol, 10);
       const res = await fetchMarsRawImages({
+        mission: missionSelect,
         sol: isNaN(solParam as number) ? undefined : solParam,
         camera: cameraFilter,
+        order: order,
         page: page,
         limit: 24
       });
@@ -87,7 +91,7 @@ export const LiveMissionDataWorkspace: React.FC = () => {
     } finally {
       setSurfaceLoading(false);
     }
-  }, [appliedSol, cameraFilter, page, selectedObservation, setSelectedObservation]);
+  }, [appliedSol, cameraFilter, missionSelect, order, page, selectedObservation, setSelectedObservation]);
 
   // Load orbital products
   const loadOrbitalProducts = useCallback(async () => {

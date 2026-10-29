@@ -33,7 +33,10 @@ export type WorkspaceId =
   | 'audit'
   | 'guide'
   | 'orbit-terminal'
-  | 'settings';
+  | 'settings'
+  | 'nasa-raw-feed'
+  | 'base-camp-intel'
+  | 'field-notebook';
 
 export interface SystemStatus {
   backend: 'connected' | 'autonomous' | 'disconnected' | 'checking';
@@ -85,8 +88,8 @@ export interface SharedTerrainSession {
     identifier: string;
     sourceUrl: string;
   };
-  startPoint: { x: number; y: number };
-  destinationPoint: { x: number; y: number };
+  startPoint: { x: number; y: number } | null;
+  destinationPoint: { x: number; y: number } | null;
   obstacles: Array<{ id: string; x: number; y: number; type: 'rock' | 'sand' | 'crater' | 'user'; blocked: boolean; radius: number }>;
   scienceTargets: Array<{ id: string; name: string; x: number; y: number; evidence: string; uncertainty: string }>;
   selectedStrategy: 'alpha' | 'beta' | 'gamma' | 'delta';
@@ -94,18 +97,21 @@ export interface SharedTerrainSession {
   maxSlopeLimit: number;
 }
 
+import { RegionTerrainData, getRegionTerrainData } from '../services/regionTerrainService';
+
 export interface WorkspaceContextType {
   activeWorkspace: WorkspaceId;
   setActiveWorkspace: (id: WorkspaceId) => void;
   activeDataset: string;
   setActiveDataset: (ds: string) => void;
+  selectedRegion: RegionTerrainData | null;
+  setSelectedRegion: (region: RegionTerrainData | null) => void;
+  loadRegionIntoWorkspace: (regionId: string) => RegionTerrainData;
   systemStatus: SystemStatus;
   checkSystemHealth: () => Promise<void>;
   telemetry: RoverTelemetry;
   settings: WorkspaceSettings;
   updateSettings: (partial: Partial<WorkspaceSettings>) => void;
-  inspectorOpen: boolean;
-  setInspectorOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (collapsed: boolean | ((prev: boolean) => boolean)) => void;
   recentAnalyses: AnalysisRecord[];
@@ -162,28 +168,20 @@ const defaultTelemetry: RoverTelemetry = {
 };
 
 const defaultSharedSession: SharedTerrainSession = {
-  terrainImage: '',
+  terrainImage: '/assets/aistudio/vis_0_f6a9756b.png',
   imageProvenance: {
-    source: '',
+    source: 'HiRISE DTM (Jezero Crater)',
     rover: 'Perseverance (Mars 2020)',
     camera: 'NAVCAM_LEFT',
-    sol: 0,
-    acquisitionUtc: '',
-    identifier: '',
-    sourceUrl: ''
+    sol: 428,
+    acquisitionUtc: new Date().toISOString(),
+    identifier: 'PSP_001414_1780',
+    sourceUrl: '/assets/aistudio/vis_0_f6a9756b.png'
   },
-  startPoint: { x: 35, y: 220 },
-  destinationPoint: { x: 220, y: 45 },
-  obstacles: [
-    { id: 'obs-1', x: 100, y: 120, type: 'rock', blocked: true, radius: 14 },
-    { id: 'obs-2', x: 130, y: 125, type: 'rock', blocked: true, radius: 12 },
-    { id: 'obs-3', x: 115, y: 160, type: 'sand', blocked: true, radius: 16 },
-    { id: 'obs-4', x: 170, y: 100, type: 'crater', blocked: true, radius: 18 },
-  ],
-  scienceTargets: [
-    { id: 'sci-1', name: 'Exposed Bedrock Outcrop A', x: 200, y: 70, evidence: 'High-contrast stratification visible in NavCam stereoscopic pair', uncertainty: 'Visual estimate pending compositional spectrometer confirmation' },
-    { id: 'sci-2', name: 'Sedimentary Ripple Layer B', x: 90, y: 190, evidence: 'Fine-grained aeolian ripple alignment near crater rim', uncertainty: 'Surface loose regolith depth unverified by subsurface radar' }
-  ],
+  startPoint: null,
+  destinationPoint: null,
+  obstacles: [],
+  scienceTargets: [],
   selectedStrategy: 'alpha',
   uncertaintyPenalty: 1.5,
   maxSlopeLimit: 14
@@ -194,14 +192,6 @@ const WorkspaceContext = createContext<WorkspaceContextType | null>(null);
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>('overview');
   const [activeDataset, setActiveDataset] = useState<string>('HiRISE DTM Jezero Fan (PSP_001414_1780)');
-  const [inspectorOpen, setInspectorOpenState] = useState<boolean>(() => {
-    try {
-      const stored = localStorage.getItem('marsnav_inspector_open');
-      return stored !== null ? stored === 'true' : true;
-    } catch {
-      return true;
-    }
-  });
   const [sidebarCollapsed, setSidebarCollapsedState] = useState<boolean>(() => {
     try {
       const stored = localStorage.getItem('marsnav_sidebar_collapsed');
@@ -210,16 +200,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
   });
-
-  const setInspectorOpen = (val: boolean | ((prev: boolean) => boolean)) => {
-    setInspectorOpenState(prev => {
-      const next = typeof val === 'function' ? val(prev) : val;
-      try {
-        localStorage.setItem('marsnav_inspector_open', String(next));
-      } catch {}
-      return next;
-    });
-  };
 
   const setSidebarCollapsed = (val: boolean | ((prev: boolean) => boolean)) => {
     setSidebarCollapsedState(prev => {
@@ -236,6 +216,52 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<WorkspaceSettings>(defaultSettings);
   const [telemetry, setTelemetry] = useState<RoverTelemetry>(defaultTelemetry);
   const [sharedSession, setSharedSession] = useState<SharedTerrainSession>(defaultSharedSession);
+
+  const [selectedRegion, setSelectedRegionState] = useState<RegionTerrainData | null>(() => {
+    try {
+      const storedId = localStorage.getItem('marsnav_selected_region_id');
+      if (storedId) return getRegionTerrainData(storedId);
+    } catch {}
+    return getRegionTerrainData('jezero');
+  });
+
+  const setSelectedRegion = (region: RegionTerrainData | null) => {
+    setSelectedRegionState(region);
+    try {
+      if (region) {
+        localStorage.setItem('marsnav_selected_region_id', region.id);
+      } else {
+        localStorage.removeItem('marsnav_selected_region_id');
+      }
+    } catch {}
+  };
+
+  const loadRegionIntoWorkspace = (regionId: string): RegionTerrainData => {
+    const region = getRegionTerrainData(regionId);
+    setSelectedRegion(region);
+    
+    // Update shared terrain session
+    setSharedSession(prev => ({
+      ...prev,
+      terrainImage: region.imageUrl,
+      imageProvenance: {
+        source: `${region.name} (${region.quadrangle})`,
+        rover: 'Base Camp Reconnaissance Payload',
+        camera: region.camera,
+        sol: region.sol,
+        acquisitionUtc: region.acquisitionUtc,
+        identifier: region.imageIdentifier,
+        sourceUrl: region.imageUrl
+      },
+      startPoint: region.defaultWaypoints.startPoint,
+      destinationPoint: region.defaultWaypoints.destinationPoint,
+      scienceTargets: region.keyScienceTargets
+    }));
+
+    setActiveDataset(`${region.name} (${region.provenance})`);
+    setActiveWorkspace('marsnav-v4');
+    return region;
+  };
 
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
     backend: 'checking',
@@ -323,7 +349,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     // Sync shared session
     setSharedSession(prev => ({
       ...prev,
-      terrainImage: saved.terrainImage || '',
+      terrainImage: saved.terrainImage || prev.terrainImage || '/assets/aistudio/vis_0_f6a9756b.png',
       imageProvenance: saved.imageProvenance || prev.imageProvenance,
       startPoint: saved.startPoint || { x: 35, y: 220 },
       destinationPoint: saved.destinationPoint || { x: 220, y: 45 },
@@ -340,7 +366,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     setActiveMissionId(missionId);
     setSharedSession(prev => ({
       ...prev,
-      terrainImage: target.terrainImage || '',
+      terrainImage: target.terrainImage || prev.terrainImage || '/assets/aistudio/vis_0_f6a9756b.png',
       imageProvenance: target.imageProvenance || prev.imageProvenance,
       startPoint: target.startPoint || { x: 35, y: 220 },
       destinationPoint: target.destinationPoint || { x: 220, y: 45 },
@@ -430,7 +456,15 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const next = { ...prev, ...partial };
       if (activeMission) {
         const missionUpdates: any = {};
-        if (partial.terrainImage !== undefined) missionUpdates.terrainImage = partial.terrainImage;
+        if (partial.terrainImage !== undefined) {
+          // If blob URL or giant base64 data URL, do not store raw multi-megabytes into localStorage/Firestore
+          const imgStr = partial.terrainImage;
+          if (imgStr && (imgStr.startsWith('blob:') || (imgStr.startsWith('data:') && imgStr.length > 50000))) {
+            missionUpdates.terrainImage = activeMission.terrainImage || '/assets/aistudio/vis_0_f6a9756b.png';
+          } else {
+            missionUpdates.terrainImage = imgStr;
+          }
+        }
         if (partial.imageProvenance !== undefined) missionUpdates.imageProvenance = partial.imageProvenance;
         if (partial.startPoint !== undefined) missionUpdates.startPoint = partial.startPoint;
         if (partial.destinationPoint !== undefined) missionUpdates.destinationPoint = partial.destinationPoint;
@@ -438,27 +472,16 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         if (partial.selectedStrategy !== undefined) missionUpdates.selectedStrategy = partial.selectedStrategy;
         
         if (Object.keys(missionUpdates).length > 0) {
-          saveMissionRecord({ ...activeMission, ...missionUpdates, updatedAt: new Date().toISOString() });
+          const updatedActiveMission = { ...activeMission, ...missionUpdates, updatedAt: new Date().toISOString() };
+          setMissions(prevMissions => prevMissions.map(m => m.id === updatedActiveMission.id ? updatedActiveMission : m));
+          saveMissionRecord(updatedActiveMission).catch(() => {});
         }
       }
       return next;
     });
   };
 
-  const [recentAnalyses, setRecentAnalyses] = useState<AnalysisRecord[]>([
-    {
-      timestamp: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
-      type: 'A* Pathfinding Search',
-      status: 'Completed',
-      details: '4.82 km Jezero Delta vector computed (142 cost units, 0 boulder collisions)'
-    },
-    {
-      timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-      type: 'HiRISE DTM Orthorectification',
-      status: 'Completed',
-      details: 'Mapped Octavia E. Butler quadrangle with 0.25 m/pixel resolution'
-    }
-  ]);
+  const [recentAnalyses, setRecentAnalyses] = useState<AnalysisRecord[]>([]);
   const [recentErrors] = useState<string[]>([]);
 
   const checkSystemHealth = async () => {
@@ -527,13 +550,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         setActiveWorkspace,
         activeDataset,
         setActiveDataset,
+        selectedRegion,
+        setSelectedRegion,
+        loadRegionIntoWorkspace,
         systemStatus,
         checkSystemHealth,
         telemetry,
         settings,
         updateSettings,
-        inspectorOpen,
-        setInspectorOpen,
         sidebarCollapsed,
         setSidebarCollapsed,
         recentAnalyses,

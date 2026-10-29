@@ -19,7 +19,10 @@ import {
   BookOpen,
   Globe,
   Terminal,
-  Zap
+  Zap,
+  Volume2,
+  VolumeX,
+  MessageSquare
 } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { generateAutonomousAnswer } from '../utils/orbitKnowledgeEngine';
@@ -28,11 +31,11 @@ export default function OrbitChat({ onOpenGuide }) {
   const { activeWorkspace, activeDataset, telemetry, activeMission } = useWorkspace();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [chatMode, setChatMode] = useState('general'); // Default to general for "out of the box" feel
+  const [chatMode, setChatMode] = useState('guide'); // Default to guide mode for instant onboarding
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: 'Welcome to **ORBIT**, your advanced mission intelligence terminal. I am powered by Gemini and ready to assist with MARSNAV operations or answer any question about science, coding, history, and beyond. How can I help you today?'
+      content: 'Greetings operator! I am **ORBIT**, your dedicated Jezero Crater terrain intelligence assistant. I am ready to guide you through workspace navigation, MRO HiRISE data feeds, hazard analysis, and rover simulations.'
     }
   ]);
   const [input, setInput] = useState('');
@@ -40,29 +43,77 @@ export default function OrbitChat({ onOpenGuide }) {
   const [copiedIndex, setCopiedIndex] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('connected');
   const [errorMessage, setErrorMessage] = useState(null);
+
+  // Speech bubble & persistence state
+  const [bubbleDismissed, setBubbleDismissed] = useState(() => {
+    try {
+      return localStorage.getItem('marsnav_orbit_dismissed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isMuted, setIsMuted] = useState(() => {
+    try {
+      return localStorage.getItem('marsnav_orbit_muted') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [bubbleTip, setBubbleTip] = useState('');
+
   const messagesEndRef = useRef(null);
 
-  const suggestedPrompts = chatMode === 'guide' ? [
-    "How do I use MARSNAV?",
-    "Explain AI4MARS terrain classes",
-    "How does A* pathfinding work?",
-    "Show me how to plan a route",
-    "What are the hazard zones?",
-    "Explain the Mission Academy"
-  ] : [
-    "Tell me a fun fact about Mars",
-    "Explain quantum superposition",
-    "Write a React component for a timer",
-    "What is the history of Jezero Crater?",
-    "Solve 15 * 4.2 / 3",
-    "Why is the sky blue?"
-  ];
+  // Contextual tips per active workspace
+  useEffect(() => {
+    const tips = {
+      'overview': "Welcome to Base Camp! Choose a Martian region or launch the Mission Planner to begin your traverse.",
+      'base-camp': "Select a candidate region like Jezero Crater or Arcadia Planitia to load real mission terrain.",
+      'ops-simulator': "Mission Planner active. Click MEASURE to calculate distances or SET START/DESTINATION for A* pathfinding.",
+      'explorer-3d': "3D Terrain Explorer active. Rotate and tilt the digital elevation model to inspect topography.",
+      'live-mission': "Live NASA stream active. Browse genuine Sol captures from Perseverance & Curiosity.",
+      'route-lab': "Route Laboratory active. Compare Alpha, Beta, Gamma, and Delta pathfinding strategies side-by-side.",
+      'hazard-lab': "Hazard Analysis Lab active. Evaluate regolith sinkage and wheel slip probability.",
+      'scenario-lab': "Scenario Testing active. Simulate dust storms and power anomalies.",
+      'dataset-catalogue': "Dataset Catalogue active. Explore calibrated HiRISE and DTM elevation rasters."
+    };
+    const tip = tips[activeWorkspace] || "ORBIT intelligence ready. Click me for guidance or assistance!";
+    setBubbleTip(tip);
+  }, [activeWorkspace]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('marsnav_orbit_dismissed', bubbleDismissed.toString());
+    } catch (e) {
+      console.warn('Failed to save dismissal state', e);
+    }
+  }, [bubbleDismissed]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('marsnav_orbit_muted', isMuted.toString());
+    } catch (e) {
+      console.warn('Failed to save mute state', e);
+    }
+  }, [isMuted]);
 
   useEffect(() => {
     if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, isOpen]);
+
+  const suggestedPrompts = chatMode === 'guide' ? [
+    "How do I use MARSNAV?",
+    "Explain A* pathfinding & hazard buffers",
+    "How do I load a NASA image?",
+    "What are the route strategies?",
+    "Show me the Mission Academy"
+  ] : [
+    "Tell me a fun fact about Jezero Crater",
+    "Explain multi-mission radioisotope power",
+    "Write a TypeScript helper for distance calculation",
+    "What is the history of Martian dust storms?"
+  ];
 
   const handleSend = async (textToSend) => {
     const query = textToSend || input.trim();
@@ -139,7 +190,6 @@ export default function OrbitChat({ onOpenGuide }) {
   const renderFormattedText = (text) => {
     if (!text) return null;
 
-    // Check for code blocks
     if (text.includes('```')) {
       const codeRegex = /```([a-zA-Z0-9]*)\n([\s\S]*?)```/g;
       const parts = [];
@@ -194,9 +244,6 @@ export default function OrbitChat({ onOpenGuide }) {
       const isBullet = line.trim().startsWith('- ') || line.trim().startsWith('* ');
       const content = isBullet ? line.trim().substring(2) : line;
 
-      // Inline code rendering
-      const inlineCodeRegex = /`([^`]+)`/g;
-
       return (
         <div key={i} className={`${isBullet ? 'pl-4 my-1 flex items-start' : 'my-1'} leading-relaxed`}>
           {isBullet && <span className="text-red-500 mr-2 shrink-0">•</span>}
@@ -225,57 +272,147 @@ export default function OrbitChat({ onOpenGuide }) {
 
   return (
     <>
-      {/* Floating Launcher */}
+      {/* Compact Animated Robot-Face Launcher & Speech Bubble */}
       {!isOpen && (
-        <div className="fixed bottom-6 right-6 z-50 animate-bounce-subtle">
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end space-y-2 select-none">
+          
+          {/* Contextual Speech Bubble */}
+          {!bubbleDismissed && !isMuted && bubbleTip && (
+            <div className="relative max-w-[280px] sm:max-w-[320px] bg-[#0A0E1A] border border-cyan-500/40 rounded-2xl p-3.5 shadow-2xl shadow-cyan-950/60 text-slate-200 text-xs font-sans animate-fadeIn">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center space-x-1.5 text-cyan-400 font-mono text-[10px] font-bold">
+                  <Bot className="w-3.5 h-3.5 animate-pulse" />
+                  <span>ORBIT INTEL</span>
+                </div>
+                <div className="flex items-center space-x-1">
+                  <button
+                    onClick={() => setIsMuted(true)}
+                    className="text-slate-400 hover:text-white p-1 rounded transition"
+                    title="Mute Tips"
+                  >
+                    <VolumeX className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => setBubbleDismissed(true)}
+                    className="text-slate-400 hover:text-white p-1 rounded transition"
+                    title="Dismiss Bubble"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              <p className="leading-relaxed mb-2 text-slate-300">
+                {bubbleTip}
+              </p>
+
+              <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                {onOpenGuide && (
+                  <button
+                    onClick={onOpenGuide}
+                    className="text-[10px] font-mono font-bold text-orange-400 hover:text-orange-300 flex items-center space-x-1 cursor-pointer"
+                  >
+                    <span>Mission Academy</span>
+                    <ChevronRight className="w-3 h-3" />
+                  </button>
+                )}
+                <button
+                  onClick={() => setIsOpen(true)}
+                  className="text-[10px] font-mono font-bold text-cyan-400 hover:text-cyan-300 flex items-center space-x-1 cursor-pointer ml-auto"
+                >
+                  <span>Ask Orbit →</span>
+                </button>
+              </div>
+
+              {/* Speech bubble arrow pointer */}
+              <div className="absolute -bottom-2 right-6 w-3 h-3 bg-[#0A0E1A] border-r border-b border-cyan-500/40 transform rotate-45" />
+            </div>
+          )}
+
+          {/* Compact Robot Face Button */}
           <button
             onClick={() => setIsOpen(true)}
-            className="group relative flex items-center space-x-3 bg-gradient-to-r from-red-600 via-red-700 to-slate-900 text-white px-5 py-3.5 rounded-full shadow-2xl shadow-red-900/50 border border-red-500/40 hover:border-red-400 transition-all duration-300 hover:scale-105 cursor-pointer"
-            title="Open ORBIT AI Mission Assistant"
+            className="group relative w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-[#0F172A] via-[#0A0E1A] to-[#04060E] border-2 border-cyan-500/50 hover:border-cyan-400 shadow-[0_0_25px_rgba(6,182,212,0.3)] hover:shadow-[0_0_35px_rgba(6,182,212,0.6)] flex flex-col items-center justify-center transition-all duration-300 hover:scale-105 cursor-pointer"
+            aria-label="Open ORBIT AI Mission Assistant"
+            title="ORBIT AI Assistant"
           >
-            <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full animate-ping" />
-            <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full" />
-            
-            <div className="w-8 h-8 rounded-full bg-black/60 flex items-center justify-center border border-red-500/50 group-hover:rotate-12 transition-transform">
-              <Bot className="w-5 h-5 text-red-400" />
-            </div>
-            <div className="text-left font-mono">
-              <div className="text-xs font-bold tracking-wider text-white">ORBIT AI</div>
-              <div className="text-[9px] text-red-300">MISSION TERMINAL</div>
-            </div>
+            {/* Status Indicator Dot */}
+            <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-[#0A0E1A] shadow-md animate-pulse" />
+
+            {/* Custom Robot SVG Head */}
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-7 h-7 text-cyan-400 group-hover:text-cyan-300 transition-colors">
+              {/* Antenna */}
+              <path d="M12 2V5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              <circle cx="12" cy="1.5" r="1.2" fill="#F97316" className="animate-ping" />
+              <circle cx="12" cy="1.5" r="1.2" fill="#F97316" />
+              
+              {/* Head Shell */}
+              <rect x="3" y="5" width="18" height="15" rx="3.5" fill="#070B14" stroke="currentColor" strokeWidth="1.5" />
+              
+              {/* Ears / Side Bolts */}
+              <rect x="1.5" y="9" width="1.5" height="4" rx="0.5" fill="#F97316" />
+              <rect x="21" y="9" width="1.5" height="4" rx="0.5" fill="#F97316" />
+
+              {/* Eyes (Blinking/Pulsing) */}
+              <rect x="6.5" y="9" width="3.5" height="2.5" rx="1" fill="#06B6D4" className="animate-pulse" />
+              <rect x="14" y="9" width="3.5" height="2.5" rx="1" fill="#06B6D4" className="animate-pulse" />
+              <circle cx="8.25" cy="10.25" r="0.75" fill="#FFFFFF" />
+              <circle cx="15.75" cy="10.25" r="0.75" fill="#FFFFFF" />
+
+              {/* Mouth / Audio Grille */}
+              <rect x="7.5" y="15" width="9" height="2.5" rx="1" fill="#1E293B" stroke="#F97316" strokeWidth="0.75" />
+              <line x1="9.5" y1="16.25" x2="14.5" y2="16.25" stroke="#F97316" strokeWidth="1" strokeLinecap="round" />
+            </svg>
+
+            {/* Subtle Label on Hover */}
+            <span className="absolute -bottom-5 opacity-0 group-hover:opacity-100 transition-opacity text-[9px] font-mono font-bold text-cyan-300 bg-black/80 px-1.5 py-0.5 rounded border border-cyan-500/30 whitespace-nowrap">
+              ORBIT AI
+            </span>
           </button>
         </div>
       )}
 
-      {/* Chat Interface Modal / Drawer */}
+      {/* Full Chat Interface Modal / Drawer */}
       {isOpen && (
-        <div className={`fixed z-50 transition-all duration-300 flex flex-col bg-[#080C19] border border-red-500/30 shadow-2xl shadow-red-950/80 overflow-hidden ${
+        <div className={`fixed z-50 transition-all duration-300 flex flex-col bg-[#080C19] border border-cyan-500/40 shadow-2xl shadow-cyan-950/90 overflow-hidden ${
           isExpanded 
             ? 'inset-4 sm:inset-10 rounded-2xl' 
-            : 'bottom-4 right-4 sm:bottom-6 sm:right-6 w-[95vw] sm:w-[460px] h-[620px] max-h-[85vh] rounded-2xl'
+            : 'bottom-4 right-4 sm:bottom-6 sm:right-6 w-[95vw] sm:w-[480px] h-[640px] max-h-[88vh] rounded-2xl'
         }`}>
           
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-[#0F172A] via-[#1E1B4B] to-[#0A0E1A] border-b border-red-500/20">
+          <div className="flex items-center justify-between px-4 py-3.5 bg-gradient-to-r from-[#0F172A] via-[#1E1B4B] to-[#0A0E1A] border-b border-cyan-500/30">
             <div className="flex items-center space-x-3">
-              <div className="relative w-9 h-9 rounded-xl bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-400 shadow-inner">
+              <div className="relative w-10 h-10 rounded-xl bg-cyan-600/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-inner">
                 <Bot className="w-5 h-5" />
-                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border border-black" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border border-black animate-pulse" />
               </div>
               <div>
                 <div className="flex items-center space-x-2">
                   <span className="font-bold text-sm tracking-wider text-white">ORBIT</span>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 font-mono border border-red-500/30">
+                  <span className="text-[9px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono border border-cyan-500/40">
                     {chatMode === 'guide' ? 'GUIDE MODE' : 'GENERAL AI'}
                   </span>
                 </div>
                 <p className="text-[10px] text-slate-400 font-mono">
-                  {connectionStatus === 'connected' ? 'Neural Link Active (Gemini 1.5)' : 'Autonomous Mission Intelligence Active'}
+                  {connectionStatus === 'connected' ? 'Gemini Neural Link Active' : 'Autonomous Mission Intelligence Active'}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center space-x-1">
+            <div className="flex items-center space-x-1.5">
+              {/* Mission Academy Button */}
+              {onOpenGuide && (
+                <button
+                  onClick={onOpenGuide}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-mono font-medium bg-orange-500/20 text-orange-300 border border-orange-500/40 hover:bg-orange-500/30 transition cursor-pointer flex items-center space-x-1"
+                  title="Open Mission Academy & Onboarding Tour"
+                >
+                  <BookOpen className="w-3 h-3" />
+                  <span>Academy</span>
+                </button>
+              )}
+
               {/* Mode Toggle Button */}
               <button
                 onClick={() => {
@@ -292,12 +429,12 @@ export default function OrbitChat({ onOpenGuide }) {
                 }}
                 className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-medium transition-all cursor-pointer flex items-center space-x-1 ${
                   chatMode === 'guide' 
-                    ? 'bg-orange-600/30 text-orange-300 border border-orange-500/40' 
+                    ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/40' 
                     : 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
                 }`}
                 title="Toggle Guide vs General AI Mode"
               >
-                {chatMode === 'guide' ? <BookOpen className="w-3 h-3" /> : <Globe className="w-3 h-3" />}
+                {chatMode === 'guide' ? <Compass className="w-3 h-3" /> : <Globe className="w-3 h-3" />}
                 <span>{chatMode === 'guide' ? 'Guide' : 'General'}</span>
               </button>
 
@@ -343,15 +480,15 @@ export default function OrbitChat({ onOpenGuide }) {
                 <div className={`flex items-start space-x-2 max-w-[90%] ${msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
                   <div className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${
                     msg.role === 'user' 
-                      ? 'bg-red-600 text-white shadow-md' 
-                      : 'bg-slate-800 text-red-400 border border-red-500/30'
+                      ? 'bg-orange-600 text-white shadow-md' 
+                      : 'bg-slate-800 text-cyan-400 border border-cyan-500/30'
                   }`}>
                     {msg.role === 'user' ? <span className="text-xs font-bold">U</span> : <Bot className="w-4 h-4" />}
                   </div>
 
                   <div className={`p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${
                     msg.role === 'user'
-                      ? 'bg-gradient-to-r from-red-600 to-red-700 text-white rounded-tr-none shadow-lg shadow-red-900/20'
+                      ? 'bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-tr-none shadow-lg shadow-orange-900/20'
                       : 'bg-[#10172A] text-slate-200 border border-white/10 rounded-tl-none shadow-xl'
                   }`}>
                     {renderFormattedText(msg.content)}
@@ -375,7 +512,7 @@ export default function OrbitChat({ onOpenGuide }) {
 
             {loading && (
               <div className="flex items-center space-x-2 text-slate-400 text-xs font-mono p-3 bg-[#10172A] rounded-2xl w-fit border border-white/10">
-                <div className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                <div className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
                 <span>ORBIT is synthesizing response...</span>
               </div>
             )}
@@ -397,7 +534,7 @@ export default function OrbitChat({ onOpenGuide }) {
           </div>
 
           {/* Input Bar */}
-          <div className="p-3 bg-[#070B14] border-t border-red-500/20 flex items-center space-x-2">
+          <div className="p-3 bg-[#070B14] border-t border-cyan-500/30 flex items-center space-x-2">
             <input
               type="text"
               value={input}
@@ -405,12 +542,12 @@ export default function OrbitChat({ onOpenGuide }) {
               onKeyDown={(e) => e.key === 'Enter' && !loading && handleSend()}
               placeholder={chatMode === 'guide' ? "Ask about MARSNAV features or tools..." : "Ask me anything about science, math, coding..."}
               disabled={loading}
-              className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-red-500 transition-colors"
+              className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 transition-colors"
             />
             <button
               onClick={() => handleSend()}
               disabled={loading || !input.trim()}
-              className="p-2.5 rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white disabled:opacity-50 transition-all cursor-pointer shadow-lg shadow-red-900/30"
+              className="p-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-500 hover:to-cyan-600 text-white disabled:opacity-50 transition-all cursor-pointer shadow-lg shadow-cyan-900/30"
             >
               <Send className="w-4 h-4" />
             </button>

@@ -68,7 +68,7 @@ export function createNewMissionRecord({
     roverProfile: roverProfile || 'Perseverance (Mars 2020)',
     createdAt: now,
     updatedAt: now,
-    terrainImage: '',
+    terrainImage: '/assets/aistudio/vis_0_f6a9756b.png',
     imageProvenance: {
       source: 'HiRISE DTM (Jezero Crater)',
       rover: 'Perseverance (Mars 2020)',
@@ -76,7 +76,7 @@ export function createNewMissionRecord({
       sol: 428,
       acquisitionUtc: now,
       identifier: 'PSP_001414_1780',
-      sourceUrl: ''
+      sourceUrl: '/assets/aistudio/vis_0_f6a9756b.png'
     },
     startPoint: { x: 35, y: 220 },
     destinationPoint: { x: 220, y: 45 },

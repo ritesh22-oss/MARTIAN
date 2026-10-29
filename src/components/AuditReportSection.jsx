@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { FileSpreadsheet, FileText, Download, CheckCircle2, ShieldCheck, Database, Compass } from 'lucide-react';
 import { MARS_REFERENCE_DATUM, NASA_DATA_SOURCES } from '../utils/marsScienceData';
+import { useTerrainAnalysis } from '../context/TerrainAnalysisContext';
 
 export default function AuditReportSection() {
+  const { analysis } = useTerrainAnalysis();
   const [exported, setExported] = useState(false);
   const [exportType, setExportType] = useState('');
 
@@ -11,13 +13,17 @@ export default function AuditReportSection() {
     version: "2.4.0-spaceapps",
     timestamp: new Date().toISOString(),
     referenceDatum: MARS_REFERENCE_DATUM,
-    activeSources: NASA_DATA_SOURCES.map(s => s.name),
-    selectedRoute: "Route Alpha: Direct Optimal Vector (4.82 km)",
-    algorithmParameters: {
-      astarGridResolution: "200x200 DTM nodes",
-      uncertaintyPenaltyWeight: 1.5,
-      maxSlopeLimitDeg: 14,
-      roverMassKg: 1025
+    activeImage: {
+      id: analysis.imageId,
+      title: analysis.imageTitle,
+      dimensions: `${analysis.imageWidth}x${analysis.imageHeight}px`
+    },
+    computedMetrics: {
+      totalDistanceM: analysis.routes[analysis.selectedRouteIndex]?.totalLengthM || 0,
+      traversalCost: analysis.routes[analysis.selectedRouteIndex]?.totalCost || 0,
+      maxSlopeDeg: analysis.routes[analysis.selectedRouteIndex]?.maxSlope || 0,
+      waypointCount: analysis.routes[analysis.selectedRouteIndex]?.waypoints.length || 0,
+      feasibility: analysis.routes[analysis.selectedRouteIndex]?.difficulty || 'N/A'
     },
     validationStatus: "Passed 8/8 automated test suites"
   };
@@ -39,12 +45,11 @@ export default function AuditReportSection() {
       "Metric,Value\n" +
       "System Name,MARSNAV Mission Planner\n" +
       "Version,2.4.0\n" +
-      "Reference Datum,Mars Areoid MOLA\n" +
-      "Selected Route,Route Alpha Direct Optimal\n" +
-      "Total Distance (m),4820\n" +
-      "Duration (mins),240\n" +
-      "Elevation Gain (m),65\n" +
-      "Max Slope (deg),8.2\n" +
+      "Active Image," + analysis.imageTitle + "\n" +
+      "Total Distance (m)," + (analysis.routes[analysis.selectedRouteIndex]?.totalLengthM || 0) + "\n" +
+      "Traversal Cost," + (analysis.routes[analysis.selectedRouteIndex]?.totalCost || 0) + "\n" +
+      "Max Slope (deg)," + (analysis.routes[analysis.selectedRouteIndex]?.maxSlope || 0) + "\n" +
+      "Waypoints," + (analysis.routes[analysis.selectedRouteIndex]?.waypoints.length || 0) + "\n" +
       "Validation Status,Passed 8/8 Tests\n";
     const encodedUri = encodeURIComponent(csvContent);
     const downloadAnchor = document.createElement('a');

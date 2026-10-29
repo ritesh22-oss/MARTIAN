@@ -316,8 +316,8 @@ export default function TerrainAnalysis() {
         updateActiveMission({
           terrainImage: uploadedImage || '',
           segmentedHazards: [
-            { id: 'hz_rock', type: 'rock', count: Math.round(counts.big_rock / 5000) || 4 },
-            { id: 'hz_sand', type: 'sand', count: Math.round(counts.sand / 5000) || 6 }
+            { id: 'hz_rock', type: 'rock', count: Math.round(counts.big_rock / 5000) },
+            { id: 'hz_sand', type: 'sand', count: Math.round(counts.sand / 5000) }
           ],
           detectionMethod: 'AI4Mars ResNet-34 U-Net'
         });

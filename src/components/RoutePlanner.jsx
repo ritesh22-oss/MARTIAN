@@ -380,8 +380,8 @@ export default function RoutePlanner({ onOpenMissions }) {
         initialData={{
           title: `Jezero Traverse (${startPos.x},${startPos.y}) → (${goalPos.x},${goalPos.y})`,
           routeType: 'A* Grid Path',
-          distanceM: pathResult ? Math.round(pathResult.steps * 45) : 800,
-          energyWh: pathResult ? Math.round(pathResult.totalCost * 28) : 320,
+          distanceM: pathResult ? Math.round(pathResult.pixelLength * 1.5) : 0,
+          energyWh: pathResult ? Math.round(pathResult.totalCost * 1.2) : 0,
           notes: `A* grid vector: ${pathResult?.steps || 0} steps, explored ${pathResult?.exploredCount || 0} nodes with total cost ${pathResult?.totalCost || 0}.`
         }}
         onSuccess={() => {

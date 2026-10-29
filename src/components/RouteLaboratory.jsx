@@ -61,9 +61,9 @@ export default function RouteLaboratory() {
       path: alphaPath,
       pixelLength: alphaLen,
       durationMins: Math.round((alphaLen * 2.4) / 0.04 / 60),
-      traversalCost: Math.round(alphaLen * 1.0),
-      riskScore: 14.5,
-      feasible: true,
+      traversalCost: Math.round(alphaLen * 1.05),
+      riskScore: Math.min(20, (alphaLen > 0 ? (alphaLen / 100) * 1.2 : 0)).toFixed(1),
+      feasible: alphaLen > 0,
       description: 'Minimizes total traversed distance across traversable terrain with minimal detours.'
     },
     beta: {
@@ -73,9 +73,9 @@ export default function RouteLaboratory() {
       path: betaPath,
       pixelLength: betaLen,
       durationMins: Math.round((betaLen * 2.4) / 0.04 / 60),
-      traversalCost: Math.round(betaLen * 0.82),
-      riskScore: 6.2,
-      feasible: true,
+      traversalCost: Math.round(betaLen * 0.92),
+      riskScore: Math.min(20, (betaLen > 0 ? (betaLen / 100) * 0.8 : 0)).toFixed(1),
+      feasible: betaLen > 0,
       description: 'Minimizes cumulative traversal cost by steering around sandy ridges and rough obstacles.'
     },
     gamma: {
@@ -86,8 +86,8 @@ export default function RouteLaboratory() {
       pixelLength: gammaLen,
       durationMins: Math.round((gammaLen * 2.4) / 0.04 / 60),
       traversalCost: Math.round(gammaLen * 1.15),
-      riskScore: 3.5,
-      feasible: true,
+      riskScore: Math.min(20, (gammaLen > 0 ? (gammaLen / 100) * 0.5 : 0)).toFixed(1),
+      feasible: gammaLen > 0,
       description: `Applies uncertainty penalty (${uncertaintyPenalty}x) to avoid unmapped or low-confidence cells.`
     },
     delta: {
@@ -98,8 +98,8 @@ export default function RouteLaboratory() {
       pixelLength: deltaLen,
       durationMins: Math.round((deltaLen * 2.4) / 0.04 / 60),
       traversalCost: Math.round(deltaLen * 1.35),
-      riskScore: 8.9,
-      feasible: true,
+      riskScore: Math.min(20, (deltaLen > 0 ? (deltaLen / 100) * 1.8 : 0)).toFixed(1),
+      feasible: deltaLen > 0,
       description: 'Passes near confirmed science targets for geological sampling before reaching destination.'
     }
   };

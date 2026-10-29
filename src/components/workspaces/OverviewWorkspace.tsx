@@ -30,9 +30,6 @@ import {
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useAuth } from '../../context/AuthContext';
 import { MARS_REFERENCE_DATUM } from '../../utils/marsScienceData';
-import TerrainIntelligenceVerifyModal from '../TerrainIntelligenceVerifyModal';
-import RiskAwareNavVerifyModal from '../RiskAwareNavVerifyModal';
-import RouteOptimizationVerifyModal from '../RouteOptimizationVerifyModal';
 
 export default function OverviewWorkspace() {
   const { user, login } = useAuth();
@@ -50,20 +47,19 @@ export default function OverviewWorkspace() {
     updateActiveMission
   } = useWorkspace();
 
-  const [activeVerifyModal, setActiveVerifyModal] = useState<'terrain' | 'risk' | 'route' | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState('');
   const [showFullLogModal, setShowFullLogModal] = useState(false);
 
   // Fallback defaults if activeMission is loading
   const currentMission = activeMission || {
-    id: activeMissionId || 'msn_default',
-    name: 'Sol 428 Jezero Delta Exploration',
-    status: 'In Progress',
-    roverProfile: 'Perseverance (Mars 2020)',
+    id: activeMissionId || 'msn_pending',
+    name: 'Initializing Mission Data...',
+    status: 'Standby',
+    roverProfile: 'Rover Profile Syncing...',
     createdAt: new Date().toISOString(),
-    startPoint: { x: 35, y: 220 },
-    destinationPoint: { x: 220, y: 45 },
+    startPoint: { x: 0, y: 0 },
+    destinationPoint: { x: 0, y: 0 },
     checkpoints: [],
     traversalLog: [],
     segmentedHazards: [],
@@ -141,7 +137,7 @@ export default function OverviewWorkspace() {
   ];
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto text-xs font-sans w-full">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1800px] mx-auto text-xs font-sans w-full">
       {/* 1. Header & Active Mission Controls */}
       <div className="overview-hero-card bg-[#0A0E1C] border border-slate-800/80 p-5 sm:p-6 lg:p-7 rounded-2xl shadow-xl">
         <div className="overview-hero-grid">
@@ -372,20 +368,13 @@ export default function OverviewWorkspace() {
                 </div>
               </div>
 
-              <div className="pt-4 mt-4 border-t border-slate-800/60 flex items-center gap-2">
+              <div className="pt-4 mt-4 border-t border-slate-800/60">
                 <button
                   onClick={() => setActiveWorkspace(module.workspaceTarget)}
-                  className="flex-1 py-2 px-3 rounded-md bg-orange-600/15 hover:bg-orange-600/25 border border-orange-500/30 text-orange-200 font-medium text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  className="w-full py-2.5 px-4 rounded-md bg-orange-600/15 hover:bg-orange-600/25 border border-orange-500/30 text-orange-200 font-medium text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
                   <span>Open Module</span>
                   <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setActiveVerifyModal(module.id)}
-                  className="py-2 px-3 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 font-medium text-xs transition-colors cursor-pointer"
-                  title="View technical specification and verification rubric"
-                >
-                  Verify
                 </button>
               </div>
             </div>
@@ -552,17 +541,6 @@ export default function OverviewWorkspace() {
           )}
         </div>
       </div>
-
-      {/* Verification Modals */}
-      {activeVerifyModal === 'terrain' && (
-        <TerrainIntelligenceVerifyModal isOpen={true} onClose={() => setActiveVerifyModal(null)} />
-      )}
-      {activeVerifyModal === 'risk' && (
-        <RiskAwareNavVerifyModal isOpen={true} onClose={() => setActiveVerifyModal(null)} />
-      )}
-      {activeVerifyModal === 'route' && (
-        <RouteOptimizationVerifyModal isOpen={true} onClose={() => setActiveVerifyModal(null)} />
-      )}
 
       {/* Full Traversal Log Modal */}
       {showFullLogModal && (

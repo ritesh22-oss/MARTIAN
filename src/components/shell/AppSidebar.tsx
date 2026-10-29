@@ -50,7 +50,8 @@ export default function AppSidebar() {
       name: 'Mission',
       items: [
         { id: 'overview', label: 'Mission Overview', icon: <LayoutDashboard className="w-4 h-4" /> },
-        { id: 'marsnav-v4', label: 'MARSNAV v4.0 Planner', icon: <Navigation className="w-4 h-4 text-orange-400" />, badge: 'v4.0' },
+        { id: 'marsnav-v4', label: 'MARSWALK OPS Simulator', icon: <Navigation className="w-4 h-4 text-orange-400" />, badge: 'EVA' },
+        { id: 'field-notebook', label: 'Spatial Field Notebook', icon: <BookOpen className="w-4 h-4 text-orange-300" />, badge: 'NOTES' },
         { id: 'live-mission-data', label: 'Live NASA Stream', icon: <Radio className="w-4 h-4 text-emerald-400" />, badge: 'LIVE' },
         { id: 'explorer-3d', label: '3D Terrain Explorer', icon: <Compass className="w-4 h-4 text-orange-400" />, badge: '3D' },
         { id: 'mission-data', label: 'Mission Data & DEM', icon: <Layers className="w-4 h-4" /> },
@@ -60,6 +61,8 @@ export default function AppSidebar() {
     {
       name: 'Analysis',
       items: [
+        { id: 'base-camp-intel', label: 'Base Camp Intelligence', icon: <Compass className="w-4 h-4 text-cyan-400" />, badge: 'SITES' },
+        { id: 'nasa-raw-feed', label: 'NASA Raw Image Feed', icon: <Radio className="w-4 h-4 text-orange-400" />, badge: 'JPL' },
         { id: 'terrain-intelligence', label: 'Terrain Intelligence', icon: <Cpu className="w-4 h-4 text-cyan-400" /> },
         { id: 'dataset-catalogue', label: 'Dataset Catalogue', icon: <Database className="w-4 h-4 text-emerald-400" /> },
         { id: 'hazard-analysis', label: 'Hazard Analysis', icon: <ShieldAlert className="w-4 h-4 text-amber-400" /> },
@@ -99,20 +102,29 @@ export default function AppSidebar() {
       }`}
     >
       {/* Top Application Brand Header - Sticky */}
-      <div className="sticky top-0 h-12 px-3.5 border-b border-slate-800/80 flex items-center justify-between bg-[#060812] z-20">
-        <div className="flex items-center gap-2.5 overflow-hidden">
-          <div className="w-7 h-7 rounded-md bg-gradient-to-br from-red-600 via-orange-600 to-amber-700 flex items-center justify-center shrink-0 shadow-sm">
-            <Orbit className="w-4 h-4 text-white" />
+      <div className="sticky top-0 h-16 px-4 border-b border-slate-800/80 flex items-center justify-between bg-[#060812]/95 backdrop-blur-md z-20 transition-all duration-200">
+        <div className="flex items-center gap-3 overflow-hidden w-full">
+          <div className="relative group shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 via-red-600 to-amber-600 flex items-center justify-center shadow-lg shadow-orange-950/40 ring-1 ring-white/20">
+              <Orbit className="w-5 h-5 text-white" />
+            </div>
+            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#060812] flex items-center justify-center">
+              <span className={`w-2 h-2 rounded-full ${systemStatus.backend === 'connected' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]' : 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.9)]'} animate-pulse`} />
+            </div>
           </div>
+
           {!sidebarCollapsed && (
-            <div className="leading-tight truncate">
-              <div className="flex items-center gap-1.5">
-                <span className="font-bold text-xs tracking-wider text-white">MARSNAV</span>
-                <span className="text-[10px] text-slate-400 font-mono">v3.8</span>
+            <div className="leading-tight truncate flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-1.5">
+                <span className="font-extrabold text-xs tracking-widest text-white font-mono uppercase">MARSNAV</span>
+                <span className="px-2 py-0.5 text-[10px] font-mono font-bold text-orange-400 bg-orange-500/15 border border-orange-500/30 rounded-md tracking-tight shrink-0 shadow-sm">
+                  v1.00
+                </span>
               </div>
-              <div className="text-[10px] text-slate-400 font-mono tracking-tight flex items-center gap-1">
-                <span className={`w-1.5 h-1.5 rounded-full ${systemStatus.backend === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                <span>{systemStatus.backend === 'connected' ? 'Connected' : 'Autonomous'}</span>
+              <div className="text-[11px] text-slate-400 font-mono tracking-tight flex items-center gap-1.5 mt-1">
+                <span className="text-slate-400 font-medium truncate">
+                  {systemStatus.backend === 'connected' ? 'ARES-OS Online' : 'Autonomous Node'}
+                </span>
               </div>
             </div>
           )}

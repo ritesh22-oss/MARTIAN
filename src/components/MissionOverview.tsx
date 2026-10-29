@@ -1,15 +1,14 @@
-import React, { useState } from 'react';
-import { Cpu, ShieldAlert, Navigation, Layers, Compass, Zap } from 'lucide-react';
-import TerrainIntelligenceVerifyModal from './TerrainIntelligenceVerifyModal';
-import RiskAwareNavVerifyModal from './RiskAwareNavVerifyModal';
-import RouteOptimizationVerifyModal from './RouteOptimizationVerifyModal';
+import React from 'react';
+import { Cpu, ShieldAlert, Navigation, Layers } from 'lucide-react';
+import { useWorkspace } from '../context/WorkspaceContext';
 
 export default function MissionOverview() {
-  const [activeVerifyModal, setActiveVerifyModal] = useState<'terrain' | 'risk' | 'route' | null>(null);
+  const { setActiveWorkspace } = useWorkspace();
 
   const features = [
     {
       id: 'terrain' as const,
+      workspaceTarget: 'terrain-intelligence' as const,
       icon: <Cpu className="w-6 h-6 text-orange-400" />,
       title: "Terrain Intelligence",
       description:
@@ -18,6 +17,7 @@ export default function MissionOverview() {
     },
     {
       id: 'risk' as const,
+      workspaceTarget: 'risk-assessment' as const,
       icon: <ShieldAlert className="w-6 h-6 text-red-400" />,
       title: "Risk-Aware Navigation",
       description:
@@ -26,6 +26,7 @@ export default function MissionOverview() {
     },
     {
       id: 'route' as const,
+      workspaceTarget: 'route-lab' as const,
       icon: <Navigation className="w-6 h-6 text-amber-400" />,
       title: "Route Optimization",
       description:
@@ -39,7 +40,7 @@ export default function MissionOverview() {
       <div className="max-w-7xl mx-auto space-y-16">
         {/* Section Header */}
         <div className="text-center space-y-4 max-w-3xl mx-auto">
-          <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-orange-400 uppercase tracking-widest">
+          <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-orange-400 uppercase tracking-widest">
             <Layers className="w-3.5 h-3.5" />
             <span>Mission Overview</span>
           </div>
@@ -59,7 +60,7 @@ export default function MissionOverview() {
           {features.map((feature) => (
             <div
               key={feature.id}
-              onClick={() => setActiveVerifyModal(feature.id)}
+              onClick={() => setActiveWorkspace(feature.workspaceTarget)}
               className="group relative bg-[#0B1020]/80 border border-white/10 hover:border-orange-500/50 rounded-3xl p-8 backdrop-blur-xl shadow-xl transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-orange-600/10 flex flex-col justify-between cursor-pointer"
             >
               <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/5 rounded-bl-full pointer-events-none group-hover:bg-orange-500/10 transition-colors" />
@@ -87,27 +88,13 @@ export default function MissionOverview() {
               <div className="pt-6 mt-6 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-400">
                 <span>Module Status: Operational</span>
                 <span className="text-orange-400 group-hover:translate-x-1 transition-transform inline-flex items-center font-bold">
-                  Verify &rarr;
+                  Open Module &rarr;
                 </span>
               </div>
             </div>
           ))}
         </div>
       </div>
-
-      {/* Verification Modals for the 3 Cards */}
-      <TerrainIntelligenceVerifyModal
-        isOpen={activeVerifyModal === 'terrain'}
-        onClose={() => setActiveVerifyModal(null)}
-      />
-      <RiskAwareNavVerifyModal
-        isOpen={activeVerifyModal === 'risk'}
-        onClose={() => setActiveVerifyModal(null)}
-      />
-      <RouteOptimizationVerifyModal
-        isOpen={activeVerifyModal === 'route'}
-        onClose={() => setActiveVerifyModal(null)}
-      />
     </section>
   );
 }

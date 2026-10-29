@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { Search } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
 import { WorkspaceProvider, useWorkspace, WorkspaceId } from './context/WorkspaceContext';
+import { TerrainAnalysisProvider } from './context/TerrainAnalysisContext';
 import BootScreen from './components/BootScreen';
 import AppSidebar from './components/shell/AppSidebar';
 import AppTopBar from './components/shell/AppTopBar';
-import AppInspector from './components/shell/AppInspector';
 import CommandPalette from './components/shell/CommandPalette';
 
 // Workspaces
@@ -29,6 +29,9 @@ import RoutePlanner from './components/RoutePlanner';
 import RouteLaboratory from './components/RouteLaboratory';
 import ScenarioTestingLab from './components/ScenarioTestingLab';
 import ValidationTestHarness from './components/ValidationTestHarness';
+import NASAImageFeed from './components/NASAImageFeed';
+import BaseCampIntelligence from './components/BaseCampIntelligence';
+import FieldNotebook from './components/FieldNotebook';
 
 // Modals & Floating Assistants
 import SavedMissionsModal from './components/SavedMissionsModal';
@@ -36,7 +39,7 @@ import MarsNavGuide from './components/MarsNavGuide';
 import OrbitChat from './components/OrbitChat';
 
 function WorkstationMain() {
-  const { activeWorkspace, setActiveWorkspace, inspectorOpen, setCommandPaletteOpen } = useWorkspace();
+  const { activeWorkspace, setActiveWorkspace, setCommandPaletteOpen } = useWorkspace();
   const [missionsModalOpen, setMissionsModalOpen] = useState(false);
   const [guideModalOpen, setGuideModalOpen] = useState(false);
 
@@ -47,6 +50,16 @@ function WorkstationMain() {
         return <OverviewWorkspace />;
       case 'marsnav-v4':
         return <MarsNavV4Workspace />;
+      case 'field-notebook':
+        return <FieldNotebook />;
+      case 'base-camp-intel':
+        return <BaseCampIntelligence />;
+      case 'nasa-raw-feed':
+        return (
+          <div className="p-4 lg:p-6 max-w-[1800px] mx-auto w-full">
+            <NASAImageFeed onSelectImage={() => setActiveWorkspace('marsnav-v4')} />
+          </div>
+        );
       case 'explorer-3d':
         return <Explorer3DWorkspace onOpenMissions={() => setMissionsModalOpen(true)} />;
       case 'live-mission-data':
@@ -57,19 +70,19 @@ function WorkstationMain() {
         return <ConfigurationWorkspace />;
       case 'terrain-intelligence':
         return (
-          <div className="p-4 lg:p-6 max-w-[1600px] mx-auto">
+          <div className="p-4 lg:p-6 max-w-[1800px] mx-auto w-full">
             <TerrainAnalysis />
           </div>
         );
       case 'dataset-catalogue':
         return (
-          <div className="p-4 lg:p-6 max-w-[1600px] mx-auto">
+          <div className="p-4 lg:p-6 max-w-[1800px] mx-auto w-full">
             <DatasetCatalogue />
           </div>
         );
       case 'hazard-analysis':
         return (
-          <div className="p-4 lg:p-6 max-w-[1600px] mx-auto">
+          <div className="p-4 lg:p-6 max-w-[1800px] mx-auto w-full">
             <HazardAnalysisLab />
           </div>
         );
@@ -77,25 +90,25 @@ function WorkstationMain() {
         return <RiskAssessmentWorkspace />;
       case 'route-lab':
         return (
-          <div className="p-4 lg:p-6 max-w-[1600px] mx-auto">
+          <div className="p-4 lg:p-6 max-w-[1800px] mx-auto w-full">
             <RoutePlanner onOpenMissions={() => setMissionsModalOpen(true)} />
           </div>
         );
       case 'route-comparison':
         return (
-          <div className="p-4 lg:p-6 max-w-[1600px] mx-auto">
+          <div className="p-4 lg:p-6 max-w-[1800px] mx-auto w-full">
             <RouteLaboratory />
           </div>
         );
       case 'scenario-testing':
         return (
-          <div className="p-4 lg:p-6 max-w-[1600px] mx-auto">
+          <div className="p-4 lg:p-6 max-w-[1800px] mx-auto w-full">
             <ScenarioTestingLab />
           </div>
         );
       case 'validation-harness':
         return (
-          <div className="p-4 lg:p-6 max-w-[1600px] mx-auto">
+          <div className="p-4 lg:p-6 max-w-[1800px] mx-auto w-full">
             <ValidationTestHarness />
           </div>
         );
@@ -163,9 +176,6 @@ function WorkstationMain() {
         </main>
       </div>
 
-      {/* 3. Contextual Right Inspector Panel (Collapsible) */}
-      {inspectorOpen && <AppInspector />}
-
       {/* Global Utilities & Modals */}
       <CommandPalette />
 
@@ -199,7 +209,9 @@ export default function App() {
   return (
     <AuthProvider>
       <WorkspaceProvider>
-        <WorkstationMain />
+        <TerrainAnalysisProvider>
+          <WorkstationMain />
+        </TerrainAnalysisProvider>
       </WorkspaceProvider>
     </AuthProvider>
   );

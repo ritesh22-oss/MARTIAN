@@ -37,14 +37,29 @@ service cloud.firestore {
     }
 
     function isValidMission(data, userId) {
-      return data.keys().hasAll(['id', 'userId', 'title', 'createdAt']) &&
-             data.keys().hasOnly(['id', 'userId', 'title', 'routeType', 'distanceM', 'energyWh', 'notes', 'createdAt']) &&
+      return data.keys().hasAll(['id', 'userId', 'name', 'createdAt']) &&
              data.userId == userId &&
-             data.title is string && data.title.size() <= 200 &&
-             (!('routeType' in data) || (data.routeType is string && data.routeType.size() <= 50)) &&
-             (!('distanceM' in data) || data.distanceM is number) &&
-             (!('energyWh' in data) || data.energyWh is number) &&
-             (!('notes' in data) || (data.notes is string && data.notes.size() <= 5000)) &&
+             data.name is string && data.name.size() <= 200 &&
+             (!('status' in data) || data.status is string) &&
+             (!('roverProfile' in data) || data.roverProfile is string) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 5000)) &&
+             (!('terrainImage' in data) || data.terrainImage is string) &&
+             (!('imageProvenance' in data) || data.imageProvenance is map) &&
+             (!('startPoint' in data) || data.startPoint is map) &&
+             (!('destinationPoint' in data) || data.destinationPoint is map) &&
+             (!('obstacles' in data) || data.obstacles is list) &&
+             (!('segmentedHazards' in data) || data.segmentedHazards is list) &&
+             (!('detectionMethod' in data) || data.detectionMethod is string) &&
+             (!('scienceTargets' in data) || data.scienceTargets is list) &&
+             (!('selectedStrategy' in data) || data.selectedStrategy is string) &&
+             (!('routeMetrics' in data) || data.routeMetrics is map) &&
+             (!('rawRoutePath' in data) || data.rawRoutePath is list) &&
+             (!('simulationState' in data) || data.simulationState is map) &&
+             (!('checkpoints' in data) || data.checkpoints is list) &&
+             (!('traversalLog' in data) || data.traversalLog is list) &&
+             (!('validationPassed' in data) || data.validationPassed is bool) &&
+             (!('isArchived' in data) || data.isArchived is bool) &&
+             (!('updatedAt' in data) || data.updatedAt is string) &&
              data.createdAt is string;
     }
 

@@ -3,8 +3,6 @@ import {
   Database,
   Download,
   BookOpen,
-  PanelRightOpen,
-  PanelRightClose,
   Cloud,
   CheckCircle2,
   SlidersHorizontal
@@ -22,8 +20,6 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
     activeDataset,
     systemStatus,
     checkSystemHealth,
-    inspectorOpen,
-    setInspectorOpen,
     setCommandPaletteOpen,
     activeMission,
     setMissionManagerOpen
@@ -57,7 +53,7 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
       case 'risk-assessment':
         return { category: 'Analysis', title: 'Risk Assessment' };
       case 'marsnav-v4':
-        return { category: 'Navigation', title: 'Mission Planner v4.0' };
+        return { category: 'Navigation', title: 'MARSWALK OPS Simulator' };
       case 'route-lab':
         return { category: 'Navigation', title: 'Route Laboratory' };
       case 'route-comparison':
@@ -170,20 +166,6 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
         >
           <BookOpen className="w-4 h-4 text-amber-400" />
           <span>GUIDE &amp; TUTORIALS</span>
-        </button>
-
-        {/* Right Inspector Toggle */}
-        <button
-          onClick={() => setInspectorOpen(!inspectorOpen)}
-          className={`p-1.5 rounded-md border transition-colors cursor-pointer ${
-            inspectorOpen
-              ? 'bg-orange-500/15 border-orange-500/40 text-orange-300'
-              : 'bg-slate-900/40 border-slate-800 text-slate-400 hover:text-white'
-          }`}
-          title={inspectorOpen ? 'Collapse Inspector (Ctrl+\\)' : 'Expand Inspector'}
-          aria-label={inspectorOpen ? 'Collapse Inspector' : 'Expand Inspector'}
-        >
-          {inspectorOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
         </button>
 
         {/* Export Notification Toast */}

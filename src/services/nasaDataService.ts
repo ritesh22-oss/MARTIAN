@@ -67,9 +67,27 @@ export interface FetchRawImagesParams {
   mission?: 'mars2020' | 'msl';
   camera?: string;
   sol?: number | string;
+  order?: 'newest' | 'oldest';
+  fromSol?: number;
+  toSol?: number;
+  fromDate?: string;
+  toDate?: string;
   limit?: number;
   page?: number;
   signal?: AbortSignal;
+}
+
+export interface SyncLatestResult {
+  status: 'success' | 'fallback';
+  mission: 'mars2020' | 'msl';
+  latestSol: number;
+  latestObservationDate: string;
+  latestImageId: string;
+  latestCamera: string;
+  totalObservations: number;
+  totalImagesArchive: number;
+  lastCheckedAt: string;
+  source: string;
 }
 
 // In-memory client cache with 5-minute TTL
@@ -78,7 +96,7 @@ interface CacheItem<T> {
   timestamp: number;
 }
 const clientCache = new Map<string, CacheItem<any>>();
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_TTL_MS = 3 * 60 * 1000;
 
 function getFromCache<T>(key: string): T | null {
   const item = clientCache.get(key);
@@ -95,17 +113,40 @@ function saveToCache<T>(key: string, data: T) {
 }
 
 /**
- * Fetch raw rover images from NASA JPL Mars Raw Feed
+ * Check and synchronize latest NASA Mars rover observations
+ */
+export async function syncLatestObservation(mission: 'mars2020' | 'msl' = 'mars2020'): Promise<SyncLatestResult> {
+  const res = await fetch(`/api/nasa/sync/latest?mission=${mission}`);
+  if (!res.ok) {
+    throw new Error(`Failed to check latest NASA observations: HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+/**
+ * Fetch raw rover images from NASA JPL Mars Raw Feed with sorting, full timeline & deduplication
  */
 export async function fetchMarsRawImages(params: FetchRawImagesParams = {}): Promise<{
   images: MarsRawImage[];
   totalResults: number;
+  totalImages?: number;
   sol: number;
+  latestObservationDate?: string;
+  order?: 'newest' | 'oldest';
+  mission?: string;
   isStale: boolean;
   retrievedAt: string;
 }> {
-  const { mission = 'mars2020', camera, sol, limit = 24, page = 0, signal } = params;
-  const cacheKey = `raw_${mission}_${camera || 'all'}_${sol || 'latest'}_${limit}_${page}`;
+  const {
+    mission = 'mars2020',
+    camera,
+    sol,
+    order = 'newest',
+    limit = 24,
+    page = 0,
+    signal
+  } = params;
+  const cacheKey = `raw_${mission}_${camera || 'all'}_${sol || 'latest'}_${order}_${limit}_${page}`;
   
   const cached = getFromCache<any>(cacheKey);
   if (cached) {
@@ -116,7 +157,8 @@ export async function fetchMarsRawImages(params: FetchRawImagesParams = {}): Pro
   queryParams.set('mission', mission);
   queryParams.set('num', String(limit));
   queryParams.set('page', String(page));
-  if (camera && camera !== 'ALL') queryParams.set('camera', camera);
+  queryParams.set('order', order);
+  if (camera && camera !== 'ALL' && camera !== 'all') queryParams.set('camera', camera);
   if (sol !== undefined && sol !== 'latest') queryParams.set('sol', String(sol));
 
   try {
@@ -129,7 +171,6 @@ export async function fetchMarsRawImages(params: FetchRawImagesParams = {}): Pro
     return data;
   } catch (err: any) {
     if (signal?.aborted) throw err;
-    // If request fails, return cached if available or fallback
     const stale = clientCache.get(cacheKey)?.data;
     if (stale) {
       return { ...stale, isStale: true };

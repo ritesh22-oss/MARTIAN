@@ -95,6 +95,8 @@ export interface SharedTerrainSession {
   selectedStrategy: 'alpha' | 'beta' | 'gamma' | 'delta';
   uncertaintyPenalty: number;
   maxSlopeLimit: number;
+  marksWalkPath?: Array<{ x: number; y: number }>;
+  astarComputedPath?: Array<{ x: number; y: number }>;
 }
 
 import { RegionTerrainData, getRegionTerrainData } from '../services/regionTerrainService';

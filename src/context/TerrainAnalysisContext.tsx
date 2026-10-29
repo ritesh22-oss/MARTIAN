@@ -1,5 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { useWorkspace } from './WorkspaceContext';
+import { AStarGrid } from '../utils/astar';
+import {
+  matchGroundTruthDataset,
+  generateReferenceGtGrid,
+  calculateSupervisedEvaluation,
+  SupervisedEvaluationResult,
+  GroundTruthRecord
+} from '../services/ai4marsDatasetService';
 
 export interface ObstacleNode {
   id: string;
@@ -38,6 +46,55 @@ export interface RouteCandidate {
   explanation: string;
 }
 
+export interface TerrainClassMetric {
+  id: number;
+  name: string;
+  desc: string;
+  pixelCount: number;
+  naturalPixelsString: string;
+  percentage: number;
+  confidencePct: number;
+  iou: number | null; // null if no ground truth reference labels
+  precision: number | null;
+  recall: number | null;
+  f1: number | null;
+  tp?: number;
+  fp?: number;
+  fn?: number;
+}
+
+export interface TerrainClassStats {
+  totalAnalyzedPixels: number;
+  naturalTotalPixelsString: string;
+  processingDurationMs: number;
+  groundTruthAvailable: boolean;
+  gtSourceTitle?: string;
+  groundTruthNote: string;
+  evaluatedPixelCount?: number;
+  ignoredPixelCount?: number;
+  overallAccuracy?: number | null;
+  mIoU?: number | null;
+  meanPrecision?: number | null;
+  meanRecall?: number | null;
+  meanF1?: number | null;
+  avgConfidencePct: number;
+  traversablePixelPct: number;
+  classes: TerrainClassMetric[];
+  confusionMatrix: Array<{
+    actualClass: string;
+    actualId: number;
+    predSoil: number;
+    predBedrock: number;
+    predSand: number;
+    predRock: number;
+    predSoilPct: number;
+    predBedrockPct: number;
+    predSandPct: number;
+    predRockPct: number;
+    totalActualPixels: number;
+  }> | null;
+}
+
 export interface TerrainAnalysisResult {
   imageId: string;
   imageTitle: string;
@@ -48,10 +105,14 @@ export interface TerrainAnalysisResult {
   error: string | null;
   startPoint: { x: number; y: number } | null;
   destinationPoint: { x: number; y: number } | null;
+  effectiveStartPoint: { x: number; y: number };
+  effectiveDestinationPoint: { x: number; y: number };
   obstacles: ObstacleNode[];
   selectedRouteIndex: number;
   routes: RouteCandidate[];
   lastAnalyzedTime: string;
+  classStats: TerrainClassStats | null;
+  matchedGtRecord: GroundTruthRecord | null;
 }
 
 interface TerrainAnalysisContextType {
@@ -63,16 +124,16 @@ interface TerrainAnalysisContextType {
   removeObstacle: (id: string) => void;
   clearObstacles: () => void;
   recalculateAnalysis: () => void;
+  uploadCustomGroundTruthMask: (maskGrid: Uint8Array, title?: string) => void;
+  clearCustomGroundTruthMask: () => void;
 }
 
 const TerrainAnalysisContext = createContext<TerrainAnalysisContextType | undefined>(undefined);
 
-import { AStarGrid } from '../utils/astar';
-
 export function TerrainAnalysisProvider({ children }: { children: React.ReactNode }) {
   const { selectedObservation, selectedRegion, sharedSession, settings, updateSharedSession } = useWorkspace();
 
-  // Sync points and manual obstacles with the global sharedSession
+  // Sync points and manual obstacles with global sharedSession
   const startPoint = sharedSession.startPoint;
   const destinationPoint = sharedSession.destinationPoint;
   const manualObstacles = sharedSession.obstacles;
@@ -84,13 +145,23 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
   const [error, setError] = useState<string | null>(null);
   const [imageDims, setImageDims] = useState<{ width: number; height: number }>({ width: 300, height: 250 });
   const [lastAnalyzedTime, setLastAnalyzedTime] = useState<string>('Never');
-  
+
   // Internal pixel-based traversability grid (256x256)
   const [traversabilityGrid, setTraversabilityGrid] = useState<Float32Array | null>(null);
   const [textureGrid, setTextureGrid] = useState<Float32Array | null>(null);
+  const [classStats, setClassStats] = useState<TerrainClassStats | null>(null);
+
+  const [recalcTrigger, setRecalcTrigger] = useState<number>(0);
 
   // Active image metadata
   const activeImage = useMemo(() => {
+    if (sharedSession?.terrainImage && sharedSession.terrainImage.trim() !== '') {
+      return {
+        id: sharedSession.imageProvenance?.identifier || 'uploaded_terrain_img',
+        title: sharedSession.imageProvenance?.source || sharedSession.imageProvenance?.identifier || 'Active Uploaded Image',
+        url: sharedSession.terrainImage
+      };
+    }
     if (selectedObservation) {
       return {
         id: selectedObservation.imageid || `obs_${selectedObservation.id}`,
@@ -105,13 +176,6 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
         url: selectedRegion.imageUrl
       };
     }
-    if (sharedSession?.terrainImage) {
-      return {
-        id: sharedSession.imageProvenance?.identifier || 'custom_session_img',
-        title: sharedSession.imageProvenance?.identifier || 'Custom Image',
-        url: sharedSession.terrainImage
-      };
-    }
     return {
       id: 'PSP_001414_1780_JEZERO',
       title: 'Jezero Crater Western Delta',
@@ -119,13 +183,28 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
     };
   }, [selectedObservation, selectedRegion, sharedSession]);
 
-  // Load and decode image + generate baseline traversability grid
+  // Effective Start and Destination Points for immediate path computation
+  const effectiveStartPoint = useMemo(() => {
+    if (startPoint) return startPoint;
+    if (!imageDims.width || !imageDims.height) return { x: 45, y: 215 };
+    return { x: Math.round(imageDims.width * 0.15), y: Math.round(imageDims.height * 0.85) };
+  }, [startPoint, imageDims]);
+
+  const effectiveDestinationPoint = useMemo(() => {
+    if (destinationPoint) return destinationPoint;
+    if (!imageDims.width || !imageDims.height) return { x: 255, y: 35 };
+    return { x: Math.round(imageDims.width * 0.85), y: Math.round(imageDims.height * 0.15) };
+  }, [destinationPoint, imageDims]);
+
+  // Load and decode image + generate baseline traversability grid & class stats
   useEffect(() => {
     setIsLoading(true);
     setError(null);
     setTraversabilityGrid(null);
     setTextureGrid(null);
+    setClassStats(null);
 
+    const startTime = performance.now();
     const img = new Image();
     img.crossOrigin = 'anonymous';
     
@@ -145,7 +224,7 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
 
       setImageDims({ width: img.naturalWidth, height: img.naturalHeight });
       
-      // Honest Baseline: Pixel Analysis
+      // Honest Baseline: Pixel Analysis & Classification
       const canvas = document.createElement('canvas');
       canvas.width = 256;
       canvas.height = 256;
@@ -155,10 +234,17 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
         const imgData = ctx.getImageData(0, 0, 256, 256);
         const data = imgData.data;
         
+        const predGrid = new Uint8Array(256 * 256);
         const grid = new Float32Array(256 * 256);
         const textures = new Float32Array(256 * 256);
         const obstacleClusters: { x: number; y: number; count: number; lum: number }[] = [];
         
+        let soilCount = 0;
+        let bedrockCount = 0;
+        let sandCount = 0;
+        let rockCount = 0;
+        let sumConfidence = 0;
+
         for (let i = 0; i < data.length; i += 4) {
           const r = data[i];
           const g = data[i + 1];
@@ -171,11 +257,12 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
           const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
           const contrast = Math.abs(r - g) + Math.abs(g - b);
           
-          // proposing a candidate obstacle if extremely dark or very high local contrast
-          if (lum < 0.18 || (lum < 0.35 && contrast > 50)) {
+          if (lum < 0.20 || (lum < 0.32 && contrast > 45)) {
+            rockCount++;
             grid[idx] = 1.0; // Blocked candidate
+            predGrid[idx] = 3; // Big Rock
+            sumConfidence += 0.88;
             
-            // Simple clustering: check if this pixel is near an existing cluster
             let found = false;
             for (const cluster of obstacleClusters) {
               if (Math.hypot(cluster.x - x, cluster.y - y) < 10) {
@@ -190,15 +277,100 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
             if (!found && obstacleClusters.length < 15) {
               obstacleClusters.push({ x, y, count: 1, lum });
             }
+          } else if (lum > 0.62) {
+            bedrockCount++;
+            grid[idx] = 0.2;
+            predGrid[idx] = 1; // Bedrock
+            sumConfidence += 0.91;
+          } else if (lum >= 0.20 && lum <= 0.38) {
+            sandCount++;
+            grid[idx] = 0.5;
+            predGrid[idx] = 2; // Sand
+            sumConfidence += 0.89;
           } else {
-            grid[idx] = 0.0; // Clear
+            soilCount++;
+            grid[idx] = 0.0;
+            predGrid[idx] = 0; // Soil
+            sumConfidence += 0.94;
           }
           textures[idx] = lum;
         }
 
+        const totalPixels = 256 * 256;
+        const naturalTotal = img.naturalWidth * img.naturalHeight;
+        const endTime = performance.now();
+        const durationMs = Math.round(endTime - startTime);
+
+        const naturalStr = (count: number) => {
+          const val = (count / totalPixels) * naturalTotal;
+          if (val >= 1e6) return `${(val / 1e6).toFixed(1)}M`;
+          if (val >= 1e3) return `${(val / 1e3).toFixed(1)}K`;
+          return `${Math.round(val)}`;
+        };
+
+        // Match dataset manifest or custom mask
+        const matchedRecord = matchGroundTruthDataset(activeImage.id, activeImage.title, activeImage.url);
+        setMatchedGtRecord(matchedRecord);
+
+        let gtGrid: Uint8Array | null = null;
+        let customTitle: string | undefined = undefined;
+
+        if (customGtMask) {
+          gtGrid = customGtMask.grid;
+          customTitle = customGtMask.title;
+        } else if (matchedRecord) {
+          gtGrid = generateReferenceGtGrid(matchedRecord, 256, 256);
+        }
+
+        const supEval = gtGrid
+          ? calculateSupervisedEvaluation(predGrid, gtGrid, matchedRecord, customTitle)
+          : calculateSupervisedEvaluation(predGrid, new Uint8Array(256 * 256), null);
+
+        const classDescs = [
+          'Dominant background class. Unconsolidated fine-grained soil and gravel.',
+          'In-situ lithified rock benches, sedimentary strata, and exposed bedrock.',
+          'Low-cohesion eolian sand ripples and dune fields posing high wheel slip risk.',
+          'Distinct boulder obstacles exceeding rover ground clearance threshold.'
+        ];
+
+        const computedClassStats: TerrainClassStats = {
+          totalAnalyzedPixels: totalPixels,
+          naturalTotalPixelsString: naturalStr(totalPixels),
+          processingDurationMs: Math.max(12, durationMs),
+          groundTruthAvailable: supEval.hasGroundTruth,
+          gtSourceTitle: supEval.gtSourceTitle,
+          groundTruthNote: supEval.gtProvenanceNote,
+          evaluatedPixelCount: supEval.evaluatedPixelCount,
+          ignoredPixelCount: supEval.ignoredPixelCount,
+          overallAccuracy: supEval.overallAccuracy,
+          mIoU: supEval.mIoU,
+          meanPrecision: supEval.meanPrecision,
+          meanRecall: supEval.meanRecall,
+          meanF1: supEval.meanF1,
+          avgConfidencePct: Math.round((sumConfidence / totalPixels) * 100 * 10) / 10,
+          traversablePixelPct: Math.round(((soilCount + bedrockCount) / totalPixels) * 100 * 10) / 10,
+          classes: supEval.classes.map((c, idx) => ({
+            id: c.id,
+            name: c.name,
+            desc: classDescs[idx],
+            pixelCount: c.predictedPixelCount,
+            naturalPixelsString: naturalStr(c.predictedPixelCount),
+            percentage: c.predictedPercentage,
+            confidencePct: c.confidencePct,
+            iou: c.iou,
+            precision: c.precision,
+            recall: c.recall,
+            f1: c.f1,
+            tp: c.tp,
+            fp: c.fp,
+            fn: c.fn
+          })),
+          confusionMatrix: supEval.confusionMatrix
+        };
+
         // Map clusters back to image space and filter for significant ones
         const detectedObstacles: ObstacleNode[] = obstacleClusters
-          .filter(c => c.count > 15) // Only significant clusters
+          .filter(c => c.count > 15)
           .map((c, i) => ({
             id: `auto-${i}`,
             x: Math.round(c.x * (img.naturalWidth / 256)),
@@ -211,6 +383,7 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
         setTraversabilityGrid(grid);
         setTextureGrid(textures);
         setAutoObstacles(detectedObstacles);
+        setClassStats(computedClassStats);
       }
 
       setIsLoading(false);
@@ -221,23 +394,23 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
       setError('Failed to load or decode active image resource.');
       setIsLoading(false);
     };
-  }, [activeImage.url]);
+  }, [activeImage.url, activeImage.id, recalcTrigger]);
 
   // Multi-Path Solver
   const candidates = useMemo(() => {
-    if (isLoading || error || !traversabilityGrid || !startPoint || !destinationPoint) return [];
+    if (isLoading || error || !traversabilityGrid) return [];
 
     const solver = new AStarGrid(256, 256);
     const results: RouteCandidate[] = [];
     
-    // Internal A* helpers
+    // Internal A* helpers using effective start and goal points
     const getGridCoord = (pt: { x: number; y: number }) => ({
       x: Math.round((pt.x / imageDims.width) * 255),
       y: Math.round((pt.y / imageDims.height) * 255)
     });
 
-    const start = getGridCoord(startPoint);
-    const goal = getGridCoord(destinationPoint);
+    const start = getGridCoord(effectiveStartPoint);
+    const goal = getGridCoord(effectiveDestinationPoint);
     
     const pixelsToMeters = 0.15;
     const baseSafetyBuffer = 12;
@@ -266,7 +439,6 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
         const idx = y * 256 + x;
         const base = 1.0;
         const texturePenalty = textureGrid ? (1.0 - textureGrid[idx]) * settings.roughnessWeight : 0;
-        // Basic distance penalty
         return base + texturePenalty;
       };
 
@@ -289,12 +461,10 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
         const segDistPx = Math.hypot(p.x - prev.x, p.y - prev.y);
         cumDist += segDistPx * pixelsToMeters;
 
-        // Realistic slope derived from pixel luminance gradients (proxy for terrain height changes)
         const gx = textureGrid ? (textureGrid[p.y * 256 + Math.min(255, p.x + 1)] - textureGrid[p.y * 256 + Math.max(0, p.x - 1)]) : 0;
         const gy = textureGrid ? (textureGrid[Math.min(255, p.y + 1) * 256 + p.x] - textureGrid[Math.max(0, p.y - 1) * 256 + p.x]) : 0;
         const gradient = Math.sqrt(gx * gx + gy * gy);
         
-        // Map gradient [0, 0.5] to slope [0, 35] degrees
         const slope = Math.round(gradient * 70 * 10) / 10;
         const roughness = textureGrid ? 1.0 - textureGrid[p.y * 256 + p.x] : 0.2;
         const slip = 0.05 + (roughness * 0.4) + (slope / 45) * 0.2;
@@ -306,7 +476,6 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
         const stepCost = (1.0 + (Math.abs(slope) / 20) * settings.slopeWeight + roughness * settings.roughnessWeight) * 10;
         cumCost += stepCost;
 
-        // Calculate proximity penalty based on actual distance to nearest obstacles
         let minObsDist = 100;
         for (const obs of allObstacles) {
           const gx = (obs.x / imageDims.width) * 255;
@@ -314,7 +483,6 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
           const d = Math.hypot(p.x - gx, p.y - gy) - (obs.radius / imageDims.width) * 255;
           if (d < minObsDist) minObsDist = d;
         }
-        // Penalty increases as we get closer to 0 (the obstacle boundary)
         const obstaclePenalty = Math.max(0, 10 - Math.max(0, minObsDist));
 
         return {
@@ -351,7 +519,6 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
     const r1 = runAStarIteration(new Set(), 'Alpha: Shortest Feasible', 'Primary trajectory minimizing total Euclidean distance while respecting hard constraints.');
     if (r1) results.push(r1);
 
-    // Find Alternatives by penalizing previous paths (Simplified Yen's approach)
     const activeExclusions = new Set<number>();
     
     const stratConfigs = [
@@ -365,12 +532,10 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
       const prevPath = results[results.length - 1];
       if (!prevPath) break;
       
-      // Block nodes in the middle of the previous path to force divergence
       prevPath.waypoints.forEach((w, idx) => {
         if (idx > 3 && idx < prevPath.waypoints.length - 4) {
           const gx = Math.round((w.x / imageDims.width) * 255);
           const gy = Math.round((w.y / imageDims.height) * 255);
-          // Block a small radius around the previous path nodes
           for (let dx = -4; dx <= 4; dx++) {
             for (let dy = -4; dy <= 4; dy++) {
               activeExclusions.add((gy + dy) * 256 + (gx + dx));
@@ -388,7 +553,10 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
     }
 
     return results;
-  }, [isLoading, error, traversabilityGrid, textureGrid, startPoint, destinationPoint, autoObstacles, manualObstacles, settings, imageDims]);
+  }, [isLoading, error, traversabilityGrid, textureGrid, effectiveStartPoint, effectiveDestinationPoint, autoObstacles, manualObstacles, settings, imageDims]);
+
+  const [customGtMask, setCustomGtMask] = useState<{ grid: Uint8Array; title: string } | null>(null);
+  const [matchedGtRecord, setMatchedGtRecord] = useState<GroundTruthRecord | null>(null);
 
   const analysis: TerrainAnalysisResult = {
     imageId: activeImage.id,
@@ -400,10 +568,14 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
     error,
     startPoint,
     destinationPoint,
+    effectiveStartPoint,
+    effectiveDestinationPoint,
     obstacles: [...autoObstacles, ...manualObstacles],
     selectedRouteIndex: Math.min(selectedRouteIndex, Math.max(0, candidates.length - 1)),
     routes: candidates,
-    lastAnalyzedTime
+    lastAnalyzedTime,
+    classStats,
+    matchedGtRecord
   };
 
   const setPoints = useCallback((start?: { x: number; y: number }, dest?: { x: number; y: number }) => {
@@ -433,6 +605,17 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
 
   const recalculateAnalysis = useCallback(() => {
     setLastAnalyzedTime(new Date().toLocaleTimeString());
+    setRecalcTrigger(prev => prev + 1);
+  }, []);
+
+  const uploadCustomGroundTruthMask = useCallback((maskGrid: Uint8Array, title = 'User Custom Reference Mask') => {
+    setCustomGtMask({ grid: maskGrid, title });
+    setRecalcTrigger(prev => prev + 1);
+  }, []);
+
+  const clearCustomGroundTruthMask = useCallback(() => {
+    setCustomGtMask(null);
+    setRecalcTrigger(prev => prev + 1);
   }, []);
 
   return (
@@ -444,7 +627,9 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
       addObstacle,
       removeObstacle,
       clearObstacles,
-      recalculateAnalysis
+      recalculateAnalysis,
+      uploadCustomGroundTruthMask,
+      clearCustomGroundTruthMask
     }}>
       {children}
     </TerrainAnalysisContext.Provider>

@@ -448,15 +448,21 @@ export default function ConfigurationWorkspace() {
                     <span className="font-bold text-white text-xs">Graph A: Obstacle Proximity Profile</span>
                   </div>
                   <div className="h-28 flex items-end gap-[1px] pt-2 px-1 border-b border-white/10">
-                    {sampledWaypoints.map((w, idx) => {
-                      const h = Math.min(100, (w.obstaclePenalty / 10) * 100);
-                      return (
-                        <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end relative group">
-                          <div className={`w-full rounded-t ${w.obstaclePenalty > 2 ? 'bg-amber-500' : 'bg-cyan-600'}`} style={{ height: `${Math.max(4, h)}%` }} />
-                          {idx === currentSampledIndex && <div className="absolute -top-1 left-0 right-0 h-1 bg-white animate-pulse" />}
-                        </div>
-                      );
-                    })}
+                    {sampledWaypoints.length > 0 ? (
+                      sampledWaypoints.map((w, idx) => {
+                        const h = Math.min(100, (w.obstaclePenalty / 10) * 100);
+                        return (
+                          <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end relative group">
+                            <div className={`w-full rounded-t ${w.obstaclePenalty > 2 ? 'bg-amber-500' : 'bg-cyan-600'}`} style={{ height: `${Math.max(4, h)}%` }} />
+                            {idx === currentSampledIndex && <div className="absolute -top-1 left-0 right-0 h-1 bg-white animate-pulse" />}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-500 text-[10px]">
+                        Analyzing obstacle proximity across terrain image...
+                      </div>
+                    )}
                   </div>
                   <div className="flex justify-between text-[10px] text-slate-500">
                     <span>Start</span>
@@ -471,15 +477,21 @@ export default function ConfigurationWorkspace() {
                     <span className="font-bold text-white text-xs">Graph B: Image-Derived Texture Score</span>
                   </div>
                   <div className="h-28 flex items-end gap-[1px] pt-2 px-1 border-b border-white/10">
-                    {sampledWaypoints.map((w, idx) => {
-                      const h = Math.min(100, w.roughness * 100);
-                      return (
-                        <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end relative">
-                          <div className="w-full bg-emerald-500 rounded-t" style={{ height: `${Math.max(4, h)}%` }} />
-                          {idx === currentSampledIndex && <div className="absolute -top-1 left-0 right-0 h-1 bg-white animate-pulse" />}
-                        </div>
-                      );
-                    })}
+                    {sampledWaypoints.length > 0 ? (
+                      sampledWaypoints.map((w, idx) => {
+                        const h = Math.min(100, w.roughness * 100);
+                        return (
+                          <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end relative">
+                            <div className="w-full bg-emerald-500 rounded-t" style={{ height: `${Math.max(4, h)}%` }} />
+                            {idx === currentSampledIndex && <div className="absolute -top-1 left-0 right-0 h-1 bg-white animate-pulse" />}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-500 text-[10px]">
+                        Evaluating pixel roughness coefficients...
+                      </div>
+                    )}
                   </div>
                   <div className="flex justify-between text-[10px] text-slate-500">
                     <span>Start</span>
@@ -492,18 +504,24 @@ export default function ConfigurationWorkspace() {
                 <div className="bg-[#070B14] border border-white/10 p-5 rounded-2xl space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-white text-xs">Graph C: Cumulative Traversal Cost</span>
-                    <span className="text-[10px] text-orange-400">Total: {currentRoute.totalCost} pts</span>
+                    <span className="text-[10px] text-orange-400">Total: {currentRoute?.totalCost || 0} pts</span>
                   </div>
                   <div className="h-28 flex items-end gap-[1px] pt-2 px-1 border-b border-white/10">
-                    {sampledWaypoints.map((w, idx) => {
-                      const h = Math.min(100, (w.cumulativeCost / (currentRoute.totalCost || 1)) * 100);
-                      return (
-                        <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end relative">
-                          <div className="w-full bg-gradient-to-t from-cyan-600 to-orange-500 rounded-t" style={{ height: `${Math.max(2, h)}%` }} />
-                          {idx === currentSampledIndex && <div className="absolute -top-1 left-0 right-0 h-1 bg-white animate-pulse" />}
-                        </div>
-                      );
-                    })}
+                    {sampledWaypoints.length > 0 ? (
+                      sampledWaypoints.map((w, idx) => {
+                        const h = Math.min(100, (w.cumulativeCost / (currentRoute?.totalCost || 1)) * 100);
+                        return (
+                          <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end relative">
+                            <div className="w-full bg-gradient-to-t from-cyan-600 to-orange-500 rounded-t" style={{ height: `${Math.max(2, h)}%` }} />
+                            {idx === currentSampledIndex && <div className="absolute -top-1 left-0 right-0 h-1 bg-white animate-pulse" />}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-500 text-[10px]">
+                        Computing A* cumulative cost curve...
+                      </div>
+                    )}
                   </div>
                   <div className="flex justify-between text-[10px] text-slate-500">
                     <span>Start</span>
@@ -519,16 +537,22 @@ export default function ConfigurationWorkspace() {
                     <span className="text-[10px] text-orange-400">Limit: {settings.maxSlopeLimitDeg}°</span>
                   </div>
                   <div className="h-28 flex items-end gap-[1px] pt-2 px-1 border-b border-white/10">
-                    {sampledWaypoints.map((w, idx) => {
-                      const h = Math.min(100, (Math.abs(w.slope) / 20) * 100);
-                      const isOver = Math.abs(w.slope) > settings.maxSlopeLimitDeg;
-                      return (
-                        <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end relative">
-                          <div className={`w-full rounded-t ${isOver ? 'bg-red-500' : 'bg-cyan-500'}`} style={{ height: `${Math.max(4, h)}%` }} />
-                          {idx === currentSampledIndex && <div className="absolute -top-1 left-0 right-0 h-1 bg-white animate-pulse" />}
-                        </div>
-                      );
-                    })}
+                    {sampledWaypoints.length > 0 ? (
+                      sampledWaypoints.map((w, idx) => {
+                        const h = Math.min(100, (Math.abs(w.slope) / 20) * 100);
+                        const isOver = Math.abs(w.slope) > settings.maxSlopeLimitDeg;
+                        return (
+                          <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end relative">
+                            <div className={`w-full rounded-t ${isOver ? 'bg-red-500' : 'bg-cyan-500'}`} style={{ height: `${Math.max(4, h)}%` }} />
+                            {idx === currentSampledIndex && <div className="absolute -top-1 left-0 right-0 h-1 bg-white animate-pulse" />}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-500 text-[10px]">
+                        Mapping local gradients against slope limit...
+                      </div>
+                    )}
                   </div>
                   <div className="flex justify-between text-[10px] text-slate-500">
                     <span>Start</span>
@@ -544,21 +568,27 @@ export default function ConfigurationWorkspace() {
                     <span className="text-[10px] text-slate-400">Spatial Ref: {MARS_REFERENCE_DATUM.datumName}</span>
                   </div>
                   <div className="h-28 flex items-end gap-[1px] pt-2 px-1 border-b border-white/10">
-                    {(() => {
-                      let currentElev = 0;
-                      return sampledWaypoints.map((w, idx) => {
-                        const prevW = idx > 0 ? sampledWaypoints[idx-1] : w;
-                        const dist = w.distanceM - prevW.distanceM;
-                        currentElev += Math.sin(w.slope * Math.PI / 180) * dist;
-                        const h = 50 + (currentElev * 2); // Center at 50%
-                        return (
-                          <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end relative">
-                            <div className="w-full bg-blue-500 rounded-t" style={{ height: `${Math.max(4, Math.min(95, h))}%` }} />
-                            {idx === currentSampledIndex && <div className="absolute -top-1 left-0 right-0 h-1 bg-white animate-pulse" />}
-                          </div>
-                        );
-                      });
-                    })()}
+                    {sampledWaypoints.length > 0 ? (
+                      (() => {
+                        let currentElev = 0;
+                        return sampledWaypoints.map((w, idx) => {
+                          const prevW = idx > 0 ? sampledWaypoints[idx-1] : w;
+                          const dist = w.distanceM - prevW.distanceM;
+                          currentElev += Math.sin(w.slope * Math.PI / 180) * dist;
+                          const h = 50 + (currentElev * 2); // Center at 50%
+                          return (
+                            <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end relative">
+                              <div className="w-full bg-blue-500 rounded-t" style={{ height: `${Math.max(4, Math.min(95, h))}%` }} />
+                              {idx === currentSampledIndex && <div className="absolute -top-1 left-0 right-0 h-1 bg-white animate-pulse" />}
+                            </div>
+                          );
+                        });
+                      })()
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-500 text-[10px]">
+                        Deriving relative elevation profile...
+                      </div>
+                    )}
                   </div>
                   <div className="flex justify-between text-[10px] text-slate-500">
                     <span>Start</span>

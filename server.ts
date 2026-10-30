@@ -40,7 +40,7 @@ app.get('/api/health', (_req, res) => {
 // Initialize GoogleGenAI SDK with required telemetry headers
 const apiKey = process.env.GEMINI_API_KEY;
 // Read NASA API key securely from environment config (defaults to DEMO_KEY)
-const nasaApiKey = process.env.NASA_API_KEY || 'DEMO_KEY';
+process.env.NASA_API_KEY ? 'CUSTOM KEY LOADED' : 'USING DEMO_KEY';
 
 const ai = new GoogleGenAI({
   apiKey: apiKey,

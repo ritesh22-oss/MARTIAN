@@ -56,14 +56,25 @@ export async function request<T>(url: string, options: RequestInit = {}): Promis
       let errorDetail = '';
       try {
         const errJson = await response.json();
-        errorDetail = errJson.error || errJson.message || JSON.stringify(errJson);
+        if (errJson && typeof errJson === 'object') {
+          // Robust extraction of error message from various common JSON structures
+          errorDetail = errJson.error?.message || 
+                        errJson.message || 
+                        errJson.error || 
+                        (typeof errJson === 'string' ? errJson : JSON.stringify(errJson));
+        } else {
+          errorDetail = String(errJson);
+        }
       } catch {
         errorDetail = await response.text();
       }
 
+      // Ensure errorDetail is a string to avoid template literal default stringification [object Object]
+      const safeErrorDetail = typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail);
+
       return {
         data: null,
-        error: `HTTP ${response.status}: ${errorDetail || response.statusText}`,
+        error: `HTTP ${response.status}: ${safeErrorDetail || response.statusText}`,
         status: response.status,
         isHtml: false,
         url: diagnosticUrl

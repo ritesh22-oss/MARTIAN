@@ -46,6 +46,90 @@ console.log(
   nasaApiKey ? 'CUSTOM NASA API KEY DETECTED' : 'NASA API KEY NOT PROVIDED (Using Public Mode)'
 );
 
+// Unified Error Serialization Helper
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    try {
+      return (error as any).message || (error as any).error || JSON.stringify(error);
+    } catch {
+      return 'Non-serializable error object';
+    }
+  }
+  return String(error);
+}
+
+// Request Logger for Debugging Production Routes
+app.use((req, _res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
+// Advanced Diagnostics Endpoint (Safe metadata only, no secrets)
+app.get('/api/diagnostics', (req, res) => {
+  res.json({
+    timestamp: new Date().toISOString(),
+    nodeVersion: process.version,
+    platform: process.platform,
+    env: {
+      hasGeminiKey: !!process.env.GEMINI_API_KEY,
+      hasNasaKey: !!process.env.NASA_API_KEY,
+      hasFirebaseConfig: fs.existsSync(path.join(__dirname, 'firebase-applet-config.json')),
+      nodeEnv: process.env.NODE_ENV || 'development',
+      vercelEnv: process.env.VERCEL_ENV || 'local',
+      port: port
+    },
+    headers: {
+      host: req.headers.host,
+      userAgent: req.headers['user-agent'],
+      cfRay: req.headers['cf-ray'], // If behind Cloudflare
+      forwardedFor: req.headers['x-forwarded-for']
+    },
+    uptime: process.uptime(),
+    memoryUsage: process.memoryUsage()
+  });
+});
+
+// NASA-Specific Connectivity Diagnostics
+app.get('/api/nasa/diagnostics', async (_req, res) => {
+  const checks = [];
+  
+  // Check 1: JPL RSS API
+  try {
+    const t0 = Date.now();
+    const res = await fetch('https://mars.nasa.gov/rss/api/?feed=raw_images&category=mars2020&feedtype=json&num=1');
+    checks.push({
+      service: 'NASA JPL RSS API',
+      status: res.status,
+      ok: res.ok,
+      latency: Date.now() - t0
+    });
+  } catch (err: any) {
+    checks.push({ service: 'NASA JPL RSS API', status: 'error', error: err.message });
+  }
+
+  // Check 2: NASA Image Library
+  try {
+    const t0 = Date.now();
+    const res = await fetch('https://images-api.nasa.gov/search?q=mars&media_type=image');
+    checks.push({
+      service: 'NASA Image & Video Library',
+      status: res.status,
+      ok: res.ok,
+      latency: Date.now() - t0
+    });
+  } catch (err: any) {
+    checks.push({ service: 'NASA Image & Video Library', status: 'error', error: err.message });
+  }
+
+  res.json({
+    timestamp: new Date().toISOString(),
+    connectivity: checks,
+    apiKeyConfigured: !!process.env.NASA_API_KEY
+  });
+});
+
 export { app };
 
 const ai = new GoogleGenAI({
@@ -1616,45 +1700,7 @@ app.get('/api/nasa/images-library/asset/:nasaId', async (req, res) => {
   }
 });
 
-// 6. Real-Time Data Source Health & Connectivity Probe
-app.get('/api/nasa/diagnostics', async (_req, res) => {
-  const diagnosticUrls = [
-    { name: 'NASA APOD (API Key Check)', url: `https://api.nasa.gov/planetary/apod?api_key=${process.env.NASA_API_KEY || 'DEMO_KEY'}` },
-    { name: 'Mars 2020 Raw JSON Feed', url: 'https://mars.nasa.gov/rss/api/?feed=raw_images&category=mars2020&feedtype=json&num=1' },
-    { name: 'MSL Raw JSON Feed', url: 'https://mars.nasa.gov/rss/api/?feed=raw_images&category=msl&feedtype=json&num=1' },
-    { name: 'NASA Images API', url: 'https://images-api.nasa.gov/search?q=mars&media_type=image' },
-    { name: 'HiRISE PDS Archive', url: 'https://hirise-pds.lpl.arizona.edu/PDS/EXTRAS/RDR/PSP/ORB_001400_001499/PSP_001414_1780/PSP_001414_1780_RED.NOMAP.browse.jpg' }
-  ];
-
-  const results = await Promise.all(diagnosticUrls.map(async (item) => {
-    try {
-      const resp = await fetch(item.url, { method: 'HEAD', timeout: 5000 } as any);
-      return {
-        name: item.name,
-        url: item.url.replace(process.env.NASA_API_KEY || '', 'REDACTED'),
-        status: resp.status,
-        ok: resp.ok
-      };
-    } catch (err: any) {
-      return {
-        name: item.name,
-        url: item.url.replace(process.env.NASA_API_KEY || '', 'REDACTED'),
-        status: 'error',
-        ok: false,
-        error: err.message
-      };
-    }
-  }));
-
-  return res.json({
-    diagnostics: results,
-    env: {
-      hasNasaKey: !!process.env.NASA_API_KEY,
-      nodeEnv: process.env.NODE_ENV,
-      vercel: !!process.env.VERCEL
-    }
-  });
-});
+// Detailed NASA diagnostics are provided via /api/nasa/diagnostics (see top of file)
 
 app.get('/api/sources/health', async (_req, res) => {
   const sourcesToCheck = [
@@ -1710,6 +1756,24 @@ app.get('/api/sources/health', async (_req, res) => {
     sources: results,
     overallStatus,
     timestamp: new Date().toISOString(),
+  });
+});
+
+// Centralized 500 Error Handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error(`[INTERNAL SERVER ERROR] ${req.method} ${req.url}`, err);
+  
+  const status = err.status || err.statusCode || 500;
+  const message = getErrorMessage(err);
+  
+  res.status(status).json({
+    status: 'error',
+    error: {
+      message,
+      type: err.name || 'ServerError',
+      path: req.url,
+      timestamp: new Date().toISOString()
+    }
   });
 });
 

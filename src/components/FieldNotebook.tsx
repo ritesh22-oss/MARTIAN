@@ -19,7 +19,6 @@ import {
   X,
   Check
 } from 'lucide-react';
-import { useWorkspace } from '../context/WorkspaceContext';
 
 export interface FieldNote {
   id: string;
@@ -44,47 +43,35 @@ const CATEGORIES = [
   'Sample Target'
 ];
 
-import {
-  getSavedNotes,
-  saveNote,
-  deleteNote,
-  clearAllNotes,
-  SavedNote
-} from '../services/notesAndMeasurementsStorage';
+import { useWorkspace } from '../context/WorkspaceContext';
+import { useMissionRecord } from '../context/MissionRecordContext';
 
 export default function FieldNotebook() {
   const { sharedSession, updateSharedSession, setActiveWorkspace } = useWorkspace();
+  const { activeMission, saveFieldNote, deleteFieldNote, updateMission } = useMissionRecord();
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [selectedPriority, setSelectedPriority] = useState<string>('ALL');
 
-  const [notes, setNotes] = useState<SavedNote[]>(() => getSavedNotes());
+  const notes = activeMission?.fieldNotes || [];
 
-  useEffect(() => {
-    const handleUpdate = () => {
-      setNotes(getSavedNotes());
-    };
-    window.addEventListener('marsnav_notes_updated', handleUpdate);
-    return () => {
-      window.removeEventListener('marsnav_notes_updated', handleUpdate);
-    };
-  }, []);
+  /* useEffect for listening notes removal as it is handled by activeMission context */
 
-  const [editingNote, setEditingNote] = useState<SavedNote | null>(null);
+  const [editingNote, setEditingNote] = useState<FieldNote | null>(null);
   const [isCreating, setIsCreating] = useState<boolean>(false);
 
   // Form State
   const [formTitle, setFormTitle] = useState<string>('');
   const [formDesc, setFormDesc] = useState<string>('');
-  const [formCategory, setFormCategory] = useState<SavedNote['category']>('Geology');
-  const [formPriority, setFormPriority] = useState<SavedNote['priority']>('Medium');
+  const [formCategory, setFormCategory] = useState<FieldNote['category']>('Geology');
+  const [formPriority, setFormPriority] = useState<FieldNote['priority']>('Medium');
   const [formTags, setFormTags] = useState<string>('Observation, Mars');
 
   const filteredNotes = notes.filter((n) => {
     const matchesSearch =
       n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       n.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (n.tags && n.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase())));
+      (n.tags && n.tags.some((t: string) => t.toLowerCase().includes(searchQuery.toLowerCase())));
     const matchesCategory = selectedCategory === 'ALL' || n.category === selectedCategory;
     const matchesPriority = selectedPriority === 'ALL' || n.priority === selectedPriority;
     return matchesSearch && matchesCategory && matchesPriority;
@@ -101,25 +88,15 @@ export default function FieldNotebook() {
   };
 
   const handleSaveNote = () => {
-    if (!formTitle.trim()) return;
+    if (!activeMission || !formTitle.trim()) return;
 
     const tagArray = formTags
       .split(',')
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
 
-    if (editingNote) {
-      saveNote({
-        ...editingNote,
-        title: formTitle,
-        description: formDesc,
-        category: formCategory,
-        priority: formPriority,
-        tags: tagArray
-      });
-    } else {
-      saveNote({
-        id: `note_${Date.now()}`,
+    const note = {
+        id: editingNote ? editingNote.id : `note_${Date.now()}`,
         title: formTitle,
         description: formDesc,
         category: formCategory,
@@ -127,20 +104,22 @@ export default function FieldNotebook() {
         x: 128,
         y: 128,
         imageUrl: sharedSession.terrainImage || '/assets/aistudio/vis_0_f6a9756b.png',
-        createdAt: new Date().toISOString(),
+        createdAt: editingNote ? editingNote.createdAt : new Date().toISOString(),
         tags: tagArray
-      });
-    }
+    };
+    saveFieldNote(activeMission.id, note);
 
     setIsCreating(false);
     setEditingNote(null);
   };
 
-  const handleDeleteNote = (id: string) => {
-    deleteNote(id);
+  const handleDeleteNote = (noteId: string) => {
+    if (activeMission) {
+      deleteFieldNote(activeMission.id, noteId);
+    }
   };
 
-  const handleRestoreOnMap = (note: SavedNote) => {
+  const handleRestoreOnMap = (note: FieldNote) => {
     updateSharedSession({
       terrainImage: note.imageUrl,
     });
@@ -166,8 +145,8 @@ export default function FieldNotebook() {
     reader.onload = (event) => {
       try {
         const imported = JSON.parse(event.target?.result as string);
-        if (Array.isArray(imported)) {
-          setNotes(imported);
+        if (Array.isArray(imported) && activeMission) {
+          updateMission(activeMission.id, { fieldNotes: imported });
         }
       } catch (err) {
         alert('Invalid JSON field notebook format');
@@ -386,7 +365,7 @@ export default function FieldNotebook() {
 
                 {note.tags && note.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 pt-1">
-                    {note.tags.map((tag) => (
+                    {note.tags.map((tag: string) => (
                       <span key={tag} className="text-[10px] font-mono text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">
                         #{tag}
                       </span>

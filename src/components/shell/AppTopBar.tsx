@@ -5,9 +5,12 @@ import {
   BookOpen,
   Cloud,
   CheckCircle2,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { useWorkspace, WorkspaceId } from '../../context/WorkspaceContext';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 
 interface AppTopBarProps {
   onOpenMissions: () => void;
@@ -25,6 +28,7 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
     setMissionManagerOpen
   } = useWorkspace();
 
+  const network = useNetworkStatus();
   const [exportNotice, setExportNotice] = useState<string | null>(null);
 
   const handleOpenMissionManager = () => {
@@ -141,6 +145,31 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
 
       {/* Zone 3: Actions & Controls */}
       <div className="flex items-center gap-2">
+        {/* Deep Space Network Live Telemetry Badge */}
+        <div
+          className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-mono select-none ${
+            network.state === 'OFFLINE'
+              ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+              : network.state === 'SLOW_CONNECTION'
+              ? 'bg-amber-950/40 border-amber-500/40 text-amber-300'
+              : 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
+          }`}
+          title={`Deep Space Network Link: ${network.state} (${network.latencyMs ? `${network.latencyMs}ms` : 'Local'})`}
+        >
+          {network.state === 'OFFLINE' ? (
+            <WifiOff className="w-3.5 h-3.5 text-rose-400" />
+          ) : (
+            <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+          )}
+          <span>
+            {network.state === 'OFFLINE'
+              ? 'OFFLINE'
+              : network.state === 'SLOW_CONNECTION'
+              ? `SLOW ${network.latencyMs ? `(${network.latencyMs}ms)` : ''}`
+              : `DSN ${network.latencyMs ? `${network.latencyMs}ms` : 'OK'}`}
+          </span>
+        </div>
+
         {/* Cloud Missions Modal Action */}
         <button
           onClick={handleOpenMissionManager}

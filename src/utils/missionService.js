@@ -1,8 +1,10 @@
 import { collection, doc, setDoc, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
-import { db, auth, handleFirestoreError } from '../firebase';
+import { db, auth, handleFirestoreError, isFirestoreQuotaExceeded, markFirestoreQuotaExceeded } from '../firebase';
 
 export const LOCAL_STORAGE_KEY_MISSIONS = 'marsnav_missions_v2';
 export const LOCAL_STORAGE_KEY_ACTIVE_ID = 'marsnav_active_mission_id';
+export const LOCAL_STORAGE_QUOTA_FLAG = 'marsnav_firestore_quota_exceeded';
+
 
 /**
  * Creates default initial checkpoints for a mission
@@ -133,7 +135,6 @@ export function evaluateMissionCheckpoints(mission, appState = {}) {
     let reason = cp.reason || '';
 
     if (cp.id === 'dtm') {
-      // DEM Verification
       const hasImage = Boolean(mission.terrainImage && mission.terrainImage.trim().length > 0);
       const hasDataset = Boolean(activeDataset || (mission.imageProvenance && mission.imageProvenance.source));
       if (hasImage || hasDataset) {
@@ -144,7 +145,6 @@ export function evaluateMissionCheckpoints(mission, appState = {}) {
         reason = 'No DEM metadata or terrain image loaded for this mission.';
       }
     } else if (cp.id === 'ai4mars') {
-      // Model & Segmentation Verification
       const hasDetections = Array.isArray(mission.segmentedHazards) && mission.segmentedHazards.length > 0;
       const isServerOnline = systemStatus && systemStatus.backend === 'connected';
       
@@ -159,7 +159,6 @@ export function evaluateMissionCheckpoints(mission, appState = {}) {
         reason = 'Segmentation not yet executed for this mission.';
       }
     } else if (cp.id === 'waypoints') {
-      // Start and Destination Waypoints
       const hasStart = Boolean(mission.startPoint && typeof mission.startPoint.x === 'number');
       const hasDest = Boolean(mission.destinationPoint && typeof mission.destinationPoint.x === 'number');
       
@@ -171,7 +170,6 @@ export function evaluateMissionCheckpoints(mission, appState = {}) {
         reason = 'Start or Destination endpoint not set for this mission.';
       }
     } else if (cp.id === 'slope') {
-      // Traversability Slope Threshold
       const slopeVal = mission.maxSlopeLimit || (settings && settings.maxSlopeLimitDeg) || 14.0;
       if (typeof slopeVal === 'number' && slopeVal > 0 && slopeVal <= 30) {
         status = 'Completed';
@@ -181,7 +179,6 @@ export function evaluateMissionCheckpoints(mission, appState = {}) {
         reason = 'Slope threshold must be configured between 1° and 30°.';
       }
     } else if (cp.id === 'harness') {
-      // Validation Test Harness
       if (mission.validationPassed) {
         status = 'Completed';
         reason = 'Unit validation test harness executed and passed for this mission.';
@@ -246,7 +243,7 @@ export function setLocalActiveMissionId(id) {
 }
 
 /**
- * Saves or updates a mission record to Firestore (if logged in) and localStorage
+ * Saves or updates a mission record to Firestore (if logged in and quota not exceeded) and localStorage
  */
 export async function saveMissionRecord(mission) {
   if (!mission || !mission.id) return null;
@@ -266,16 +263,19 @@ export async function saveMissionRecord(mission) {
   }
   setLocalMissions(localList);
 
-  // 2. Persist to Firestore if signed in
-  if (auth.currentUser) {
+  // 2. Persist to Firestore if signed in and quota not exceeded
+  if (auth.currentUser && !isFirestoreQuotaExceeded()) {
     const userId = auth.currentUser.uid;
-    const path = `users/${userId}/missions/${updatedMission.id}`;
     try {
       const docRef = doc(db, 'users', userId, 'missions', updatedMission.id);
       await setDoc(docRef, { ...updatedMission, userId }, { merge: true });
     } catch (error) {
-      console.warn('Firestore sync failed, local copy preserved:', error);
-      handleFirestoreError(error, 'write', path);
+      if (error?.code === 'resource-exhausted' || (error?.message && error.message.includes('resource-exhausted'))) {
+        markFirestoreQuotaExceeded();
+        console.warn('Firestore write quota exceeded. Falling back to local storage cache.');
+      } else {
+        console.warn('Firestore sync failed, local copy preserved:', error);
+      }
     }
   }
 
@@ -283,7 +283,7 @@ export async function saveMissionRecord(mission) {
 }
 
 /**
- * Deletes a mission record from Firestore (if logged in) and localStorage
+ * Deletes a mission record from Firestore (if logged in & quota ok) and localStorage
  */
 export async function deleteMissionRecord(missionId) {
   if (!missionId) return;
@@ -292,16 +292,18 @@ export async function deleteMissionRecord(missionId) {
   const localList = getLocalMissions().filter(m => m.id !== missionId);
   setLocalMissions(localList);
 
-  // 2. Remove from Firestore if signed in
-  if (auth.currentUser) {
+  // 2. Remove from Firestore if signed in and quota ok
+  if (auth.currentUser && !isFirestoreQuotaExceeded()) {
     const userId = auth.currentUser.uid;
-    const path = `users/${userId}/missions/${missionId}`;
     try {
       const docRef = doc(db, 'users', userId, 'missions', missionId);
       await deleteDoc(docRef);
     } catch (error) {
-      console.warn('Firestore deletion failed:', error);
-      handleFirestoreError(error, 'delete', path);
+      if (error?.code === 'resource-exhausted' || (error?.message && error.message.includes('resource-exhausted'))) {
+        markFirestoreQuotaExceeded();
+      } else {
+        console.warn('Firestore deletion failed:', error);
+      }
     }
   }
 }
@@ -336,12 +338,11 @@ export async function saveMissionPlan({
 }
 
 /**
- * Legacy compatibility export for existing fetchUserMissions
+ * Legacy compatibility export for fetchUserMissions
  */
 export async function fetchUserMissions() {
-  if (auth.currentUser) {
+  if (auth.currentUser && !isFirestoreQuotaExceeded()) {
     const userId = auth.currentUser.uid;
-    const path = `users/${userId}/missions`;
     try {
       const colRef = collection(db, 'users', userId, 'missions');
       const snapshot = await getDocs(colRef);
@@ -351,7 +352,12 @@ export async function fetchUserMissions() {
         return docs;
       }
     } catch (error) {
-      console.warn('Firestore fetch failed, using local storage:', error);
+      if (error?.code === 'resource-exhausted' || (error?.message && error.message.includes('resource-exhausted'))) {
+        markFirestoreQuotaExceeded();
+        console.warn('Firestore quota exceeded. Using local storage.');
+      } else {
+        console.warn('Firestore fetch failed, using local storage:', error);
+      }
     }
   }
 
@@ -366,32 +372,43 @@ export async function deleteMissionPlan(missionId) {
 }
 
 /**
- * Subscribes to real-time mission updates for the current user
+ * Subscribes to real-time mission updates for the current user (respecting quota limit)
  */
 export function subscribeToUserMissions(callback) {
-  if (!auth.currentUser) {
+  if (!auth.currentUser || isFirestoreQuotaExceeded()) {
     callback(getLocalMissions());
     return () => {};
   }
 
   const userId = auth.currentUser.uid;
-  const path = `users/${userId}/missions`;
   const colRef = collection(db, 'users', userId, 'missions');
 
-  return onSnapshot(
-    colRef,
-    (snapshot) => {
-      const remoteMissions = snapshot.docs.map(doc => doc.data());
-      if (remoteMissions.length > 0) {
-        setLocalMissions(remoteMissions);
-        callback(remoteMissions);
-      } else {
+  try {
+    return onSnapshot(
+      colRef,
+      (snapshot) => {
+        const remoteMissions = snapshot.docs.map(doc => doc.data());
+        if (remoteMissions.length > 0) {
+          setLocalMissions(remoteMissions);
+          callback(remoteMissions);
+        } else {
+          callback(getLocalMissions());
+        }
+      },
+      (error) => {
+        if (error?.code === 'resource-exhausted' || (error?.message && error.message.includes('resource-exhausted'))) {
+          markFirestoreQuotaExceeded();
+          console.warn('Firestore read/listen quota exceeded. Falling back to local cache permanently.');
+        } else {
+          console.warn('Firestore listener error:', error);
+        }
         callback(getLocalMissions());
       }
-    },
-    (error) => {
-      console.warn('Firestore listener error:', error);
-      callback(getLocalMissions());
-    }
-  );
+    );
+  } catch (error) {
+    markFirestoreQuotaExceeded();
+    callback(getLocalMissions());
+    return () => {};
+  }
 }
+

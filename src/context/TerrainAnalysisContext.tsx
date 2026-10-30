@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useWorkspace } from './WorkspaceContext';
 import { AStarGrid } from '../utils/astar';
 import {
@@ -181,7 +181,13 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
       title: 'Jezero Crater Western Delta',
       url: '/assets/aistudio/vis_0_f6a9756b.png'
     };
-  }, [selectedObservation, selectedRegion, sharedSession]);
+  }, [
+    selectedObservation,
+    selectedRegion,
+    sharedSession?.terrainImage,
+    sharedSession?.imageProvenance?.identifier,
+    sharedSession?.imageProvenance?.source
+  ]);
 
   // Effective Start and Destination Points for immediate path computation
   const effectiveStartPoint = useMemo(() => {
@@ -238,62 +244,145 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
         const grid = new Float32Array(256 * 256);
         const textures = new Float32Array(256 * 256);
         const obstacleClusters: { x: number; y: number; count: number; lum: number }[] = [];
-        
+        const grayGrid = new Float32Array(256 * 256);
+        const edgeGrid = new Float32Array(256 * 256);
+
+        // Pass 1: Compute Grayscale and Sobel Edge Gradients
+        for (let y = 0; y < 256; y++) {
+          for (let x = 0; x < 256; x++) {
+            const idx = y * 256 + x;
+            const i = idx * 4;
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            grayGrid[idx] = 0.299 * r + 0.587 * g + 0.114 * b;
+          }
+        }
+
+        for (let y = 1; y < 255; y++) {
+          for (let x = 1; x < 255; x++) {
+            const idx = y * 256 + x;
+            const gx =
+              -grayGrid[(y - 1) * 256 + (x - 1)] + grayGrid[(y - 1) * 256 + (x + 1)] +
+              -2 * grayGrid[y * 256 + (x - 1)] + 2 * grayGrid[y * 256 + (x + 1)] +
+              -grayGrid[(y + 1) * 256 + (x - 1)] + grayGrid[(y + 1) * 256 + (x + 1)];
+
+            const gy =
+              -grayGrid[(y - 1) * 256 + (x - 1)] - 2 * grayGrid[(y - 1) * 256 + x] - grayGrid[(y - 1) * 256 + (x + 1)] +
+              grayGrid[(y + 1) * 256 + (x - 1)] + 2 * grayGrid[(y + 1) * 256 + x] + grayGrid[(y + 1) * 256 + (x + 1)];
+
+            edgeGrid[idx] = Math.sqrt(gx * gx + gy * gy);
+          }
+        }
+
+        // Pass 2: Feature-Based Terrain Classification (Boulders, Bedrock, Sand, Soil)
+        const rawClassGrid = new Uint8Array(256 * 256);
+        for (let y = 0; y < 256; y++) {
+          for (let x = 0; x < 256; x++) {
+            const idx = y * 256 + x;
+            const i = idx * 4;
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const gray = grayGrid[idx];
+            const edge = edgeGrid[idx];
+            const warmth = r - b;
+
+            // Local 5x5 variance check around pixel
+            let sumL = 0, sumL2 = 0, nL = 0;
+            for (let dy = -2; dy <= 2; dy++) {
+              for (let dx = -2; dx <= 2; dx++) {
+                const ny = y + dy;
+                const nx = x + dx;
+                if (ny >= 0 && ny < 256 && nx >= 0 && nx < 256) {
+                  const val = grayGrid[ny * 256 + nx];
+                  sumL += val;
+                  sumL2 += val * val;
+                  nL++;
+                }
+              }
+            }
+            const meanL = sumL / nL;
+            const varL = sumL2 / nL - meanL * meanL;
+
+            const isHighlightShadowDipole = (gray > 160 && edge > 28) || (gray < 65 && edge > 22 && varL > 250);
+            if (isHighlightShadowDipole || (edge > 42 && varL > 320)) {
+              rawClassGrid[idx] = 3; // Big Rock
+            } else if (gray > 150 && varL < 180 && edge < 25) {
+              rawClassGrid[idx] = 1; // Bedrock
+            } else if (warmth > 18 && varL < 220) {
+              rawClassGrid[idx] = 2; // Sand
+            } else {
+              rawClassGrid[idx] = 0; // Soil
+            }
+          }
+        }
+
+        // Pass 3: Spatial Modal (3x3 Majority) Smoothing Filter for Clean Regions
         let soilCount = 0;
         let bedrockCount = 0;
         let sandCount = 0;
         let rockCount = 0;
         let sumConfidence = 0;
 
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
-          const idx = i / 4;
-          const x = idx % 256;
-          const y = Math.floor(idx / 256);
-          
-          // Luminance-based baseline
-          const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-          const contrast = Math.abs(r - g) + Math.abs(g - b);
-          
-          if (lum < 0.20 || (lum < 0.32 && contrast > 45)) {
-            rockCount++;
-            grid[idx] = 1.0; // Blocked candidate
-            predGrid[idx] = 3; // Big Rock
-            sumConfidence += 0.88;
-            
-            let found = false;
-            for (const cluster of obstacleClusters) {
-              if (Math.hypot(cluster.x - x, cluster.y - y) < 10) {
-                cluster.x = (cluster.x * cluster.count + x) / (cluster.count + 1);
-                cluster.y = (cluster.y * cluster.count + y) / (cluster.count + 1);
-                cluster.lum = (cluster.lum * cluster.count + lum) / (cluster.count + 1);
-                cluster.count++;
-                found = true;
-                break;
+        for (let y = 0; y < 256; y++) {
+          for (let x = 0; x < 256; x++) {
+            const idx = y * 256 + x;
+
+            let finalCls = rawClassGrid[idx];
+            if (y > 0 && y < 255 && x > 0 && x < 255) {
+              const counts3x3 = [0, 0, 0, 0];
+              for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                  const c = rawClassGrid[(y + dy) * 256 + (x + dx)];
+                  if (c < 4) counts3x3[c]++;
+                }
+              }
+              let maxCount = 0;
+              for (let c = 0; c < 4; c++) {
+                if (counts3x3[c] > maxCount) {
+                  maxCount = counts3x3[c];
+                  finalCls = c;
+                }
               }
             }
-            if (!found && obstacleClusters.length < 15) {
-              obstacleClusters.push({ x, y, count: 1, lum });
+
+            predGrid[idx] = finalCls;
+            textures[idx] = grayGrid[idx] / 255;
+
+            if (finalCls === 3) {
+              rockCount++;
+              grid[idx] = 1.0;
+              sumConfidence += 0.92;
+
+              let found = false;
+              for (const cluster of obstacleClusters) {
+                if (Math.hypot(cluster.x - x, cluster.y - y) < 10) {
+                  cluster.x = (cluster.x * cluster.count + x) / (cluster.count + 1);
+                  cluster.y = (cluster.y * cluster.count + y) / (cluster.count + 1);
+                  cluster.lum = (cluster.lum * cluster.count + grayGrid[idx] / 255) / (cluster.count + 1);
+                  cluster.count++;
+                  found = true;
+                  break;
+                }
+              }
+              if (!found && obstacleClusters.length < 15) {
+                obstacleClusters.push({ x, y, count: 1, lum: grayGrid[idx] / 255 });
+              }
+            } else if (finalCls === 1) {
+              bedrockCount++;
+              grid[idx] = 0.2;
+              sumConfidence += 0.94;
+            } else if (finalCls === 2) {
+              sandCount++;
+              grid[idx] = 0.5;
+              sumConfidence += 0.91;
+            } else {
+              soilCount++;
+              grid[idx] = 0.0;
+              sumConfidence += 0.95;
             }
-          } else if (lum > 0.62) {
-            bedrockCount++;
-            grid[idx] = 0.2;
-            predGrid[idx] = 1; // Bedrock
-            sumConfidence += 0.91;
-          } else if (lum >= 0.20 && lum <= 0.38) {
-            sandCount++;
-            grid[idx] = 0.5;
-            predGrid[idx] = 2; // Sand
-            sumConfidence += 0.89;
-          } else {
-            soilCount++;
-            grid[idx] = 0.0;
-            predGrid[idx] = 0; // Soil
-            sumConfidence += 0.94;
           }
-          textures[idx] = lum;
         }
 
         const totalPixels = 256 * 256;
@@ -557,6 +646,44 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
 
   const [customGtMask, setCustomGtMask] = useState<{ grid: Uint8Array; title: string } | null>(null);
   const [matchedGtRecord, setMatchedGtRecord] = useState<GroundTruthRecord | null>(null);
+
+  // Real-time synchronization of computed active route to sharedSession
+  const lastSyncedRouteKeyRef = useRef<string>('');
+
+  useEffect(() => {
+    const validIdx = Math.min(selectedRouteIndex, Math.max(0, candidates.length - 1));
+    const activeRoute = candidates[validIdx];
+    if (activeRoute && activeRoute.waypoints && activeRoute.waypoints.length > 0) {
+      const routeFingerprint = `${activeRoute.id}_${activeRoute.waypoints.length}_${activeRoute.totalLengthM}_${validIdx}_${imageDims.width}x${imageDims.height}`;
+      if (lastSyncedRouteKeyRef.current === routeFingerprint) {
+        return;
+      }
+      lastSyncedRouteKeyRef.current = routeFingerprint;
+
+      const strat = validIdx === 0 ? 'shortest' : validIdx === 1 ? 'safety' : validIdx === 2 ? 'science' : 'alternative';
+      updateSharedSession({
+        astarComputedPath: activeRoute.waypoints.map(w => ({ x: w.x, y: w.y })),
+        activeSyncRoute: {
+          routeId: activeRoute.id,
+          name: activeRoute.name,
+          sourceModule: 'MARSWALK_OPS',
+          strategy: strat,
+          strategyName: activeRoute.name,
+          startPoint: { x: activeRoute.waypoints[0].x, y: activeRoute.waypoints[0].y },
+          destinationPoint: {
+            x: activeRoute.waypoints[activeRoute.waypoints.length - 1].x,
+            y: activeRoute.waypoints[activeRoute.waypoints.length - 1].y
+          },
+          waypoints: activeRoute.waypoints,
+          totalDistanceM: activeRoute.totalLengthM,
+          totalCost: activeRoute.totalCost,
+          sourceDimensions: { width: imageDims.width, height: imageDims.height },
+          version: 1,
+          lastUpdated: 'synced'
+        }
+      });
+    }
+  }, [candidates, selectedRouteIndex, imageDims.width, imageDims.height, updateSharedSession]);
 
   const analysis: TerrainAnalysisResult = {
     imageId: activeImage.id,

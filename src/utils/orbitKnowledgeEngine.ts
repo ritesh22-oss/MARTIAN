@@ -4,9 +4,11 @@
  * Serves as instantaneous sub-second response engine and autonomous telemetry backbone.
  */
 
+export type OrbitMode = 'guide' | 'general' | 'technical' | 'academy';
+
 interface OrbitResponseOptions {
-  mode?: 'guide' | 'general';
-  messages?: Array<{ role: string; content: string }>;
+  mode?: OrbitMode;
+  messages?: Array<{ role: string; content: string; image?: any }>;
 }
 
 export function generateAutonomousAnswer(query: string, options: OrbitResponseOptions = {}): string {

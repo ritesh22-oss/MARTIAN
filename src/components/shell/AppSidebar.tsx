@@ -23,6 +23,7 @@ import {
   Radio
 } from 'lucide-react';
 import { useWorkspace, WorkspaceId } from '../../context/WorkspaceContext';
+import { PWAInstallButton } from '../PWAInstallButton';
 
 interface NavItem {
   id: WorkspaceId;
@@ -189,6 +190,13 @@ export default function AppSidebar() {
           </div>
         ))}
       </div>
+
+      {/* PWA Install Promo */}
+      {!sidebarCollapsed && (
+        <div className="px-3 pb-3">
+          <PWAInstallButton variant="sidebar" />
+        </div>
+      )}
 
       {/* Bottom Collapse / Expand Toggle Button - Sticky */}
       <div className="sticky bottom-0 p-2 border-t border-slate-800/80 bg-[#060812] z-20">

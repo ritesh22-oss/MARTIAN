@@ -163,6 +163,19 @@ export default function SettingsWorkspace() {
                 </label>
               </div>
             </div>
+
+            <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-white font-semibold block text-xs">Planetary 3D Intro & Diagnostics</span>
+                <span className="text-slate-400 text-[11px] block">Rerun the photorealistic 3D Mars bootloader and subsystem verification.</span>
+              </div>
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('marsnav:replay-intro'))}
+                className="px-4 py-2 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-300 hover:text-white font-bold text-xs tracking-wider uppercase transition-all cursor-pointer"
+              >
+                Replay 3D Intro
+              </button>
+            </div>
           </div>
         </div>
       )}

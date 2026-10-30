@@ -2,26 +2,38 @@ import React, { useState } from 'react';
 import {
   FileSpreadsheet,
   FileText,
-  Download,
-  CheckCircle2,
-  ShieldCheck,
-  Database,
-  Compass,
-  Calendar,
-  Layers,
-  Printer
+  Printer,
+  RefreshCw
 } from 'lucide-react';
 import AuditReportSection from '../AuditReportSection';
+import { useMissionRecord } from '../../context/MissionRecordContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { MARS_REFERENCE_DATUM, NASA_DATA_SOURCES } from '../../utils/marsScienceData';
+import { generateMissionDossierPDF } from '../../utils/pdfGenerator';
 
 export default function AnalysisReportsWorkspace() {
-  const { settings, telemetry, activeDataset, recentAnalyses } = useWorkspace();
+  const { activeMission } = useMissionRecord();
+  const { settings, telemetry } = useWorkspace();
   const [reportTitle, setReportTitle] = useState('Jezero Western Delta Traverse Feasibility Study');
-  const [operatorName, setOperatorName] = useState('Rover Planner Station Alpha');
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  const handlePrint = () => {
-    window.print();
+  const handleExportPDF = async () => {
+    if (!activeMission) return;
+    setIsGenerating(true);
+    try {
+      await generateMissionDossierPDF(activeMission);
+    } catch (err) {
+      console.error("PDF Export failed:", err);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Data mapping layer with robust handling
+  const getMappedData = (value: any, fallback: string = 'Not performed') => {
+    if (value === undefined || value === null || (Array.isArray(value) && value.length === 0)) {
+      return <span className="text-slate-500 italic">{fallback}</span>;
+    }
+    return <span className="font-bold text-white">{value}</span>;
   };
 
   return (
@@ -36,17 +48,15 @@ export default function AnalysisReportsWorkspace() {
           <h1 className="text-xl sm:text-2xl font-extrabold text-white font-sans tracking-tight">
             Engineering Reports & Audit Record
           </h1>
-          <p className="text-slate-400 text-xs mt-1">
-            Generate verifiable technical audit records containing input datasets, model configurations, path metrics, and known operational limits.
-          </p>
         </div>
 
         <button
-          onClick={handlePrint}
-          className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold transition-all flex items-center space-x-2 border border-slate-700 cursor-pointer"
+          onClick={handleExportPDF}
+          disabled={isGenerating || !activeMission}
+          className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold transition-all flex items-center space-x-2 border border-slate-700 cursor-pointer disabled:opacity-50"
         >
-          <Printer className="w-4 h-4 text-emerald-400" />
-          <span>Print / Save PDF</span>
+          {isGenerating ? <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" /> : <Printer className="w-4 h-4 text-emerald-400" />}
+          <span>{isGenerating ? 'Generating...' : 'Save PDF Dossier'}</span>
         </button>
       </div>
 
@@ -63,7 +73,7 @@ export default function AnalysisReportsWorkspace() {
             />
           </div>
           <div className="text-right text-[11px] text-slate-400 space-y-0.5">
-            <div>MARSNAV CERT: <span className="text-emerald-400 font-bold">PASS-8/8</span></div>
+            <div>MARSNAV CERT: <span className="text-emerald-400 font-bold">{activeMission ? (activeMission.validationPassed ? 'PASS' : 'FAIL') : 'N/A'}</span></div>
             <div>DATE: {new Date().toLocaleDateString()}</div>
           </div>
         </div>
@@ -72,13 +82,13 @@ export default function AnalysisReportsWorkspace() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
           <div className="p-3 bg-black/40 rounded-xl border border-slate-800 space-y-1">
             <span className="text-slate-400 text-[10px] uppercase font-bold block">1. Operational Target</span>
-            <div className="font-bold text-white">Jezero Crater Delta</div>
-            <div className="text-[10px] text-slate-400">Octavia E. Butler Quadrangle</div>
+            {getMappedData(activeMission?.name)}
+            <div className="text-[10px] text-slate-400">{activeMission?.id ? `ID: ${activeMission.id}` : 'No mission active'}</div>
           </div>
 
           <div className="p-3 bg-black/40 rounded-xl border border-slate-800 space-y-1">
             <span className="text-slate-400 text-[10px] uppercase font-bold block">2. In-Situ Station</span>
-            <div className="font-bold text-white">MEDA Sol 428</div>
+            <div className="font-bold text-white">{activeMission ? 'MEDA Active' : 'Not performed'}</div>
             <div className="text-[10px] text-slate-400">{telemetry.ambientTempC}°C • {telemetry.atmosPressurePa} Pa</div>
           </div>
 

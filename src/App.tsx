@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
+import { MissionRecordProvider } from './context/MissionRecordContext';
 import { WorkspaceProvider, useWorkspace, WorkspaceId } from './context/WorkspaceContext';
 import { TerrainAnalysisProvider } from './context/TerrainAnalysisContext';
 import BootScreen from './components/BootScreen';
@@ -38,10 +39,25 @@ import SavedMissionsModal from './components/SavedMissionsModal';
 import MarsNavGuide from './components/MarsNavGuide';
 import OrbitChat from './components/OrbitChat';
 
+import { useNetworkStatus } from './hooks/useNetworkStatus';
+import OfflineScreen from './components/OfflineScreen';
+import SlowConnectionScreen from './components/SlowConnectionScreen';
+
 function WorkstationMain() {
   const { activeWorkspace, setActiveWorkspace, setCommandPaletteOpen } = useWorkspace();
   const [missionsModalOpen, setMissionsModalOpen] = useState(false);
   const [guideModalOpen, setGuideModalOpen] = useState(false);
+  
+  const network = useNetworkStatus();
+  const [forceOfflineView, setForceOfflineView] = useState(false);
+  const [dismissedSlowLink, setDismissedSlowLink] = useState(false);
+
+  // Auto-show offline screen if connection is lost
+  useEffect(() => {
+    if (!network.isOnline) {
+      setForceOfflineView(true);
+    }
+  }, [network.isOnline]);
 
   // Render the dedicated engineering tool workspace
   const renderWorkspace = () => {
@@ -195,6 +211,19 @@ function WorkstationMain() {
 
       {/* Floating ORBIT Assistant (always available in any workspace) */}
       <OrbitChat onOpenGuide={() => setGuideModalOpen(true)} />
+
+      {/* Network Status Overlays */}
+      {forceOfflineView && (
+        <OfflineScreen 
+          onContinueOffline={() => setForceOfflineView(false)} 
+        />
+      )}
+
+      {network.state === 'SLOW_CONNECTION' && !dismissedSlowLink && !forceOfflineView && (
+        <SlowConnectionScreen 
+          onContinue={() => setDismissedSlowLink(true)} 
+        />
+      )}
     </div>
   );
 }
@@ -202,17 +231,25 @@ function WorkstationMain() {
 export default function App() {
   const [booted, setBooted] = useState(false);
 
+  useEffect(() => {
+    const handleReplay = () => setBooted(false);
+    window.addEventListener('marsnav:replay-intro', handleReplay);
+    return () => window.removeEventListener('marsnav:replay-intro', handleReplay);
+  }, []);
+
   if (!booted) {
     return <BootScreen onComplete={() => setBooted(true)} />;
   }
 
   return (
     <AuthProvider>
-      <WorkspaceProvider>
-        <TerrainAnalysisProvider>
-          <WorkstationMain />
-        </TerrainAnalysisProvider>
-      </WorkspaceProvider>
+      <MissionRecordProvider>
+        <WorkspaceProvider>
+          <TerrainAnalysisProvider>
+            <WorkstationMain />
+          </TerrainAnalysisProvider>
+        </WorkspaceProvider>
+      </MissionRecordProvider>
     </AuthProvider>
   );
 }

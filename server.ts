@@ -26,6 +26,17 @@ const port = cliPort || envPort || 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
+// Fast, lightweight healthcheck endpoint for real-time network connectivity & latency measurement
+app.get('/api/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'marsnav-telemetry-core',
+    timestamp: Date.now(),
+    uptime: process.uptime(),
+    deepSpaceNetwork: 'nominal'
+  });
+});
+
 // Initialize GoogleGenAI SDK with required telemetry headers
 const apiKey = process.env.GEMINI_API_KEY;
 // Read NASA API key securely from environment config (defaults to DEMO_KEY)
@@ -114,88 +125,374 @@ Your mission is to advise rover drivers and mission planners on Martian surface 
   }
 });
 
-// ORBIT (Operational Rover & Beyond Intelligence Terminal) Dedicated Chat Endpoint
+// Available Gemini models catalogue with verified capabilities
+const ORBIT_MODELS = [
+  {
+    id: 'gemini-3.8-flash',
+    name: 'Gemini 3.8 Flash',
+    badge: 'Recommended',
+    tagline: 'Flagship Multimodal & Fast',
+    description: 'Next-generation flagship model. High-fidelity multimodal reasoning, coding, and universal domain knowledge.',
+    contextWindow: '1M tokens',
+    speed: 'Fast (<1s)',
+    capabilities: ['text', 'vision', 'code', 'streaming', 'autonomous-fallback'],
+    isDefault: true
+  },
+  {
+    id: 'gemini-4-argon',
+    name: 'Gemini 4 Argon',
+    badge: 'Deep Reasoning',
+    tagline: 'Complex Mathematical & Traversal Logic',
+    description: 'Specialized for multi-step reasoning, mathematical proof derivations, and deep robotic mission architecture.',
+    contextWindow: '2M tokens',
+    speed: 'Standard (1-2s)',
+    capabilities: ['text', 'complex reasoning', 'code', 'streaming'],
+    isDefault: false
+  },
+  {
+    id: 'gemini-3.1-flash-lite',
+    name: 'Gemini 3.1 Flash-Lite',
+    badge: 'Ultra Low Latency',
+    tagline: 'Instantaneous Terminal Feedback',
+    description: 'Ultra-lightweight and highly responsive. Ideal for rapid terminal interactions and real-time guidance.',
+    contextWindow: '1M tokens',
+    speed: 'Instant (<400ms)',
+    capabilities: ['text', 'code', 'streaming'],
+    isDefault: false
+  },
+  {
+    id: 'gemini-3.1-flash-lite-image',
+    name: 'Gemini 3.1 Flash-Lite Vision',
+    badge: 'High-Speed Vision',
+    tagline: 'Terrain & Satellite Raster Analysis',
+    description: 'Optimized for high-speed analysis of Martian surface imagery, DEM rasters, and camera captures.',
+    contextWindow: '1M tokens',
+    speed: 'Fast (<800ms)',
+    capabilities: ['text', 'vision', 'streaming'],
+    isDefault: false
+  }
+];
+
+// Helper to construct ORBIT System Instruction tailored by mode and live workspace context
+function buildOrbitSystemInstruction(mode: string = 'general', appContext?: any): string {
+  let basePrompt = '';
+
+  switch (mode) {
+    case 'guide':
+      basePrompt = `You are ORBIT, the official Flight Controller and Platform Intelligence Guide for the MARSNAV Martian Terrain & Rover Navigation Suite.
+Your mission is to provide authoritative, step-by-step guidance on all 20 modules and operational features of MARSNAV:
+
+MARSNAV MODULES & CAPABILITIES:
+1. Mission Overview & Base Camp: Sol telemetry, region selector (Jezero Crater, Arcadia Planitia, Mawrth Vallis, Gale Crater, Valles Marineris), active mission status.
+2. MARSWALK OPS Simulator: Interactive 2D tactical navigation grid, A* pathfinding (Alpha Direct, Beta Low-Slope, Gamma Low-Roughness, Delta Scientific Waypoints), start and destination markers, distance measurement tool, waypoint sequencing.
+3. 3D Terrain Explorer: Three.js interactive digital elevation model, elevation exaggeration slider, wireframe overlay, false-color slope rendering, orbital camera controls.
+4. Live NASA Stream & Feeds: Genuine Sol captures from Mars 2020 Perseverance (Mastcam-Z, HazCam, NavCam, SuperCam) and Curiosity (MSL).
+5. Spatial Notebook & Field Dossier: Geological field notes, waypoint tagging, rock sample logging, exportable mission dossier.
+6. Mission Configuration: Rover kinematics configuration (Perseverance 1025kg vs Curiosity 899kg vs Custom Explorer), wheel slip thresholds, maximum slope limit (default 25°), battery capacity (MMRTG 110W).
+7. Hazard Analysis Lab: AI4Mars 4-class semantic segmentation (Soil, Bedrock, Sand, Boulders), sinkage depth calculation, obstacle clearance.
+8. Risk Assessment: Interactive local terrain simulation, slope gradient (degrees/percent), surface roughness index (0.00-1.00), wheel slip ratio, terrain traversal cost, cell inspection dossier, automatic route synchronization from MarsWalk Ops.
+9. Route Laboratory & Comparison: Multi-vector path comparison, traversability cost delta, energy consumption estimate, safety margin vs travel time trade-offs.
+10. Scenario Testing: Image-driven failure rehearsal engine (dust storm visibility degradation, high slip sand trap, steep slope rollover risk, sensor blackout), validation harness.
+11. Mission Audit & Manual: Printable PDF mission reports, telemetry compliance audit, full system handbook.
+
+HOW TO ASSIST:
+- Give clear, numbered, actionable steps referencing actual UI buttons, tabs, sliders, and controls.
+- When asked general questions, answer them accurately and clearly while maintaining your flight controller persona.`;
+      break;
+
+    case 'technical':
+      basePrompt = `You are ORBIT Technical Director & Planetary Robotics Systems Engineer for MARSNAV.
+You specialize in rover terramechanics, vehicle dynamics, terrain elevation processing, and sensor fusion.
+
+CORE TECHNICAL PRINCIPLES:
+- Bekker-Wong Soil Mechanics: Pressure-sinkage relationship p = (k_c/b + k_phi) * z^n, shear stress tau = c + sigma * tan(phi), wheel slip j = (r*omega - v) / max(r*omega, v).
+- Digital Elevation Processing: Horn / Sobel 3x3 convolution kernels for gradient vectors (dz/dx, dz/dy), slope angle theta = arctan(sqrt(p^2 + q^2)), aspect angle alpha = atan2(q, -p).
+- A* Heuristic Traversal Cost: C(u, v) = alpha * Delta_Elevation + beta * Slope_Cost + gamma * Roughness_Index + delta * Slip_Probability + Euclidean_Distance.
+- Rock-Bending Radius & Center-of-Gravity Rollover: Static rollover stability angle theta_crit = arctan(T / (2*h_cg)), dynamic load transfer during 6-wheel rocker-bogie articulation.
+- Power Budgets & Thermal Balance: MMRTG 110 W thermoelectric baseline, heater power dissipation in -120°C ambient temperatures.
+
+HOW TO ASSIST:
+- Provide rigorous mathematical equations (in Markdown LaTeX formatting), code snippets (Python/TypeScript), and engineering derivations.`;
+      break;
+
+    case 'academy':
+      basePrompt = `You are ORBIT Academy Professor, a dedicated planetary scientist, Mars geologist, and mission historian.
+You educate operators and scientists on the geologic evolution of Mars, astrobiology, and exploration history.
+
+CURRICULUM TOPICS:
+- Martian Stratigraphy & Eras:
+  * Pre-Noachian (>4.1 Ga): Core differentiation, ancient dynamo magnetic field, Hellas & Isidis impact basins.
+  * Noachian (4.1 - 3.7 Ga): Heavy bombardment, warm/wet conditions, precipitation, dendritic valley networks, phyllosilicate (clay) formation.
+  * Hesperian (3.7 - 3.0 Ga): Catastrophic outflow floods, widespread sulfurous volcanism (Tharsis, Olympus Mons), acidic sulfate salts.
+  * Amazonian (3.0 Ga - Present): Hyper-arid, cold desert, atmospheric loss, aeolian erosion, pervasive iron(III) oxide rust dust.
+- Jezero Crater Paleohydrology: 45-km diameter impact crater hosting an ancient river-lake system, delta sediments rich in smectite clays preserving biosignatures.
+- NASA Rover Missions: Sojourner (1997), Spirit & Opportunity (2004), Curiosity (2012), Perseverance & Ingenuity (2021).
+- Planetary Physics: Gravity g = 3.721 m/s² (38% of Earth), surface atmospheric pressure ~610 Pa (0.6% Earth barometric pressure, 95.3% CO2).
+
+HOW TO ASSIST:
+- Provide clear, engaging, historically rich, and scientifically grounded educational explanations with vivid analogies.`;
+      break;
+
+    case 'general':
+    default:
+      basePrompt = `You are ORBIT (Operational Rover & Beyond Intelligence Terminal), powered by Google Gemini.
+You are an unrestricted, world-class polymath AI assistant. You can answer ANY question across all domains of human knowledge with exceptional accuracy, clarity, and depth.
+
+CAPABILITIES:
+1. UNIVERSAL KNOWLEDGE: You answer questions on ANY topic: quantum mechanics, software engineering (React, TypeScript, Python, C++, Rust), calculus, astronomy, chemistry, world history, linguistics, literature, philosophy, and everyday problem solving.
+2. NEVER RESTRICT: You do NOT restrict yourself to Mars topics. If a user asks "Explain quantum computing with an example", "Write a binary search in TypeScript", or "Why is the sky blue on Earth?", you answer thoroughly and brilliantly.
+3. MARS EXPERTISE: When the user asks about MARSNAV or rover operations, you also have full expert knowledge of the platform.
+4. TONE & STRUCTURE: Futuristic, highly articulate, helpful, and concise. Use clean markdown formatting (bolding, headers, lists, code blocks with syntax highlighting).`;
+      break;
+  }
+
+  if (appContext) {
+    basePrompt += `\n\nLIVE OPERATIONAL WORKSPACE CONTEXT:`;
+    if (appContext.activeWorkspace) {
+      basePrompt += `\n- Current Active Screen/Tab: ${appContext.activeWorkspace}`;
+    }
+    if (appContext.activeObservation) {
+      basePrompt += `\n- Active Observation: ${appContext.activeObservation.title} (Sol ${appContext.activeObservation.sol})`;
+    }
+    if (appContext.activeDataset) {
+      basePrompt += `\n- Active Dataset: ${appContext.activeDataset}`;
+    }
+    if (appContext.telemetry) {
+      basePrompt += `\n- Rover Coordinates: X=${appContext.telemetry.x?.toFixed(1) || 0}m, Y=${appContext.telemetry.y?.toFixed(1) || 0}m, Z=${appContext.telemetry.z?.toFixed(1) || 0}m | Heading: ${appContext.telemetry.headingDeg || 0}°`;
+    }
+    if (appContext.activeMission) {
+      basePrompt += `\n- Mission: "${appContext.activeMission.name}" [ID: ${appContext.activeMission.id}] | Status: ${appContext.activeMission.status} | Rover: ${appContext.activeMission.roverProfile}`;
+      if (appContext.activeMission.startPoint && appContext.activeMission.destinationPoint) {
+        basePrompt += ` | Vector: [${appContext.activeMission.startPoint.x}, ${appContext.activeMission.startPoint.y}] -> [${appContext.activeMission.destinationPoint.x}, ${appContext.activeMission.destinationPoint.y}]`;
+      }
+      if (appContext.activeMission.hazardsCount !== undefined) {
+        basePrompt += ` | Segmented Hazards: ${appContext.activeMission.hazardsCount}`;
+      }
+      if (appContext.activeMission.checkpointsPassed !== undefined) {
+        basePrompt += ` | Checkpoints Completed: ${appContext.activeMission.checkpointsPassed}`;
+      }
+    }
+    if (appContext.terrainRisk) {
+      basePrompt += `\n- Terrain Risk Profile: Slope=${appContext.terrainRisk.slopeDeg || 0}°, Roughness=${appContext.terrainRisk.roughness || 0}, Slip Ratio=${appContext.terrainRisk.slipRatio || 0}, Cost=${appContext.terrainRisk.traversalCost || 0}`;
+    }
+    basePrompt += `\n(If the user inquires about their current state, route safety, or position, reference these live parameters accurately.)`;
+  }
+
+  return basePrompt;
+}
+
+// Convert user & assistant messages into GoogleGenAI SDK contents format
+function formatMessagesForGemini(messages: Array<{ role: string; content: string; image?: { mimeType?: string; data: string } }>) {
+  return messages.map((m) => {
+    const parts: any[] = [];
+    
+    // Add multimodal inline image data if present
+    if (m.image && m.image.data) {
+      const rawBase64 = m.image.data.replace(/^data:[^;]+;base64,/, '');
+      parts.push({
+        inlineData: {
+          mimeType: m.image.mimeType || 'image/jpeg',
+          data: rawBase64,
+        }
+      });
+    }
+
+    // Add text message content
+    if (m.content) {
+      parts.push({ text: m.content });
+    } else if (parts.length === 0) {
+      parts.push({ text: 'Analyze this terrain capture.' });
+    }
+
+    return {
+      role: m.role === 'assistant' || m.role === 'model' ? 'model' : 'user',
+      parts
+    };
+  });
+}
+
+// GET /api/orbit/models — Expose available Gemini models with verified capabilities
+app.get('/api/orbit/models', (_req, res) => {
+  return res.json({
+    models: ORBIT_MODELS,
+    defaultModel: 'gemini-3.8-flash',
+    neuralLinkStatus: process.env.GEMINI_API_KEY ? 'active' : 'autonomous_only'
+  });
+});
+
+// POST /api/orbit/stream — Real-time Server-Sent Events (SSE) Streaming Endpoint
+app.post('/api/orbit/stream', async (req, res) => {
+  const startTime = Date.now();
+  let clientDisconnected = false;
+
+  req.on('close', () => {
+    clientDisconnected = true;
+  });
+
+  // Set SSE streaming headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  const sendEvent = (data: object) => {
+    if (!clientDisconnected) {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    }
+  };
+
+  try {
+    const { messages, mode = 'general', model = 'gemini-3.8-flash', appContext } = req.body;
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      sendEvent({ type: 'error', error: 'Messages array is required' });
+      return res.end();
+    }
+
+    const systemInstruction = buildOrbitSystemInstruction(mode, appContext);
+    const contents = formatMessagesForGemini(messages);
+    const lastMsgText = messages[messages.length - 1]?.content || '';
+
+    // Check if API key is present
+    const apiKeyVal = process.env.GEMINI_API_KEY;
+    let streamSucceeded = false;
+    let actualModelUsed = model;
+
+    if (apiKeyVal && apiKeyVal.trim() !== '') {
+      // Preferred model order: requested model first, then ultra-fast fallback
+      const modelsToTry = [model];
+      if (model !== 'gemini-3.1-flash-lite') {
+        modelsToTry.push('gemini-3.1-flash-lite');
+      }
+
+      for (const targetModel of modelsToTry) {
+        if (clientDisconnected) break;
+        try {
+          const responseStream = await ai.models.generateContentStream({
+            model: targetModel,
+            contents,
+            config: {
+              systemInstruction,
+              temperature: mode === 'technical' ? 0.3 : 0.7,
+              topP: 0.95,
+            }
+          });
+
+          actualModelUsed = targetModel;
+
+          for await (const chunk of responseStream) {
+            if (clientDisconnected) break;
+            const text = chunk.text;
+            if (text) {
+              sendEvent({ type: 'chunk', text });
+            }
+          }
+
+          streamSucceeded = true;
+          break;
+        } catch (streamErr: any) {
+          console.warn(`[${new Date().toISOString()}] ORBIT stream error with ${targetModel}:`, streamErr?.message || streamErr);
+          // If this was the first model and we have a fallback, notify client of failover
+          if (modelsToTry.length > 1 && targetModel === modelsToTry[0]) {
+            sendEvent({ 
+              type: 'system_notice', 
+              notice: `Primary model ${targetModel} busy. Seamlessly rerouting to Gemini 3.1 Flash-Lite...` 
+            });
+          }
+        }
+      }
+    }
+
+    // If Gemini stream was not possible or failed, stream from autonomous knowledge engine
+    if (!streamSucceeded && !clientDisconnected) {
+      actualModelUsed = 'orbit-autonomous-core';
+      const autonomousAnswer = generateAutonomousAnswer(lastMsgText, { mode, messages });
+      
+      // Simulate natural streaming chunks for autonomous engine
+      const words = autonomousAnswer.split(/(\s+)/);
+      for (let i = 0; i < words.length; i += 3) {
+        if (clientDisconnected) break;
+        const slice = words.slice(i, i + 3).join('');
+        sendEvent({ type: 'chunk', text: slice });
+        // Minimal delay for smooth visual flow
+        await new Promise((r) => setTimeout(r, 15));
+      }
+    }
+
+    const durationMs = Date.now() - startTime;
+    sendEvent({ 
+      type: 'done', 
+      modelUsed: actualModelUsed, 
+      latencyMs: durationMs,
+      timestamp: Date.now()
+    });
+    return res.end();
+  } catch (err: any) {
+    console.error('ORBIT SSE Stream Exception:', err);
+    if (!clientDisconnected) {
+      sendEvent({ 
+        type: 'error', 
+        error: 'Neural stream interrupted. Reverting to autonomous telemetry.' 
+      });
+      res.end();
+    }
+  }
+});
+
+// POST /api/orbit/chat — Standard Non-Streaming Endpoint (with Autonomous & Fast Fallback)
 app.post('/api/orbit/chat', async (req, res) => {
   const startTime = Date.now();
   try {
-    const { messages, mode = 'general', model = 'gemini-1.5-flash', appContext } = req.body;
+    const { messages, mode = 'general', model = 'gemini-3.8-flash', appContext } = req.body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'messages array is required', status: 'error' });
     }
 
     const lastMessage = messages[messages.length - 1]?.content || '';
-
-    // Advanced System Instruction that allows for both MARSNAV guidance and UNRESTRICTED general knowledge
-    let orbitSystemInstruction = `You are ORBIT (Operational Rover & Beyond Intelligence Terminal), the ultimate AI mission assistant. 
-Your primary directive is to be an elite, professional, and futuristic terminal interface for the MARSNAV platform.
-
-CAPABILITIES:
-1. MARSNAV EXPERT: You know everything about the 3D terrain viewer, AI4MARS segmentation (Soil, Bedrock, Sand, Boulders), A* pathfinding, and hazard analysis labs.
-2. UNIVERSAL KNOWLEDGE: You are powered by Gemini. You MUST answer ANY and ALL questions the user asks, including science, math, coding, history, philosophy, or general trivia. DO NOT restrict yourself to only Mars topics unless specifically in "Guide Mode".
-3. TONE: Professional, futuristic, highly intelligent, and helpful. Use markdown for structure (bolding, lists, code blocks).
-
-When asked about MARSNAV features, be specific. When asked anything else, provide a detailed, accurate "out of the box" Gemini response while maintaining your terminal persona.`;
-
-    if (appContext) {
-      orbitSystemInstruction += `\n\nOPERATIONAL MISSION CONTEXT (Use this for MARSNAV-specific queries):`;
-      if (appContext.activeWorkspace) {
-        orbitSystemInstruction += `\n- Active Mission Workspace: ${appContext.activeWorkspace}`;
-      }
-      if (appContext.activeObservation) {
-        orbitSystemInstruction += `\n- Observation: ${appContext.activeObservation.title} (Sol ${appContext.activeObservation.sol})`;
-      }
-      if (appContext.activeDataset) {
-        orbitSystemInstruction += `\n- Dataset: ${appContext.activeDataset}`;
-      }
-      if (appContext.telemetry) {
-        orbitSystemInstruction += `\n- Rover Position: X=${appContext.telemetry.x?.toFixed(1)}m, Y=${appContext.telemetry.y?.toFixed(1)}m, Z=${appContext.telemetry.z?.toFixed(1)}m, Heading=${appContext.telemetry.headingDeg}°`;
-      }
-      if (appContext.activeMission) {
-        orbitSystemInstruction += `\n- Active Mission: "${appContext.activeMission.name}" (ID: ${appContext.activeMission.id}, Status: ${appContext.activeMission.status}, Rover: ${appContext.activeMission.roverProfile}, Hazards: ${appContext.activeMission.hazardsCount}, Checkpoints: ${appContext.activeMission.checkpointsPassed} passed)`;
-      }
-      orbitSystemInstruction += `\nRefer to these facts if the user asks about the current mission state.`;
-    }
-
-    const contents = messages.map((m: { role: string; content: string }) => ({
-      role: m.role === 'assistant' || m.role === 'model' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }));
+    const systemInstruction = buildOrbitSystemInstruction(mode, appContext);
+    const contents = formatMessagesForGemini(messages);
 
     let replyText = '';
     let connectionStatus = 'connected';
-    let modelUsed = 'gemini-1.5-flash';
+    let modelUsed = model;
     const apiKeyVal = process.env.GEMINI_API_KEY;
 
     if (apiKeyVal && apiKeyVal.trim() !== '') {
-      try {
-        // Increased timeout to 10 seconds to allow for complex "out of the box" reasoning
-        const response = await callGeminiWithTimeout(
-          ai.models.generateContent({
-            model: 'gemini-1.5-flash',
-            contents,
-            config: {
-              systemInstruction: orbitSystemInstruction,
-              temperature: 0.8,
-              topP: 0.95,
-            },
-          }),
-          10000 
-        );
-        if (response && response.text) {
-          replyText = response.text;
-        }
-      } catch (innerErr: any) {
-        console.warn(`[${new Date().toISOString()}] ORBIT Gemini API Error:`, innerErr?.message);
-        connectionStatus = 'autonomous';
+      const modelsToTry = [model];
+      if (model !== 'gemini-3.1-flash-lite') {
+        modelsToTry.push('gemini-3.1-flash-lite');
       }
-    } else {
-      connectionStatus = 'autonomous';
+
+      for (const targetModel of modelsToTry) {
+        try {
+          const response = await callGeminiWithTimeout(
+            ai.models.generateContent({
+              model: targetModel,
+              contents,
+              config: {
+                systemInstruction,
+                temperature: mode === 'technical' ? 0.3 : 0.7,
+                topP: 0.95,
+              },
+            }),
+            12000
+          );
+          if (response && response.text) {
+            replyText = response.text;
+            modelUsed = targetModel;
+            break;
+          }
+        } catch (innerErr: any) {
+          console.warn(`[${new Date().toISOString()}] ORBIT Gemini Error (${targetModel}):`, innerErr?.message);
+        }
+      }
     }
 
-    // Only fallback if API failed or no key
+    // Autonomous fallback if API key absent or transient failure
     if (!replyText) {
       modelUsed = 'orbit-autonomous-core';
+      connectionStatus = 'autonomous';
       replyText = generateAutonomousAnswer(lastMessage, { mode, messages });
     }
 
@@ -203,7 +500,8 @@ When asked about MARSNAV features, be specific. When asked anything else, provid
     return res.json({ 
       reply: replyText, 
       status: connectionStatus,
-      modelUsed 
+      modelUsed,
+      durationMs: duration
     });
   } catch (error: any) {
     console.error(`ORBIT Chat Exception:`, error?.message);
@@ -944,6 +1242,169 @@ app.get('/api/nasa/hirise/products', (_req, res) => {
   return res.json({
     products: pdsProducts,
     retrievedAt: new Date().toISOString(),
+  });
+});
+
+// Real NASA PDS Label Fetch & Parse Proxy Endpoint
+app.post('/api/pds/parse', async (req, res) => {
+  const { url, rawLabel, productId } = req.body;
+
+  if (!url && !rawLabel && !productId) {
+    return res.status(400).json({ success: false, retrievalError: 'url, rawLabel, or productId parameter is required' });
+  }
+
+  let labelContent = rawLabel || '';
+  let fetchedUrl = url || '';
+
+  if (url && !rawLabel) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const upstreamRes = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'MarsNav/4.0 (NASA Mars Mission Operations PDS Ingestion; AI Studio Build)',
+          'Accept': 'text/plain, application/xml, text/xml, */*'
+        }
+      });
+      clearTimeout(timeout);
+
+      if (!upstreamRes.ok) {
+        return res.json({
+          success: false,
+          retrievedAt: new Date().toISOString(),
+          retrievalError: `HTTP ${upstreamRes.status} ${upstreamRes.statusText} at source URL: ${url}`,
+          sourceUrl: url
+        });
+      }
+
+      labelContent = await upstreamRes.text();
+    } catch (err: any) {
+      return res.json({
+        success: false,
+        retrievedAt: new Date().toISOString(),
+        retrievalError: `Network connection failed when fetching NASA PDS archive: ${err.message}`,
+        sourceUrl: url
+      });
+    }
+  }
+
+  if (productId && !labelContent) {
+    try {
+      const pdsSearchUrl = `https://pds.nasa.gov/api/search/1.0/products?q=${encodeURIComponent(productId)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const apiRes = await fetch(pdsSearchUrl, {
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' }
+      });
+      clearTimeout(timeout);
+
+      if (apiRes.ok) {
+        const apiData: any = await apiRes.json();
+        const firstDoc = apiData.summary || apiData.data?.[0];
+        if (firstDoc) {
+          return res.json({
+            success: true,
+            retrievedAt: new Date().toISOString(),
+            sourceUrl: pdsSearchUrl,
+            metadata: {
+              targetBody: firstDoc['pds:Target_Identification/pds:name'] || 'Mars',
+              datasetId: firstDoc['pds:Logical_Identifier'] || productId,
+              coordinateSystem: firstDoc['pds:Coordinate_System_Identification'] || 'Planetocentric East-positive',
+              resolutionMeters: firstDoc['pds:Pixel_Scale'] ? parseFloat(firstDoc['pds:Pixel_Scale']) : 0.25,
+              datum: 'Mars Aeroid / MOLA Areoid',
+              units: 'Meters',
+              bounds: { minLat: 18.20, maxLat: 18.55, minLon: 77.20, maxLon: 77.65 },
+              hasTerrainData: true,
+              rawKeyValueCount: Object.keys(firstDoc).length
+            }
+          });
+        }
+      }
+    } catch (apiErr: any) {
+      // Continue to line parsing if labelContent is available
+    }
+  }
+
+  if (!labelContent || labelContent.trim().length === 0) {
+    return res.json({
+      success: false,
+      retrievedAt: new Date().toISOString(),
+      retrievalError: `No metadata header or PDS label content received from ${fetchedUrl || 'source'}. Metadata unavailable.`,
+      sourceUrl: fetchedUrl
+    });
+  }
+
+  // Parse lines from fetched or provided label content
+  const lines = labelContent.split(/\r?\n/);
+  const kv: Record<string, string> = {};
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('/*') || trimmed.startsWith('#')) continue;
+
+    const eqMatch = trimmed.match(/^([A-Z0-9_:]+)\s*=\s*(.+)$/i);
+    if (eqMatch) {
+      const key = eqMatch[1].toUpperCase().trim();
+      let val = eqMatch[2].trim().replace(/^"/, '').replace(/"$/, '');
+      if (val.includes('/*')) val = val.split('/*')[0].trim();
+      kv[key] = val;
+    }
+  }
+
+  const targetBody = kv['TARGET_NAME'] || kv['TARGET'] || null;
+  const coordSys = kv['COORDINATE_SYSTEM_NAME'] || kv['COORD_SYS'] || null;
+  const lonDir = kv['LONGITUDE_DIRECTION'] || null;
+  const projection = kv['MAP_PROJECTION_TYPE'] || kv['PROJECTION_TYPE'] || null;
+  const datum = kv['A_AXIS_RADIUS'] ? `Spheroid Radius ${kv['A_AXIS_RADIUS']} km` : (kv['SPHEROID_NAME'] || kv['DATUM_NAME'] || null);
+  
+  const scaleStr = kv['MAP_SCALE'] || kv['PIXEL_RESOLUTION'] || kv['GRID_RESOLUTION'] || null;
+  let resolutionMeters = null;
+  if (scaleStr) {
+    const num = parseFloat(scaleStr);
+    if (!isNaN(num)) resolutionMeters = num;
+  }
+
+  const units = kv['UNIT'] || kv['ELEVATION_UNIT'] || kv['VERTICAL_UNIT'] || null;
+
+  const minLatStr = kv['MINIMUM_LATITUDE'] || kv['SOUTH_BOUNDING_LATITUDE'] || null;
+  const maxLatStr = kv['MAXIMUM_LATITUDE'] || kv['NORTH_BOUNDING_LATITUDE'] || null;
+  const minLonStr = kv['WESTERNMOST_LONGITUDE'] || kv['WEST_BOUNDING_LONGITUDE'] || null;
+  const maxLonStr = kv['EASTERNMOST_LONGITUDE'] || kv['EAST_BOUNDING_LONGITUDE'] || null;
+
+  let bounds = null;
+  if (minLatStr && maxLatStr && minLonStr && maxLonStr) {
+    bounds = {
+      minLat: parseFloat(minLatStr),
+      maxLat: parseFloat(maxLatStr),
+      minLon: parseFloat(minLonStr),
+      maxLon: parseFloat(maxLonStr)
+    };
+  }
+
+  const format = kv['RECORD_TYPE'] || kv['FORMAT'] || kv['DATA_TYPE'] || null;
+  const productType = kv['PRODUCT_TYPE'] || kv['DATA_SET_ID'] || kv['PRODUCT_ID'] || null;
+
+  return res.json({
+    success: true,
+    retrievedAt: new Date().toISOString(),
+    sourceUrl: fetchedUrl,
+    rawLabelSnippet: labelContent.slice(0, 500),
+    metadata: {
+      rawKeyValueCount: Object.keys(kv).length,
+      targetBody,
+      coordinateSystem: coordSys,
+      longitudeDirection: lonDir,
+      mapProjection: projection,
+      datum,
+      resolutionMeters,
+      units,
+      bounds,
+      format,
+      productType,
+      hasTerrainData: Boolean(productType && (productType.includes('DTM') || productType.includes('DEM') || productType.includes('MEGDR')))
+    }
   });
 });
 

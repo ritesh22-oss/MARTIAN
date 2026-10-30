@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db, signInWithGoogle, signOutUser, handleFirestoreError } from '../firebase';
+import { auth, db, signInWithGoogle, signOutUser, isFirestoreQuotaExceeded, markFirestoreQuotaExceeded } from '../firebase';
 
 const AuthContext = createContext({
   user: null,
@@ -20,30 +20,56 @@ export function AuthProvider({ children }) {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
+        const fallbackProfile = {
+          uid: currentUser.uid,
+          email: currentUser.email || 'commander@marsnav.space',
+          displayName: currentUser.displayName || 'Mars Commander',
+          photoURL: currentUser.photoURL || '',
+          createdAt: new Date().toISOString()
+        };
+
+        const cachedProfileKey = `marsnav_profile_${currentUser.uid}`;
+        let localProfile = null;
         try {
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          const docSnap = await getDoc(userDocRef);
-          if (!docSnap.exists()) {
-            const newProfile = {
-              uid: currentUser.uid,
-              email: currentUser.email || 'commander@marsnav.space',
-              displayName: currentUser.displayName || 'Mars Commander',
-              photoURL: currentUser.photoURL || '',
-              createdAt: new Date().toISOString()
-            };
-            await setDoc(userDocRef, newProfile);
-            setUserProfile(newProfile);
-          } else {
-            setUserProfile(docSnap.data());
+          const cached = localStorage.getItem(cachedProfileKey);
+          if (cached) localProfile = JSON.parse(cached);
+        } catch {}
+
+        if (!localProfile) {
+          localProfile = fallbackProfile;
+          try {
+            localStorage.setItem(cachedProfileKey, JSON.stringify(localProfile));
+          } catch {}
+        }
+
+        setUserProfile(localProfile);
+
+        // Only attempt reading remote profile if quota is not exhausted
+        if (!isFirestoreQuotaExceeded()) {
+          try {
+            const userDocRef = doc(db, 'users', currentUser.uid);
+            const docSnap = await getDoc(userDocRef);
+            if (docSnap && docSnap.exists()) {
+              const remoteData = docSnap.data();
+              if (remoteData) {
+                setUserProfile(remoteData);
+                try {
+                  localStorage.setItem(cachedProfileKey, JSON.stringify(remoteData));
+                } catch {}
+              }
+            }
+          } catch (err) {
+            if (err?.code === 'resource-exhausted' || (err?.message && err.message.includes('resource-exhausted'))) {
+              markFirestoreQuotaExceeded();
+            }
           }
-        } catch (err) {
-          console.warn('User profile sync notice:', err);
         }
       } else {
         setUserProfile(null);
       }
       setLoading(false);
     });
+
 
     return () => unsubscribe();
   }, []);

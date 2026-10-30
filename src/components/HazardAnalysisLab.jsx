@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShieldAlert, Compass, AlertTriangle, Sliders, CheckCircle2 } from 'lucide-react';
 import { getMartianElevation, calculateLocalSlope } from '../utils/marsScienceData';
+import { useMissionRecord } from '../context/MissionRecordContext';
 
 export default function HazardAnalysisLab() {
   const [sampleX, setSampleX] = useState(12);
@@ -10,6 +11,20 @@ export default function HazardAnalysisLab() {
   const elevationData = getMartianElevation(sampleX, sampleZ);
   const slopeDeg = calculateLocalSlope(sampleX, sampleZ);
   const isHazardous = slopeDeg > maxSlopeLimit || elevationData.localRelY < -12;
+
+  const { activeMission, saveHazardAnalysis } = useMissionRecord();
+
+  useEffect(() => {
+    if (activeMission) {
+      saveHazardAnalysis(activeMission.id, {
+        sampleX,
+        sampleZ,
+        elevationData,
+        slopeDeg,
+        isHazardous
+      });
+    }
+  }, [sampleX, sampleZ, elevationData, slopeDeg, isHazardous, activeMission?.id]);
 
   // Hazard zones in Jezero Crater
   const hazardZones = [

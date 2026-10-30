@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { MARS_REFERENCE_DATUM, NASA_DATA_SOURCES, JEZERO_ENVIRONMENTAL_CONTEXT } from '../utils/marsScienceData';
 import type { MarsRawImage } from '../services/nasaDataService';
 import {
@@ -13,6 +13,7 @@ import {
 } from '../utils/missionService';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
+import { useMissionRecord } from './MissionRecordContext';
 
 export type WorkspaceId =
   | 'overview'
@@ -77,6 +78,36 @@ export interface AnalysisRecord {
   details: string;
 }
 
+export interface ActiveSyncRouteWaypoint {
+  index: number;
+  x: number;
+  y: number;
+  distanceM: number;
+  slope: number;
+  roughness: number;
+  slip: number;
+  stepCost: number;
+  cumulativeCost: number;
+  isUnsafe?: boolean;
+  isBlockedCell?: boolean;
+}
+
+export interface ActiveSyncRoute {
+  routeId: string;
+  name: string;
+  sourceModule: 'MARSWALK_OPS';
+  strategy: 'shortest' | 'safety' | 'science' | string;
+  strategyName: string;
+  startPoint: { x: number; y: number };
+  destinationPoint: { x: number; y: number };
+  waypoints: ActiveSyncRouteWaypoint[];
+  totalDistanceM: number;
+  totalCost: number;
+  sourceDimensions: { width: number; height: number };
+  version: number;
+  lastUpdated: string;
+}
+
 export interface SharedTerrainSession {
   terrainImage: string;
   imageProvenance: {
@@ -97,6 +128,8 @@ export interface SharedTerrainSession {
   maxSlopeLimit: number;
   marksWalkPath?: Array<{ x: number; y: number }>;
   astarComputedPath?: Array<{ x: number; y: number }>;
+  activeSyncRoute?: ActiveSyncRoute | null;
+  selectedRouteWaypointIndex?: number | null;
 }
 
 import { RegionTerrainData, getRegionTerrainData } from '../services/regionTerrainService';
@@ -273,63 +306,41 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   });
 
   // Missions state
-  const [missions, setMissions] = useState<any[]>(() => getLocalMissions());
-  const [activeMissionId, setActiveMissionIdState] = useState<string | null>(() => getLocalActiveMissionId());
+  const { 
+      missions: recordMissions, 
+      activeMission: recordActiveMission, 
+      setActiveMission: setRecordActiveMission,
+      createNewMission: recordCreateNewMission,
+      updateMission: recordUpdateMission,
+      deleteMission: recordDeleteMission
+  } = useMissionRecord();
   const [missionManagerOpen, setMissionManagerOpen] = useState<boolean>(false);
 
-  const setActiveMissionId = useCallback((id: string | null) => {
-    setActiveMissionIdState(id);
-    setLocalActiveMissionId(id);
-  }, []);
+  const missions = recordMissions;
+  const activeMissionId = recordActiveMission?.id || null;
 
   // Sync with Firestore real-time listener or local storage on auth change
   useEffect(() => {
-    const unsubscribeMissions = subscribeToUserMissions((updatedList: any[]) => {
-      if (updatedList && updatedList.length > 0) {
-        setMissions(updatedList);
-      }
-    });
-
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        subscribeToUserMissions((updatedList: any[]) => {
-          if (updatedList && updatedList.length > 0) {
-            setMissions(updatedList);
-          }
-        });
-      }
-    });
-
-    return () => {
-      unsubscribeMissions();
-      unsubscribeAuth();
-    };
+    // Mission state is now handled by MissionRecordContext
   }, []);
 
   // Ensure there is always at least one initial active mission
   useEffect(() => {
     if (missions.length === 0) {
-      const initialMission = createNewMissionRecord({
+      recordCreateNewMission({
         name: 'Sol 428 Jezero Delta Exploration',
         description: 'Primary baseline traverse across Jezero crater delta deposit.'
       });
-      saveMissionRecord(initialMission).then(() => {
-        setMissions([initialMission]);
-        setActiveMissionId(initialMission.id);
-      });
     } else if (!activeMissionId || !missions.some(m => m.id === activeMissionId)) {
-      setActiveMissionId(missions[0].id);
+      setRecordActiveMission(missions[0].id);
     }
-  }, [missions, activeMissionId, setActiveMissionId]);
+  }, [missions, activeMissionId, setRecordActiveMission, recordCreateNewMission]);
 
   // Derive activeMission object
-  const rawActiveMission = missions.find(m => m.id === activeMissionId) || missions[0] || null;
-
-  // Evaluate checkpoints dynamically based on real app state
-  const activeMission = rawActiveMission
+  const activeMission = recordActiveMission
     ? {
-        ...rawActiveMission,
-        checkpoints: evaluateMissionCheckpoints(rawActiveMission, {
+        ...recordActiveMission,
+        checkpoints: evaluateMissionCheckpoints(recordActiveMission, {
           activeDataset,
           systemStatus,
           settings
@@ -339,14 +350,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   // Function to create a brand new mission
   const createNewMission = async (params?: { name?: string; description?: string; roverProfile?: string }) => {
-    const newRecord = createNewMissionRecord({
+    const saved = await recordCreateNewMission({
       name: params?.name || 'New Jezero Mission',
       description: params?.description || '',
-      roverProfile: params?.roverProfile || 'Perseverance (Mars 2020)'
     });
-    const saved = await saveMissionRecord(newRecord);
-    setMissions(prev => [saved, ...prev]);
-    setActiveMissionId(saved.id);
     
     // Sync shared session
     setSharedSession(prev => ({
@@ -356,7 +363,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       startPoint: saved.startPoint || { x: 35, y: 220 },
       destinationPoint: saved.destinationPoint || { x: 220, y: 45 },
       obstacles: saved.obstacles || [],
-      selectedStrategy: saved.selectedStrategy || 'alpha'
+      selectedStrategy: (saved.selectedStrategy || 'alpha') as 'alpha' | 'beta' | 'delta' | 'gamma'
     }));
     return saved;
   };
@@ -365,7 +372,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const switchActiveMission = (missionId: string) => {
     const target = missions.find(m => m.id === missionId);
     if (!target) return;
-    setActiveMissionId(missionId);
+    setRecordActiveMission(missionId);
     setSharedSession(prev => ({
       ...prev,
       terrainImage: target.terrainImage || prev.terrainImage || '/assets/aistudio/vis_0_f6a9756b.png',
@@ -373,55 +380,29 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       startPoint: target.startPoint || { x: 35, y: 220 },
       destinationPoint: target.destinationPoint || { x: 220, y: 45 },
       obstacles: target.obstacles || [],
-      selectedStrategy: target.selectedStrategy || 'alpha'
+      selectedStrategy: (target.selectedStrategy || 'alpha') as 'alpha' | 'beta' | 'delta' | 'gamma'
     }));
   };
 
   // Update active mission state and save
   const updateActiveMission = async (partial: Partial<any>) => {
-    if (!activeMission) return;
-    const updated = {
-      ...activeMission,
-      ...partial,
-      updatedAt: new Date().toISOString()
-    };
-    setMissions(prev => prev.map(m => m.id === updated.id ? updated : m));
-    await saveMissionRecord(updated);
+    if (!recordActiveMission) return;
+    await recordUpdateMission(recordActiveMission.id, partial);
   };
 
   // Delete a mission
   const deleteMission = async (missionId: string) => {
-    await deleteMissionRecord(missionId);
-    const updated = missions.filter(m => m.id !== missionId);
-    setMissions(updated);
-    if (activeMissionId === missionId) {
-      if (updated.length > 0) {
-        setActiveMissionId(updated[0].id);
-      } else {
-        const fresh = createNewMissionRecord({ name: 'Sol 428 Jezero Delta Exploration' });
-        await saveMissionRecord(fresh);
-        setMissions([fresh]);
-        setActiveMissionId(fresh.id);
-      }
-    }
+    await recordDeleteMission(missionId);
   };
 
   // Rename a mission
   const renameMission = async (missionId: string, newName: string) => {
-    const target = missions.find(m => m.id === missionId);
-    if (!target) return;
-    const updated = { ...target, name: newName.trim() || 'Untitled Mission', updatedAt: new Date().toISOString() };
-    setMissions(prev => prev.map(m => m.id === missionId ? updated : m));
-    await saveMissionRecord(updated);
+    await recordUpdateMission(missionId, { name: newName.trim() || 'Untitled Mission' });
   };
 
   // Archive or unarchive mission
   const archiveMission = async (missionId: string, isArchived = true) => {
-    const target = missions.find(m => m.id === missionId);
-    if (!target) return;
-    const updated = { ...target, isArchived, updatedAt: new Date().toISOString() };
-    setMissions(prev => prev.map(m => m.id === missionId ? updated : m));
-    await saveMissionRecord(updated);
+    await recordUpdateMission(missionId, { isArchived });
   };
 
   // Log a genuine traversal or analysis event for active mission
@@ -453,16 +434,33 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     return true;
   };
 
-  const updateSharedSession = (partial: Partial<SharedTerrainSession>) => {
+  const activeMissionRef = useRef(activeMission);
+  activeMissionRef.current = activeMission;
+
+  const recordUpdateMissionRef = useRef(recordUpdateMission);
+  recordUpdateMissionRef.current = recordUpdateMission;
+
+  const updateSharedSession = useCallback((partial: Partial<SharedTerrainSession>) => {
     setSharedSession(prev => {
+      // Check if this update actually changes any keys in prev
+      let hasChanges = false;
+      for (const k in partial) {
+        if ((prev as any)[k] !== (partial as any)[k]) {
+          hasChanges = true;
+          break;
+        }
+      }
+      if (!hasChanges) return prev;
+
       const next = { ...prev, ...partial };
-      if (activeMission) {
+      const currentActiveMission = activeMissionRef.current;
+      if (currentActiveMission) {
         const missionUpdates: any = {};
         if (partial.terrainImage !== undefined) {
           // If blob URL or giant base64 data URL, do not store raw multi-megabytes into localStorage/Firestore
           const imgStr = partial.terrainImage;
           if (imgStr && (imgStr.startsWith('blob:') || (imgStr.startsWith('data:') && imgStr.length > 50000))) {
-            missionUpdates.terrainImage = activeMission.terrainImage || '/assets/aistudio/vis_0_f6a9756b.png';
+            missionUpdates.terrainImage = currentActiveMission.terrainImage || '/assets/aistudio/vis_0_f6a9756b.png';
           } else {
             missionUpdates.terrainImage = imgStr;
           }
@@ -474,14 +472,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         if (partial.selectedStrategy !== undefined) missionUpdates.selectedStrategy = partial.selectedStrategy;
         
         if (Object.keys(missionUpdates).length > 0) {
-          const updatedActiveMission = { ...activeMission, ...missionUpdates, updatedAt: new Date().toISOString() };
-          setMissions(prevMissions => prevMissions.map(m => m.id === updatedActiveMission.id ? updatedActiveMission : m));
-          saveMissionRecord(updatedActiveMission).catch(() => {});
+          const updatedActiveMission = { ...currentActiveMission, ...missionUpdates, updatedAt: new Date().toISOString() };
+          recordUpdateMissionRef.current(updatedActiveMission.id, updatedActiveMission);
         }
       }
       return next;
     });
-  };
+  }, []);
 
   const [recentAnalyses, setRecentAnalyses] = useState<AnalysisRecord[]>([]);
   const [recentErrors] = useState<string[]>([]);

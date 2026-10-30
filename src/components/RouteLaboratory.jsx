@@ -1,11 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Route, Navigation, Compass, Sliders, CheckCircle2, ShieldCheck, Zap, Clock, Mountain, Target } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
+import { useMissionRecord } from '../context/MissionRecordContext';
 import { AStarGrid, calculatePathLength } from '../utils/astar';
 
 export default function RouteLaboratory() {
   const { sharedSession, updateSharedSession, setActiveWorkspace } = useWorkspace();
-  const { startPoint, destinationPoint, obstacles, scienceTargets, selectedStrategy, uncertaintyPenalty, maxSlopeLimit, terrainImage } = sharedSession;
+  const { activeMission, saveRouteResult } = useMissionRecord();
+  const session = sharedSession || {};
+  const { startPoint, destinationPoint, obstacles, scienceTargets, selectedStrategy, uncertaintyPenalty, maxSlopeLimit, terrainImage } = session;
+
+  const safeStart = (startPoint && typeof startPoint.x === 'number' && typeof startPoint.y === 'number') ? startPoint : { x: 45, y: 215 };
+  const safeDestination = (destinationPoint && typeof destinationPoint.x === 'number' && typeof destinationPoint.y === 'number') ? destinationPoint : { x: 215, y: 45 };
+  const safeObstacles = Array.isArray(obstacles) ? obstacles : [];
+  const safeScienceTargets = Array.isArray(scienceTargets) ? scienceTargets : [];
+  const safeUncertaintyPenalty = typeof uncertaintyPenalty === 'number' ? uncertaintyPenalty : 1.5;
+  const safeMaxSlope = typeof maxSlopeLimit === 'number' ? maxSlopeLimit : 15;
+  const activeStrategy = selectedStrategy || 'alpha';
 
   const grid = new AStarGrid(256, 256);
 
@@ -13,34 +24,36 @@ export default function RouteLaboratory() {
   const computeStrategyPath = (strategy) => {
     const isBlocked = (x, y) => {
       const buffer = strategy === 'gamma' ? 18 : strategy === 'beta' ? 14 : 10;
-      return obstacles.some(o => o.blocked && Math.hypot(o.x - x, o.y - y) < o.radius + buffer);
+      return safeObstacles.some(o => o && o.blocked && typeof o.x === 'number' && typeof o.y === 'number' && Math.hypot(o.x - x, o.y - y) < (o.radius || 10) + buffer);
     };
 
     const getCost = (x, y) => {
       const base = 1.0;
-      if (strategy === 'gamma') return base + (uncertaintyPenalty / 4.0);
+      if (strategy === 'gamma') return base + (safeUncertaintyPenalty / 4.0);
       if (strategy === 'beta') return base * 0.85;
       return base;
     };
 
-    let start = { x: startPoint.x, y: startPoint.y };
-    let goal = { x: destinationPoint.x, y: destinationPoint.y };
+    let start = { x: safeStart.x, y: safeStart.y };
+    let goal = { x: safeDestination.x, y: safeDestination.y };
 
     // Delta route detours via first science target if available
-    if (strategy === 'delta' && scienceTargets.length > 0) {
-      const poi = scienceTargets[0];
-      const leg1 = grid.findPath(start, { x: poi.x, y: poi.y }, isBlocked, getCost);
-      if (leg1.path && leg1.path.length > 0) {
-        const leg2 = grid.findPath({ x: poi.x, y: poi.y }, goal, isBlocked, getCost);
-        if (leg2.path && leg2.path.length > 0) {
-          return [...leg1.path, ...leg2.path.slice(1)];
+    if (strategy === 'delta' && safeScienceTargets.length > 0) {
+      const poi = safeScienceTargets[0];
+      if (poi && typeof poi.x === 'number' && typeof poi.y === 'number') {
+        const leg1 = grid.findPath(start, { x: poi.x, y: poi.y }, isBlocked, getCost);
+        if (leg1 && leg1.path && leg1.path.length > 0) {
+          const leg2 = grid.findPath({ x: poi.x, y: poi.y }, goal, isBlocked, getCost);
+          if (leg2 && leg2.path && leg2.path.length > 0) {
+            return [...leg1.path, ...leg2.path.slice(1)];
+          }
+          return leg1.path;
         }
-        return leg1.path;
       }
     }
 
     const result = grid.findPath(start, goal, isBlocked, getCost);
-    return result.path && result.path.length > 0 ? result.path : [];
+    return result && result.path && result.path.length > 0 ? result.path : [];
   };
 
   const alphaPath = computeStrategyPath('alpha');
@@ -88,7 +101,7 @@ export default function RouteLaboratory() {
       traversalCost: Math.round(gammaLen * 1.15),
       riskScore: Math.min(20, (gammaLen > 0 ? (gammaLen / 100) * 0.5 : 0)).toFixed(1),
       feasible: gammaLen > 0,
-      description: `Applies uncertainty penalty (${uncertaintyPenalty}x) to avoid unmapped or low-confidence cells.`
+      description: `Applies uncertainty penalty (${safeUncertaintyPenalty}x) to avoid unmapped or low-confidence cells.`
     },
     delta: {
       id: 'delta',
@@ -104,10 +117,16 @@ export default function RouteLaboratory() {
     }
   };
 
-  const currentRoute = routes[selectedStrategy] || routes.alpha;
+  const currentRoute = routes[activeStrategy] || routes.alpha;
+
+  useEffect(() => {
+    if (activeMission && currentRoute) {
+      saveRouteResult(activeMission.id, currentRoute);
+    }
+  }, [activeMission?.id, currentRoute]);
 
   // Recommendation engine
-  const recommendedId = uncertaintyPenalty > 2.0 ? 'gamma' : scienceTargets.length > 0 ? 'delta' : 'beta';
+  const recommendedId = safeUncertaintyPenalty > 2.0 ? 'gamma' : safeScienceTargets.length > 0 ? 'delta' : 'beta';
   const recommendationReason =
     recommendedId === 'gamma'
       ? 'Recommended due to high uncertainty penalty requiring wider safety margins.'
@@ -158,11 +177,11 @@ export default function RouteLaboratory() {
           {/* SVG Overlay showing all 4 routes simultaneously */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 256 256">
             {Object.values(routes).map(r => {
-              const isSelected = r.id === selectedStrategy;
+              const isSelected = r.id === activeStrategy;
               return (
                 <polyline
                   key={r.id}
-                  points={r.path.map(p => `${p.x},${p.y}`).join(' ')}
+                  points={(r.path || []).map(p => `${p.x},${p.y}`).join(' ')}
                   fill="none"
                   stroke={r.color}
                   strokeWidth={isSelected ? '3.5' : '1.5'}
@@ -176,13 +195,13 @@ export default function RouteLaboratory() {
           {/* Start & Destination Markers */}
           <div
             className="absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center text-white font-bold text-[9px]"
-            style={{ left: `${(startPoint.x / 256) * 100}%`, top: `${(startPoint.y / 256) * 100}%` }}
+            style={{ left: `${(safeStart.x / 256) * 100}%`, top: `${(safeStart.y / 256) * 100}%` }}
           >
             S
           </div>
           <div
             className="absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full bg-red-600 border-2 border-white flex items-center justify-center text-white font-bold text-[9px]"
-            style={{ left: `${(destinationPoint.x / 256) * 100}%`, top: `${(destinationPoint.y / 256) * 100}%` }}
+            style={{ left: `${(safeDestination.x / 256) * 100}%`, top: `${(safeDestination.y / 256) * 100}%` }}
           >
             D
           </div>
@@ -212,7 +231,7 @@ export default function RouteLaboratory() {
                 key={r.id}
                 onClick={() => updateSharedSession({ selectedStrategy: r.id })}
                 className={`p-3.5 rounded-xl border transition cursor-pointer flex items-center justify-between ${
-                  selectedStrategy === r.id ? 'bg-white/10 border-orange-500 shadow-md' : 'bg-black/40 border-white/10 hover:border-white/20'
+                  activeStrategy === r.id ? 'bg-white/10 border-orange-500 shadow-md' : 'bg-black/40 border-white/10 hover:border-white/20'
                 }`}
               >
                 <div className="flex items-center space-x-2.5">
@@ -222,7 +241,7 @@ export default function RouteLaboratory() {
                     <div className="text-[10px] text-slate-400 font-mono">{r.pixelLength} px • {r.durationMins} mins</div>
                   </div>
                 </div>
-                {selectedStrategy === r.id && <CheckCircle2 className="w-4 h-4 text-orange-400 shrink-0" />}
+                {activeStrategy === r.id && <CheckCircle2 className="w-4 h-4 text-orange-400 shrink-0" />}
               </div>
             ))}
           </div>
@@ -236,7 +255,7 @@ export default function RouteLaboratory() {
             key={r.id}
             onClick={() => updateSharedSession({ selectedStrategy: r.id })}
             className={`p-5 rounded-2xl border text-left transition-all cursor-pointer backdrop-blur-xl ${
-              selectedStrategy === r.id
+              activeStrategy === r.id
                 ? 'bg-white/10 border-orange-500 ring-2 ring-orange-500/40 shadow-xl'
                 : 'bg-[#0B1020]/80 border-white/10 hover:border-white/30'
             }`}
@@ -293,7 +312,7 @@ export default function RouteLaboratory() {
             </div>
             <div className="bg-black/40 p-3.5 rounded-2xl border border-white/10 space-y-1">
               <span className="text-slate-400 block text-[10px] font-mono">OBSTACLES AVOIDED</span>
-              <span className="text-white font-bold text-sm font-mono">{obstacles.length} Mapped</span>
+              <span className="text-white font-bold text-sm font-mono">{safeObstacles.length} Mapped</span>
             </div>
           </div>
 
@@ -318,14 +337,14 @@ export default function RouteLaboratory() {
             <div>
               <div className="flex justify-between mb-1">
                 <span className="text-slate-300">Uncertainty Penalty Weight</span>
-                <span className="text-orange-400 font-bold">{uncertaintyPenalty}x</span>
+                <span className="text-orange-400 font-bold">{safeUncertaintyPenalty}x</span>
               </div>
               <input
                 type="range"
                 min="0.5"
                 max="3.0"
                 step="0.1"
-                value={uncertaintyPenalty}
+                value={safeUncertaintyPenalty}
                 onChange={(e) => updateSharedSession({ uncertaintyPenalty: Number(e.target.value) })}
                 className="w-full accent-orange-500 cursor-pointer"
               />
@@ -334,13 +353,13 @@ export default function RouteLaboratory() {
             <div>
               <div className="flex justify-between mb-1">
                 <span className="text-slate-300">Max Permissible Slope Limit</span>
-                <span className="text-cyan-400 font-bold">{maxSlopeLimit}°</span>
+                <span className="text-cyan-400 font-bold">{safeMaxSlope}°</span>
               </div>
               <input
                 type="range"
                 min="10"
                 max="22"
-                value={maxSlopeLimit}
+                value={safeMaxSlope}
                 onChange={(e) => updateSharedSession({ maxSlopeLimit: Number(e.target.value) })}
                 className="w-full accent-cyan-400 cursor-pointer"
               />

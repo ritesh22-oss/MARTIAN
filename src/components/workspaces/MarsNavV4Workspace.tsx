@@ -329,8 +329,15 @@ export default function MarsNavV4Workspace() {
 
   const activeRoute = analysis.routes[analysis.selectedRouteIndex] || null;
 
+  // Sync selectedRouteStrategy with active analysis route index
   useEffect(() => {
-    if (activeRoute) {
+    if (analysis.selectedRouteIndex === 0) setSelectedRouteStrategy('shortest');
+    else if (analysis.selectedRouteIndex === 1) setSelectedRouteStrategy('safety');
+    else if (analysis.selectedRouteIndex === 2) setSelectedRouteStrategy('science');
+  }, [analysis.selectedRouteIndex]);
+
+  useEffect(() => {
+    if (activeRoute && activeRoute.waypoints && activeRoute.waypoints.length > 0) {
       setActivePath(activeRoute.waypoints || []);
       setRouteFeasible(!activeRoute.isBlocked);
       setPathfindingReason(activeRoute.explanation);
@@ -338,8 +345,31 @@ export default function MarsNavV4Workspace() {
       setReturnPath([...(activeRoute.waypoints || [])].reverse());
       // Alt safety can be the second best candidate
       setAltSafetyPath(analysis.routes[1]?.waypoints || []);
+
+      // Broadcast active route into sharedSession for Risk Assessment & Navigation
+      updateSharedSession({
+        astarComputedPath: activeRoute.waypoints.map(w => ({ x: w.x, y: w.y })),
+        activeSyncRoute: {
+          routeId: activeRoute.id,
+          name: activeRoute.name,
+          sourceModule: 'MARSWALK_OPS',
+          strategy: selectedRouteStrategy,
+          strategyName: activeRoute.name,
+          startPoint: { x: activeRoute.waypoints[0].x, y: activeRoute.waypoints[0].y },
+          destinationPoint: {
+            x: activeRoute.waypoints[activeRoute.waypoints.length - 1].x,
+            y: activeRoute.waypoints[activeRoute.waypoints.length - 1].y
+          },
+          waypoints: activeRoute.waypoints,
+          totalDistanceM: activeRoute.totalLengthM,
+          totalCost: activeRoute.totalCost,
+          sourceDimensions: { width: naturalDimensions.width || 256, height: naturalDimensions.height || 256 },
+          version: Date.now(),
+          lastUpdated: new Date().toISOString()
+        }
+      });
     }
-  }, [activeRoute, analysis.routes]);
+  }, [activeRoute, analysis.routes, selectedRouteStrategy, naturalDimensions.width, naturalDimensions.height, updateSharedSession]);
 
   // Editable Human Mission Assumptions
   const [walkingSpeedKmh, setWalkingSpeedKmh] = useState<number>(1.2);
@@ -3180,11 +3210,14 @@ export default function MarsNavV4Workspace() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div
-            onClick={() => setSelectedRouteStrategy('shortest')}
+            onClick={() => {
+              setSelectedRouteStrategy('shortest');
+              setSelectedRouteIndex(0);
+            }}
             className={`p-3 rounded-xl border cursor-pointer transition-all ${
               selectedRouteStrategy === 'shortest'
-                ? 'bg-cyan-950/40 border-cyan-500 shadow-md'
-                : 'bg-black/40 border-slate-800'
+                ? 'bg-cyan-950/40 border-cyan-500 shadow-md ring-1 ring-cyan-500/40'
+                : 'bg-black/40 border-slate-800 hover:border-slate-700'
             }`}
           >
             <div className="flex justify-between font-bold text-white mb-1">
@@ -3204,11 +3237,14 @@ export default function MarsNavV4Workspace() {
           </div>
 
           <div
-            onClick={() => setSelectedRouteStrategy('safety')}
+            onClick={() => {
+              setSelectedRouteStrategy('safety');
+              setSelectedRouteIndex(1);
+            }}
             className={`p-3 rounded-xl border cursor-pointer transition-all ${
               selectedRouteStrategy === 'safety'
-                ? 'bg-emerald-950/40 border-emerald-500 shadow-md'
-                : 'bg-black/40 border-slate-800'
+                ? 'bg-emerald-950/40 border-emerald-500 shadow-md ring-1 ring-emerald-500/40'
+                : 'bg-black/40 border-slate-800 hover:border-slate-700'
             }`}
           >
             <div className="flex justify-between font-bold text-white mb-1">
@@ -3228,11 +3264,14 @@ export default function MarsNavV4Workspace() {
           </div>
 
           <div
-            onClick={() => setSelectedRouteStrategy('science')}
+            onClick={() => {
+              setSelectedRouteStrategy('science');
+              setSelectedRouteIndex(2);
+            }}
             className={`p-3 rounded-xl border cursor-pointer transition-all ${
               selectedRouteStrategy === 'science'
-                ? 'bg-indigo-950/40 border-indigo-500 shadow-md'
-                : 'bg-black/40 border-slate-800'
+                ? 'bg-indigo-950/40 border-indigo-500 shadow-md ring-1 ring-indigo-500/40'
+                : 'bg-black/40 border-slate-800 hover:border-slate-700'
             }`}
           >
             <div className="flex justify-between font-bold text-white mb-1">

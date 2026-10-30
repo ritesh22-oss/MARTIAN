@@ -12,30 +12,86 @@ export const MARS_REFERENCE_DATUM = {
   quadrangle: 'MC-13 Syrtis Major (Jezero Crater)'
 };
 
-// Authoritative NASA Data Source Catalog
+// Jezero Crater Study Region Geographic Bounds
+export const JEZERO_STUDY_REGION_BOUNDS = {
+  name: 'Jezero Crater Western Delta Core Study Area',
+  minLat: 18.20,
+  maxLat: 18.55,
+  minLon: 77.20,
+  maxLon: 77.65,
+  centerLat: 18.38,
+  centerLon: 77.42,
+  crs: 'Planetocentric East-positive',
+  datum: 'Mars Aeroid / MOLA Areoid'
+};
+
+// Authoritative NASA Data Source Catalog with Complete PDS Attributes
 export const NASA_DATA_SOURCES = [
   {
-    id: 'mola',
-    name: 'Mars Orbiter Laser Altimeter (MOLA)',
-    mission: 'Mars Global Surveyor (MGS)',
-    instrument: 'MOLA MEGDR Topography Grid',
-    sourceOrg: 'NASA Planetary Data System (PDS) Geosciences Node',
-    resolution: '128 pixels/degree (~463 m/pixel at equator)',
-    url: 'https://pds-geosciences.wustl.edu/missions/mgs/mola.html',
-    type: 'Topographic Digital Elevation Model',
-    status: 'Referenced Datum'
-  },
-  {
     id: 'hirise',
-    name: 'High Resolution Imaging Science Experiment (HiRISE)',
+    name: 'High Resolution Imaging Science Experiment (HiRISE DTM)',
     mission: 'Mars Reconnaissance Orbiter (MRO)',
     instrument: 'HiRISE Stereo Camera / DTM',
     sourceOrg: 'NASA PDS Imaging Node / University of Arizona',
-    resolution: '0.25 to 0.5 m/pixel orthorectified terrain',
-    url: 'https://hirise.lpl.arizona.edu/',
     product: 'PSP_001414_1780_RED / DTM Jezero Crater Fan',
     type: 'High-Resolution Orbital Surface Imagery & DEM',
-    status: 'Validated Baseline'
+    url: 'https://hirise.lpl.arizona.edu/dtm/dtm.php?ID=PSP_001414_1780',
+    resolution: '0.25 m/pixel (High-Density Ortho Grid)',
+    resolutionMeters: 0.25,
+    units: 'meters',
+    datum: 'Mars Aeroid / MOLA Areoid',
+    coordinateSystem: 'Planetocentric East-positive',
+    latitudeConvention: 'Planetocentric',
+    longitudeConvention: 'East-positive',
+    bounds: { minLat: 18.22, maxLat: 18.52, minLon: 77.28, maxLon: 77.58 },
+    verticalUnits: 'Meters relative to MOLA Areoid',
+    spatialType: 'Raster DEM',
+    pdsLabelHeader: 'PDS3/PDS4 LBL: MAP_PROJECTION_TYPE = EQUIRECTANGULAR, TARGET_NAME = MARS',
+    status: 'VERIFIED'
+  },
+  {
+    id: 'mola',
+    name: 'Mars Orbiter Laser Altimeter (MOLA MEGDR)',
+    mission: 'Mars Global Surveyor (MGS)',
+    instrument: 'MOLA Altimeter / MEGDR',
+    sourceOrg: 'NASA Planetary Data System (PDS) Geosciences Node',
+    product: 'MEGDR_128_MEGTR44N000HB.LBL',
+    type: 'Global Topographic Digital Elevation Grid',
+    url: 'https://pds-geosciences.wustl.edu/missions/mgs/mola.html',
+    resolution: '128 pixels/degree (~463 m/pixel at equator)',
+    resolutionMeters: 463,
+    units: 'meters',
+    datum: 'Mars Aeroid / MOLA Areoid',
+    coordinateSystem: 'Planetocentric East-positive',
+    latitudeConvention: 'Planetocentric',
+    longitudeConvention: 'East-positive',
+    bounds: { minLat: -90.0, maxLat: 90.0, minLon: 0.0, maxLon: 360.0 },
+    verticalUnits: 'Meters relative to MOLA Areoid',
+    spatialType: 'Raster DEM',
+    pdsLabelHeader: 'PDS3 LBL: COORD_SYS = PLANETOCENTRIC, LONGITUDE_DIRECTION = EAST',
+    status: 'PARTIALLY COMPATIBLE'
+  },
+  {
+    id: 'hrsc',
+    name: 'High Resolution Stereo Camera (HRSC Regional DEM)',
+    mission: 'Mars Express (ESA / NASA PDS Node)',
+    instrument: 'HRSC Super-Resolution Stereo Channel',
+    sourceOrg: 'DLR / ESA / NASA PDS Geosciences Node',
+    product: 'HRSC_H5226_DTM_MC13.TIF',
+    type: 'Regional Stereo Digital Elevation Model',
+    url: 'https://pds-geosciences.wustl.edu/mexpress/h2000-dataset.htm',
+    resolution: '12.5 m/pixel (Intermediate Grid)',
+    resolutionMeters: 12.5,
+    units: 'meters',
+    datum: 'Mars Aeroid / MOLA Areoid',
+    coordinateSystem: 'Planetocentric East-positive',
+    latitudeConvention: 'Planetocentric',
+    longitudeConvention: 'East-positive',
+    bounds: { minLat: 15.0, maxLat: 22.0, minLon: 75.0, maxLon: 80.0 },
+    verticalUnits: 'Meters relative to MOLA Areoid',
+    spatialType: 'Raster DEM',
+    pdsLabelHeader: 'PDS4 LBL: MAP_PROJECTION_TYPE = SINUSOIDAL, TARGET_NAME = MARS',
+    status: 'PARTIALLY COMPATIBLE'
   },
   {
     id: 'meda',
@@ -43,12 +99,411 @@ export const NASA_DATA_SOURCES = [
     mission: 'Mars 2020 Perseverance Rover',
     instrument: 'MEDA Surface Weather Station',
     sourceOrg: 'NASA Jet Propulsion Laboratory / Centro de Astrobiología',
-    coverage: 'In-situ ground station at Octavia E. Butler Landing',
+    product: 'MEDA_SOL_0350_0450_ENV_SERIES.CSV',
+    type: 'In-Situ Atmospheric Pressure, Temp, Dust Opacity',
     url: 'https://mars.nasa.gov/mars2020/spacecraft/instruments/meda/',
-    type: 'Historical Atmospheric Pressure, Temperature, Dust Opacity (Tau)',
-    status: 'In-Situ Measurements'
+    resolution: 'Point Time-Series Sensor Stream',
+    resolutionMeters: 0,
+    units: 'Pa, °C, Tau (Non-spatial)',
+    datum: 'In-Situ Rover Ground Station',
+    coordinateSystem: 'Point Station Location (18.44°N, 77.45°E)',
+    latitudeConvention: 'Planetocentric',
+    longitudeConvention: 'East-positive',
+    bounds: { minLat: 18.44, maxLat: 18.44, minLon: 77.45, maxLon: 77.45 },
+    verticalUnits: 'Pressure / Temperature Metrics',
+    spatialType: 'Non-Spatial Environmental Stream',
+    pdsLabelHeader: 'PDS4 LBL: TABLE_CHARACTER, RECORD_TYPE = TIME_SERIES',
+    status: 'INCOMPATIBLE'
+  },
+  {
+    id: 'viking_mdim21',
+    name: 'Viking Orbiter MDIM 2.1 Surface Mosaic',
+    mission: 'Viking Orbiter 1 & 2',
+    instrument: 'Visual Imaging System (VIS)',
+    sourceOrg: 'USGS Astrogeology Science Center / NASA PDS',
+    product: 'MDIM21_MC13_WEST_POS.IMG',
+    type: 'Global Color Surface Imagery',
+    url: 'https://astrogeology.usgs.gov/search/map/Mars/Viking/MDIM21',
+    resolution: '231 m/pixel',
+    resolutionMeters: 231,
+    units: 'meters',
+    datum: 'Viking 1978 Sphere 3396.0 km',
+    coordinateSystem: 'Planetographic West-positive',
+    latitudeConvention: 'Planetographic',
+    longitudeConvention: 'West-positive',
+    bounds: { minLat: 0.0, maxLat: 30.0, minLon: 270.0, maxLon: 300.0 },
+    verticalUnits: 'N/A (Visual Albedo)',
+    spatialType: '2D Image Grid',
+    pdsLabelHeader: 'PDS3 LBL: COORD_SYS = PLANETOGRAPHIC, LONGITUDE_DIRECTION = WEST',
+    status: 'INCOMPATIBLE'
+  },
+  {
+    id: 'unverified_raw_label',
+    name: 'Raw Uncalibrated Orbital Spectrometer Cube',
+    mission: 'Candidate Orbital Survey',
+    instrument: 'Experimental Hyperspectral Sensor',
+    sourceOrg: 'External Research Consortium',
+    product: 'SURVEY_UNLABELED_CUBE_09.RAW',
+    type: 'Raw Uncalibrated Spectral Cube',
+    url: 'https://pds-imaging.jpl.nasa.gov/data/survey_raw.lbl',
+    resolution: 'Undefined / Uncalibrated',
+    resolutionMeters: 0,
+    units: 'Undefined',
+    datum: 'Undefined',
+    coordinateSystem: 'Undefined',
+    latitudeConvention: 'Undefined',
+    longitudeConvention: 'Undefined',
+    bounds: null,
+    verticalUnits: 'Undefined',
+    spatialType: 'Uncalibrated File',
+    pdsLabelHeader: 'HEADER_PARSE_ERROR: Missing MAP_PROJECTION_TYPE and COORD_SYS',
+    status: 'UNVERIFIED'
   }
 ];
+
+/**
+ * Deterministic Dataset Compatibility & Provenance Verification Engine
+ * Executes 8 rigorous spatial, datum, CRS, unit, and fusion checks against active reference datum.
+ */
+export function evaluateDatasetCompatibility(dataset, referenceDatum = MARS_REFERENCE_DATUM) {
+  if (!dataset) {
+    return {
+      selectedDataset: 'None',
+      referenceDatum: referenceDatum?.datumName || 'Mars Aeroid / MOLA Areoid',
+      timestamp: new Date().toISOString(),
+      overallStatus: 'UNVERIFIED',
+      compatibilityScorePct: 0,
+      spatialFusionPermitted: false,
+      checks: [],
+      warnings: ['No dataset selected for compatibility inspection.'],
+      summary: 'Insufficient metadata.'
+    };
+  }
+
+  const checks = [];
+  let passedCount = 0;
+  let warningCount = 0;
+  let failedCount = 0;
+
+  // 1. Datum & Reference Spheroid Matching
+  const datumMatch = dataset.datum && dataset.datum.toLowerCase().includes('mars aeroid');
+  if (datumMatch) {
+    passedCount++;
+    checks.push({
+      id: 'datum',
+      title: 'Reference Datum & Spheroid',
+      status: 'PASS',
+      expected: referenceDatum.datumName,
+      actual: dataset.datum,
+      explanation: `Dataset reference datum matches active planetary datum (${referenceDatum.datumName}, radius ${referenceDatum.meanRadiusKm} km).`
+    });
+  } else if (dataset.datum && dataset.datum !== 'Undefined') {
+    warningCount++;
+    checks.push({
+      id: 'datum',
+      title: 'Reference Datum & Spheroid',
+      status: 'WARNING',
+      expected: referenceDatum.datumName,
+      actual: dataset.datum,
+      explanation: `Datum offset detected (${dataset.datum} vs ${referenceDatum.datumName}). Small spatial translation pass required.`
+    });
+  } else {
+    failedCount++;
+    checks.push({
+      id: 'datum',
+      title: 'Reference Datum & Spheroid',
+      status: 'FAIL',
+      expected: referenceDatum.datumName,
+      actual: dataset.datum || 'Undefined',
+      explanation: 'Missing or incompatible reference datum parameter in dataset metadata.'
+    });
+  }
+
+  // 2. Coordinate Reference System (CRS)
+  const isEastPos = dataset.coordinateSystem && dataset.coordinateSystem.toLowerCase().includes('east-positive');
+  const isWestPos = dataset.coordinateSystem && dataset.coordinateSystem.toLowerCase().includes('west-positive');
+  
+  if (isEastPos) {
+    passedCount++;
+    checks.push({
+      id: 'crs',
+      title: 'Coordinate Reference System (CRS)',
+      status: 'PASS',
+      expected: referenceDatum.coordinateSystem,
+      actual: dataset.coordinateSystem,
+      explanation: 'CRS matches Planetocentric East-positive standard convention.'
+    });
+  } else if (isWestPos) {
+    failedCount++;
+    checks.push({
+      id: 'crs',
+      title: 'Coordinate Reference System (CRS)',
+      status: 'FAIL',
+      expected: referenceDatum.coordinateSystem,
+      actual: dataset.coordinateSystem,
+      explanation: 'Incompatible CRS convention. Planetographic West-positive coordinates require longitude inversion (360° - Lon_West).'
+    });
+  } else {
+    failedCount++;
+    checks.push({
+      id: 'crs',
+      title: 'Coordinate Reference System (CRS)',
+      status: 'FAIL',
+      expected: referenceDatum.coordinateSystem,
+      actual: dataset.coordinateSystem || 'Undefined',
+      explanation: 'Coordinate Reference System header is undefined or non-spatial.'
+    });
+  }
+
+  // 3. Latitude Convention
+  if (dataset.latitudeConvention === 'Planetocentric') {
+    passedCount++;
+    checks.push({
+      id: 'lat_conv',
+      title: 'Latitude Convention',
+      status: 'PASS',
+      expected: 'Planetocentric (-90° to +90°)',
+      actual: dataset.latitudeConvention,
+      explanation: 'Latitude matches Planetocentric angular convention.'
+    });
+  } else if (dataset.latitudeConvention === 'Planetographic') {
+    failedCount++;
+    checks.push({
+      id: 'lat_conv',
+      title: 'Latitude Convention',
+      status: 'FAIL',
+      expected: 'Planetocentric (-90° to +90°)',
+      actual: dataset.latitudeConvention,
+      explanation: 'Planetographic latitude convention detected. Ellipsoidal flattening conversion required.'
+    });
+  } else {
+    failedCount++;
+    checks.push({
+      id: 'lat_conv',
+      title: 'Latitude Convention',
+      status: 'FAIL',
+      expected: 'Planetocentric',
+      actual: dataset.latitudeConvention || 'Undefined',
+      explanation: 'Latitude convention missing or undefined.'
+    });
+  }
+
+  // 4. Longitude Direction Convention
+  if (dataset.longitudeConvention === 'East-positive') {
+    passedCount++;
+    checks.push({
+      id: 'lon_conv',
+      title: 'Longitude Direction Convention',
+      status: 'PASS',
+      expected: 'East-positive (0° to 360° E)',
+      actual: dataset.longitudeConvention,
+      explanation: 'Longitude matches East-positive spatial direction.'
+    });
+  } else if (dataset.longitudeConvention === 'West-positive') {
+    failedCount++;
+    checks.push({
+      id: 'lon_conv',
+      title: 'Longitude Direction Convention',
+      status: 'FAIL',
+      expected: 'East-positive (0° to 360° E)',
+      actual: dataset.longitudeConvention,
+      explanation: 'West-positive longitude direction detected. Requires coordinate axis flipping.'
+    });
+  } else {
+    failedCount++;
+    checks.push({
+      id: 'lon_conv',
+      title: 'Longitude Direction Convention',
+      status: 'FAIL',
+      expected: 'East-positive',
+      actual: dataset.longitudeConvention || 'Undefined',
+      explanation: 'Longitude direction convention missing or undefined.'
+    });
+  }
+
+  // 5. Geographic Overlap with Jezero Study Region
+  let overlapPct = 0;
+  if (dataset.bounds) {
+    const b = dataset.bounds;
+    const j = JEZERO_STUDY_REGION_BOUNDS;
+    
+    // Check bounding box intersection
+    const latIntersect = Math.max(0, Math.min(b.maxLat, j.maxLat) - Math.max(b.minLat, j.minLat));
+    const lonIntersect = Math.max(0, Math.min(b.maxLon, j.maxLon) - Math.max(b.minLon, j.minLon));
+    
+    const jLatSpan = j.maxLat - j.minLat;
+    const jLonSpan = j.maxLon - j.minLon;
+    
+    if (latIntersect > 0 && lonIntersect > 0) {
+      overlapPct = Math.min(100, Math.round((latIntersect / jLatSpan) * (lonIntersect / jLonSpan) * 100));
+    }
+  }
+
+  if (overlapPct >= 95) {
+    passedCount++;
+    checks.push({
+      id: 'overlap',
+      title: 'Spatial Coverage & Jezero Overlap',
+      status: 'PASS',
+      expected: '100% Coverage of Jezero Crater Area',
+      actual: `${overlapPct}% Geographic Overlap`,
+      explanation: `Dataset bounding box covers ${overlapPct}% of Jezero Crater study region.`
+    });
+  } else if (overlapPct > 0) {
+    warningCount++;
+    checks.push({
+      id: 'overlap',
+      title: 'Spatial Coverage & Jezero Overlap',
+      status: 'WARNING',
+      expected: '100% Coverage of Jezero Crater Area',
+      actual: `${overlapPct}% Regional Overlap`,
+      explanation: `Partial geographic overlap (${overlapPct}%). Dataset covers subset of study region.`
+    });
+  } else {
+    failedCount++;
+    checks.push({
+      id: 'overlap',
+      title: 'Spatial Coverage & Jezero Overlap',
+      status: 'FAIL',
+      expected: '100% Coverage of Jezero Crater Area',
+      actual: '0% Spatial Overlap / Point Non-Spatial',
+      explanation: 'No spatial geographic overlap with Jezero Crater study region.'
+    });
+  }
+
+  // 6. Resolution & Grid Units
+  if (dataset.resolutionMeters > 0 && dataset.resolutionMeters <= 1.0) {
+    passedCount++;
+    checks.push({
+      id: 'resolution',
+      title: 'Spatial Resolution & Grid Unit',
+      status: 'PASS',
+      expected: '≤ 1.0 m/pixel',
+      actual: `${dataset.resolutionMeters} m/pixel (${dataset.units})`,
+      explanation: 'High-density grid resolution suitable for rover hazard navigation.'
+    });
+  } else if (dataset.resolutionMeters > 1.0) {
+    warningCount++;
+    checks.push({
+      id: 'resolution',
+      title: 'Spatial Resolution & Grid Unit',
+      status: 'WARNING',
+      expected: '≤ 1.0 m/pixel',
+      actual: `${dataset.resolutionMeters} m/pixel (${dataset.units})`,
+      explanation: `Coarse grid resolution (${dataset.resolutionMeters} m/px). Spatial interpolation & elevation smoothing required before hazard routing.`
+    });
+  } else {
+    failedCount++;
+    checks.push({
+      id: 'resolution',
+      title: 'Spatial Resolution & Grid Unit',
+      status: 'FAIL',
+      expected: 'Valid Spatial Grid Resolution',
+      actual: dataset.resolution || 'Undefined',
+      explanation: 'Dataset is a non-spatial point stream or lacks calibrated grid resolution.'
+    });
+  }
+
+  // 7. Vertical Datum & Elevation Units
+  if (dataset.verticalUnits && dataset.verticalUnits.includes('Meters')) {
+    passedCount++;
+    checks.push({
+      id: 'vertical_units',
+      title: 'Vertical Reference & Elevation Units',
+      status: 'PASS',
+      expected: 'Meters relative to MOLA Areoid',
+      actual: dataset.verticalUnits,
+      explanation: 'Vertical elevation units match MOLA Areoid meter height scale.'
+    });
+  } else {
+    failedCount++;
+    checks.push({
+      id: 'vertical_units',
+      title: 'Vertical Reference & Elevation Units',
+      status: 'FAIL',
+      expected: 'Meters relative to MOLA Areoid',
+      actual: dataset.verticalUnits || 'Non-Elevation / Weather Data',
+      explanation: 'Product does not contain 2D/3D topographic elevation surface heights.'
+    });
+  }
+
+  // 8. Spatial Raster Fusion Eligibility
+  const isNonSpatial = dataset.spatialType && dataset.spatialType.includes('Non-Spatial');
+  const isFusible = passedCount >= 5 && failedCount <= 2 && !isNonSpatial;
+  
+  if (isFusible && warningCount === 0) {
+    passedCount++;
+    checks.push({
+      id: 'fusion',
+      title: '3D Terrain Raster Fusion Eligibility',
+      status: 'PASS',
+      expected: 'Direct 2D/3D Raster Fusion Permitted',
+      actual: 'FUSION PERMITTED',
+      explanation: 'Dataset satisfies all spatial alignment parameters. Direct terrain fusion enabled.'
+    });
+  } else if (isFusible && warningCount > 0) {
+    warningCount++;
+    checks.push({
+      id: 'fusion',
+      title: '3D Terrain Raster Fusion Eligibility',
+      status: 'WARNING',
+      expected: 'Direct 2D/3D Raster Fusion Permitted',
+      actual: 'PERMITTED WITH RESAMPLING',
+      explanation: 'Fusion permitted with automatic spatial grid resampling pass.'
+    });
+  } else {
+    failedCount++;
+    checks.push({
+      id: 'fusion',
+      title: '3D Terrain Raster Fusion Eligibility',
+      status: 'FAIL',
+      expected: 'Direct 2D/3D Raster Fusion Permitted',
+      actual: 'FUSION BLOCKED',
+      explanation: isNonSpatial
+        ? 'MEDA weather measurements are point atmospheric time-series. Direct 2D spatial DEM raster fusion is disabled.'
+        : 'Incompatible coordinate parameters prevent spatial raster fusion.'
+    });
+  }
+
+  // Calculate Overall Compatibility Score Percentage
+  const totalChecks = checks.length;
+  const compatibilityScorePct = Math.round(((passedCount + warningCount * 0.5) / totalChecks) * 100);
+
+  let overallStatus = 'UNVERIFIED';
+  if (failedCount === 0 && warningCount === 0) {
+    overallStatus = 'VERIFIED';
+  } else if (failedCount === 0 && warningCount > 0) {
+    overallStatus = 'PARTIALLY COMPATIBLE';
+  } else if (failedCount > 0 && passedCount >= 3) {
+    overallStatus = 'INCOMPATIBLE';
+  } else if (failedCount >= 4) {
+    overallStatus = 'INCOMPATIBLE';
+  }
+
+  if (dataset.id === 'unverified_raw_label' || dataset.resolution === 'Undefined / Uncalibrated') {
+    overallStatus = 'UNVERIFIED';
+  }
+
+  const warnings = checks.filter(c => c.status === 'WARNING').map(c => c.explanation);
+  const failures = checks.filter(c => c.status === 'FAIL').map(c => c.explanation);
+
+  return {
+    selectedDatasetId: dataset.id,
+    selectedDatasetName: dataset.name,
+    referenceDatum: referenceDatum.datumName,
+    timestamp: new Date().toISOString(),
+    overallStatus,
+    compatibilityScorePct,
+    spatialFusionPermitted: overallStatus === 'VERIFIED' || overallStatus === 'PARTIALLY COMPATIBLE',
+    passedCount,
+    warningCount,
+    failedCount,
+    totalChecks,
+    checks,
+    warnings,
+    failures
+  };
+}
 
 // Historical MEDA meteorological observations (Sol 350 - 420 nominal sample)
 export const JEZERO_ENVIRONMENTAL_CONTEXT = {

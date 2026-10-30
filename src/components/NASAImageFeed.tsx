@@ -538,16 +538,31 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
             <p className="text-xs text-slate-500 font-mono">Resolving authentic mission frames from sol {sol || (order === 'oldest' ? '0' : latestSol)}</p>
           </div>
         ) : error && images.length === 0 ? (
-          <div className="py-12 text-center space-y-2 bg-red-950/20 border border-red-900/50 rounded-xl p-4">
-            <Info className="w-6 h-6 text-red-400 mx-auto" />
-            <p className="text-sm text-red-300 font-bold">{error}</p>
-            <p className="text-xs text-red-400 font-mono">JPL planetary raw feed endpoint may be throttled. Backing off with cached archive.</p>
-            <button
-              onClick={() => fetchRawImages(mission, sol, camera, order, page, limit, false)}
-              className="mt-3 px-4 py-1.5 bg-red-900/40 hover:bg-red-900/60 text-red-200 text-xs rounded-lg font-medium transition-colors cursor-pointer"
-            >
-              Retry Connection
-            </button>
+          <div className="py-12 text-center space-y-4 bg-red-950/20 border border-red-900/50 rounded-2xl p-6">
+            <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mx-auto text-red-500">
+              <Info className="w-6 h-6" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-red-300 font-bold uppercase tracking-tight">Telemetry Signal Interrupted</p>
+              <p className="text-xs text-red-400 font-mono max-w-sm mx-auto">{error}</p>
+            </div>
+            <div className="flex flex-col items-center gap-3">
+              <button
+                onClick={() => fetchRawImages(mission, sol, camera, order, page, limit, false)}
+                disabled={loading}
+                className="px-6 py-2 bg-red-900/40 hover:bg-red-900/60 text-red-200 text-xs rounded-xl font-bold transition-all cursor-pointer border border-red-800 flex items-center gap-2 disabled:opacity-50"
+              >
+                {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                <span>{loading ? 'Re-establishing Link...' : 'Retry Connection'}</span>
+              </button>
+              
+              <button 
+                onClick={() => window.open('/api/nasa/diagnostics', '_blank')}
+                className="text-[10px] text-slate-500 hover:text-slate-300 underline font-mono cursor-pointer"
+              >
+                View NASA System Diagnostics
+              </button>
+            </div>
           </div>
         ) : images.length === 0 ? (
           <div className="py-20 text-center space-y-3 text-slate-400">

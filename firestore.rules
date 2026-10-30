@@ -105,5 +105,11 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isSignedIn() && (request.auth.token.email == 'riteshganguly0911@gmail.com');
     }
+
+    // NASA/JPL Data Cache
+    match /nasa_cache/{cacheId} {
+      allow read: if true;
+      allow write: if true; // In a production app, this should be restricted to a service account or backend role
+    }
   }
 }

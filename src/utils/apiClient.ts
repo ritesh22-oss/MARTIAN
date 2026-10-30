@@ -54,14 +54,15 @@ export async function request<T>(url: string, options: RequestInit = {}): Promis
 
     if (!response.ok) {
       let errorDetail = '';
+      let errorCode = 'UNKNOWN_ERROR';
+      
       try {
         const errJson = await response.json();
         if (errJson && typeof errJson === 'object') {
-          // Robust extraction of error message from various common JSON structures
-          errorDetail = errJson.error?.message || 
-                        errJson.message || 
-                        errJson.error || 
-                        (typeof errJson === 'string' ? errJson : JSON.stringify(errJson));
+          // Handle { success: false, error: { message, code } }
+          const errorObj = errJson.error || errJson;
+          errorDetail = errorObj.message || errorObj.error || JSON.stringify(errorObj);
+          errorCode = errorObj.code || errorCode;
         } else {
           errorDetail = String(errJson);
         }
@@ -69,12 +70,11 @@ export async function request<T>(url: string, options: RequestInit = {}): Promis
         errorDetail = await response.text();
       }
 
-      // Ensure errorDetail is a string to avoid template literal default stringification [object Object]
       const safeErrorDetail = typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail);
 
       return {
         data: null,
-        error: `HTTP ${response.status}: ${safeErrorDetail || response.statusText}`,
+        error: `[${errorCode}] ${safeErrorDetail || response.statusText}`,
         status: response.status,
         isHtml: false,
         url: diagnosticUrl

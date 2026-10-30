@@ -1,26 +1,42 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 import { auth, db, signInWithGoogle, signOutUser, isFirestoreQuotaExceeded, markFirestoreQuotaExceeded } from '../firebase';
 
-const AuthContext = createContext({
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string;
+  createdAt: string;
+}
+
+interface AuthContextType {
+  user: User | null;
+  userProfile: UserProfile | null;
+  loading: boolean;
+  login: () => Promise<User>;
+  logout: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType>({
   user: null,
   userProfile: null,
   loading: true,
-  login: async () => {},
-  logout: async () => {},
+  login: async () => { throw new Error('AuthContext not initialized'); },
+  logout: async () => { throw new Error('AuthContext not initialized'); },
 });
 
-export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        const fallbackProfile = {
+        const fallbackProfile: UserProfile = {
           uid: currentUser.uid,
           email: currentUser.email || 'commander@marsnav.space',
           displayName: currentUser.displayName || 'Mars Commander',
@@ -29,7 +45,7 @@ export function AuthProvider({ children }) {
         };
 
         const cachedProfileKey = `marsnav_profile_${currentUser.uid}`;
-        let localProfile = null;
+        let localProfile: UserProfile | null = null;
         try {
           const cached = localStorage.getItem(cachedProfileKey);
           if (cached) localProfile = JSON.parse(cached);
@@ -50,7 +66,7 @@ export function AuthProvider({ children }) {
             const userDocRef = doc(db, 'users', currentUser.uid);
             const docSnap = await getDoc(userDocRef);
             if (docSnap && docSnap.exists()) {
-              const remoteData = docSnap.data();
+              const remoteData = docSnap.data() as UserProfile;
               if (remoteData) {
                 setUserProfile(remoteData);
                 try {
@@ -58,7 +74,7 @@ export function AuthProvider({ children }) {
                 } catch {}
               }
             }
-          } catch (err) {
+          } catch (err: any) {
             if (err?.code === 'resource-exhausted' || (err?.message && err.message.includes('resource-exhausted'))) {
               markFirestoreQuotaExceeded();
             }
@@ -69,7 +85,6 @@ export function AuthProvider({ children }) {
       }
       setLoading(false);
     });
-
 
     return () => unsubscribe();
   }, []);
@@ -97,6 +112,6 @@ export function AuthProvider({ children }) {
       {children}
     </AuthContext.Provider>
   );
-}
+};
 
 export const useAuth = () => useContext(AuthContext);

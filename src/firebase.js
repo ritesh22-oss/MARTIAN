@@ -65,8 +65,8 @@ export function isFirestoreQuotaExceeded() {
   try {
     const val = localStorage.getItem(QUOTA_KEY);
     if (val === null) {
-      localStorage.setItem(QUOTA_KEY, 'true');
-      return true;
+      localStorage.setItem(QUOTA_KEY, 'false');
+      return false;
     }
     return val === 'true';
   } catch {

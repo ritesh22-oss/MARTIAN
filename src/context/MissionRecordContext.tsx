@@ -6,6 +6,7 @@ import {
   fetchUserMissions,
   subscribeToUserMissions 
 } from '../utils/missionService';
+import { useAuth } from './AuthContext';
 
 // Define the complete structure for a mission record
 export interface MissionRecord {
@@ -76,36 +77,45 @@ export const MissionRecordProvider = ({ children }: { children: React.ReactNode 
   const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const { user } = useAuth();
+
   // Load missions and subscribe to updates, ensuring a default mission exists
+  const loadMissions = useCallback(async () => {
+    setIsLoading(true);
+    const data = await fetchUserMissions();
+    let list = data;
+    if (!list || list.length === 0) {
+      const defaultMsn = createNewMissionRecord({ name: 'Jezero Delta Traverse Sol 428', description: 'Default Initial Mission' });
+      await saveMissionRecord(defaultMsn);
+      list = [defaultMsn];
+    }
+    setMissions(list);
+    
+    const savedId = localStorage.getItem('marsnav_active_mission_id');
+    if (savedId && list.some((m: any) => m.id === savedId)) {
+      setActiveMissionId(savedId);
+    } else {
+      setActiveMissionId(list[0].id);
+      localStorage.setItem('marsnav_active_mission_id', list[0].id);
+    }
+    setIsLoading(false);
+  }, []);
+
   useEffect(() => {
-    fetchUserMissions().then((data: any) => {
-      let list = data;
-      if (!list || list.length === 0) {
-        const defaultMsn = createNewMissionRecord({ name: 'Jezero Delta Traverse Sol 428', description: 'Default Initial Mission' });
-        saveMissionRecord(defaultMsn);
-        list = [defaultMsn];
-      }
-      setMissions(list);
-      
-      const savedId = localStorage.getItem('marsnav_active_mission_id');
-      if (savedId && list.some((m: any) => m.id === savedId)) {
-        setActiveMissionId(savedId);
-      } else {
-        setActiveMissionId(list[0].id);
-        localStorage.setItem('marsnav_active_mission_id', list[0].id);
-      }
-      setIsLoading(false);
-    });
+    loadMissions();
 
     const unsubscribe = subscribeToUserMissions((updatedList: any) => {
       if (updatedList && updatedList.length > 0) {
         setMissions(updatedList);
         setActiveMissionId((prev: string | null) => (prev && updatedList.some((m: any) => m.id === prev)) ? prev : updatedList[0].id);
+      } else if (updatedList && updatedList.length === 0) {
+        // If everything is gone, re-initialize
+        loadMissions();
       }
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [user, loadMissions]);
 
   const handleSetActiveMission = (id: string | null) => {
     setActiveMissionId(id);

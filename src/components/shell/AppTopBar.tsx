@@ -7,10 +7,15 @@ import {
   CheckCircle2,
   SlidersHorizontal,
   Wifi,
-  WifiOff
+  WifiOff,
+  User as UserIcon,
+  LogOut,
+  LogIn,
+  ChevronDown
 } from 'lucide-react';
 import { useWorkspace, WorkspaceId } from '../../context/WorkspaceContext';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
+import { useAuth } from '../../context/AuthContext';
 
 interface AppTopBarProps {
   onOpenMissions: () => void;
@@ -28,8 +33,10 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
     setMissionManagerOpen
   } = useWorkspace();
 
+  const { user, userProfile, login, logout, loading: authLoading } = useAuth();
   const network = useNetworkStatus();
   const [exportNotice, setExportNotice] = useState<string | null>(null);
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
   const handleOpenMissionManager = () => {
     setMissionManagerOpen(true);
@@ -83,24 +90,21 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
 
   const { category, title } = getWorkspaceCategory(activeWorkspace);
 
-  const handleQuickExport = () => {
-    const exportData = {
-      system: 'MARSNAV Planetary Robotics Workstation',
-      version: '3.8.4',
-      activeWorkspace,
-      dataset: activeDataset,
-      exportTimestamp: new Date().toISOString(),
-      systemStatus
-    };
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `marsnav_${activeWorkspace}_${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setExportNotice('Exported workspace state (JSON)');
-    setTimeout(() => setExportNotice(null), 3000);
+  const handleLogin = async () => {
+    try {
+      await login();
+    } catch (err) {
+      console.error('Login failed', err);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setUserDropdownOpen(false);
+    } catch (err) {
+      console.error('Logout failed', err);
+    }
   };
 
   return (
@@ -144,13 +148,13 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
       </div>
 
       {/* Zone 3: Actions & Controls */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 relative">
         {/* Deep Space Network Live Telemetry Badge */}
         <div
           className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-mono select-none ${
             network.state === 'OFFLINE'
               ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
-              : network.state === 'SLOW_CONNECTION'
+              : (network.state === 'SLOW_CONNECTION' || network.state === 'ONLINE_LIMITED')
               ? 'bg-amber-950/40 border-amber-500/40 text-amber-300'
               : 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
           }`}
@@ -159,11 +163,13 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
           {network.state === 'OFFLINE' ? (
             <WifiOff className="w-3.5 h-3.5 text-rose-400" />
           ) : (
-            <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+            <Wifi className={`w-3.5 h-3.5 ${network.state === 'ONLINE' ? 'text-emerald-400' : 'text-amber-400'}`} />
           )}
           <span>
             {network.state === 'OFFLINE'
               ? 'OFFLINE'
+              : network.state === 'ONLINE_LIMITED'
+              ? 'LIMITED'
               : network.state === 'SLOW_CONNECTION'
               ? `SLOW ${network.latencyMs ? `(${network.latencyMs}ms)` : ''}`
               : `DSN ${network.latencyMs ? `${network.latencyMs}ms` : 'OK'}`}
@@ -180,6 +186,53 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
           <span className="hidden sm:inline">All Missions</span>
         </button>
 
+        {/* User Profile / Login */}
+        {user ? (
+          <div className="relative">
+            <button
+              onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+              className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full bg-slate-900/60 border border-slate-700 hover:border-cyan-500/50 transition-all cursor-pointer group"
+            >
+              {user.photoURL ? (
+                <img src={user.photoURL} alt="User" className="w-6 h-6 rounded-full border border-white/10" />
+              ) : (
+                <div className="w-6 h-6 rounded-full bg-cyan-900/50 flex items-center justify-center border border-cyan-500/30">
+                  <UserIcon className="w-3.5 h-3.5 text-cyan-400" />
+                </div>
+              )}
+              <span className="hidden lg:inline text-[11px] font-bold text-slate-200 group-hover:text-white truncate max-w-[80px]">
+                {userProfile?.displayName?.split(' ')[0] || 'Commander'}
+              </span>
+              <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${userDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {userDropdownOpen && (
+              <div className="absolute top-10 right-0 w-48 bg-[#0D121F] border border-slate-800 rounded-xl shadow-2xl py-2 z-[60] animate-in fade-in zoom-in duration-150">
+                <div className="px-4 py-2 border-b border-slate-800 mb-1">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">Identified as</p>
+                  <p className="text-xs font-semibold text-white truncate">{user.email}</p>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-xs text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Terminate Session</span>
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <button
+            onClick={handleLogin}
+            disabled={authLoading}
+            className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white transition-all cursor-pointer text-[11px] font-bold shadow-lg shadow-cyan-900/20 active:scale-95 disabled:opacity-50"
+          >
+            <LogIn className="w-3.5 h-3.5" />
+            <span>SIGN IN</span>
+          </button>
+        )}
+
         {/* Prominent Guide & Tutorials Action */}
         <button
           onClick={() => {
@@ -194,7 +247,7 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
           title="Open MARSNAV Mission Academy & Tutorials"
         >
           <BookOpen className="w-4 h-4 text-amber-400" />
-          <span>GUIDE &amp; TUTORIALS</span>
+          <span className="hidden sm:inline">GUIDE &amp; TUTORIALS</span>
         </button>
 
         {/* Export Notification Toast */}

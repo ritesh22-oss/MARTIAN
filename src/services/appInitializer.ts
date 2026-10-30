@@ -141,9 +141,9 @@ export async function runIntelligentInitialization(
       }
 
       case 'NET_TELEMETRY': {
-        // Run actual network ping to /api/health
+        // Run full comprehensive diagnostics check
         try {
-          networkStatus = await networkManager.pingTelemetry(true);
+          networkStatus = await networkManager.runFullDiagnostics();
         } catch {
           networkStatus = networkManager.getStatus();
         }
@@ -157,7 +157,13 @@ export async function runIntelligentInitialization(
       }
 
       case 'WORKSPACE_CACHE': {
-        // Finalize state
+        // Finalize state and seed datasets for console visibility
+        try {
+          const { seedVerifiedDatasetsToFirestore } = await import('./ai4marsDatasetService');
+          await seedVerifiedDatasetsToFirestore();
+        } catch (e) {
+          console.warn('Seeding skipped:', e);
+        }
         await new Promise((r) => setTimeout(r, 120));
         break;
       }

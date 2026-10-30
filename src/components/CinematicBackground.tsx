@@ -2,7 +2,7 @@ import React from 'react';
 import RealisticMarsPlanet from './RealisticMarsPlanet';
 
 interface CinematicBackgroundProps {
-  mode?: 'full' | 'horizon' | 'half';
+  mode?: 'globe' | 'horizon';
   showStars?: boolean;
   ambientColor?: string;
   glowOpacity?: number;
@@ -26,7 +26,7 @@ export const CinematicBackground: React.FC<CinematicBackgroundProps> = ({
     <div className="absolute inset-0 z-0 bg-[#030105] overflow-hidden">
       {/* 1. 3D Photorealistic Mars Planet Canvas Background */}
       <div className="absolute inset-0 z-0">
-        <RealisticMarsPlanet mode={mode === 'half' ? 'horizon' : mode} parallax={true} />
+        <RealisticMarsPlanet mode={mode} parallax={true} />
       </div>
 
       {/* 2. Atmospheric Diffuse Flare & Scatter */}

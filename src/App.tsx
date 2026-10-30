@@ -42,6 +42,7 @@ import OrbitChat from './components/OrbitChat';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
 import OfflineScreen from './components/OfflineScreen';
 import SlowConnectionScreen from './components/SlowConnectionScreen';
+import ServiceStatusBanner from './components/ServiceStatusBanner';
 
 function WorkstationMain() {
   const { activeWorkspace, setActiveWorkspace, setCommandPaletteOpen } = useWorkspace();
@@ -52,7 +53,7 @@ function WorkstationMain() {
   const [forceOfflineView, setForceOfflineView] = useState(false);
   const [dismissedSlowLink, setDismissedSlowLink] = useState(false);
 
-  // Auto-show offline screen if connection is lost
+  // Auto-show offline screen ONLY if hardware internet connection is lost
   useEffect(() => {
     if (!network.isOnline) {
       setForceOfflineView(true);
@@ -168,6 +169,8 @@ function WorkstationMain() {
           onOpenMissions={() => setMissionsModalOpen(true)}
           onOpenGuideModal={() => setGuideModalOpen(true)}
         />
+        
+        <ServiceStatusBanner />
 
         {/* Large Search Bar Below Navbar */}
         <div className="px-6 py-3.5 bg-[#080B18] border-b border-slate-800/80 shrink-0 flex items-center justify-center">

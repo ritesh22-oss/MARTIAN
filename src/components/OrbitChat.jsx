@@ -22,7 +22,9 @@ import {
   Zap,
   Volume2,
   VolumeX,
-  MessageSquare
+  MessageSquare,
+  Image as ImageIcon,
+  Paperclip
 } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { generateAutonomousAnswer } from '../utils/orbitKnowledgeEngine';
@@ -31,7 +33,7 @@ export default function OrbitChat({ onOpenGuide }) {
   const { activeWorkspace, activeDataset, telemetry, activeMission } = useWorkspace();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [chatMode, setChatMode] = useState('guide'); // Default to guide mode for instant onboarding
+  const [chatMode, setChatMode] = useState('guide'); 
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -40,27 +42,12 @@ export default function OrbitChat({ onOpenGuide }) {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [attachedImage, setAttachedImage] = useState(null);
   const [copiedIndex, setCopiedIndex] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('connected');
   const [errorMessage, setErrorMessage] = useState(null);
 
-  // Speech bubble & persistence state
-  const [bubbleDismissed, setBubbleDismissed] = useState(() => {
-    try {
-      return localStorage.getItem('marsnav_orbit_dismissed') === 'true';
-    } catch {
-      return false;
-    }
-  });
-  const [isMuted, setIsMuted] = useState(() => {
-    try {
-      return localStorage.getItem('marsnav_orbit_muted') === 'true';
-    } catch {
-      return false;
-    }
-  });
-  const [bubbleTip, setBubbleTip] = useState('');
-
+  const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
 
   // Contextual tips per active workspace
@@ -79,6 +66,23 @@ export default function OrbitChat({ onOpenGuide }) {
     const tip = tips[activeWorkspace] || "ORBIT intelligence ready. Click me for guidance or assistance!";
     setBubbleTip(tip);
   }, [activeWorkspace]);
+
+  // Speech bubble & persistence state
+  const [bubbleDismissed, setBubbleDismissed] = useState(() => {
+    try {
+      return localStorage.getItem('marsnav_orbit_dismissed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isMuted, setIsMuted] = useState(() => {
+    try {
+      return localStorage.getItem('marsnav_orbit_muted') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [bubbleTip, setBubbleTip] = useState('');
 
   useEffect(() => {
     try {
@@ -115,14 +119,43 @@ export default function OrbitChat({ onOpenGuide }) {
     "What is the history of Martian dust storms?"
   ];
 
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setErrorMessage("Please attach only image files (JPG, PNG, WEBP).");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setAttachedImage({
+        data: event.target.result,
+        mimeType: file.type,
+        name: file.name
+      });
+      // Automatically switch to general mode if sending image as it's multimodal analysis
+      if (chatMode === 'guide') setChatMode('general');
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSend = async (textToSend) => {
     const query = textToSend || input.trim();
-    if (!query || loading) return;
+    if (!query && !attachedImage) return;
+    if (loading) return;
 
-    const userMessage = { role: 'user', content: query };
+    const userMessage = { 
+      role: 'user', 
+      content: query || (attachedImage ? "Analyze this terrain capture." : ""),
+      image: attachedImage 
+    };
+    
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
     setInput('');
+    setAttachedImage(null);
     setLoading(true);
     setErrorMessage(null);
 
@@ -152,7 +185,8 @@ export default function OrbitChat({ onOpenGuide }) {
       });
 
       if (!response.ok) {
-        throw new Error(`Neural link timeout or error.`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Neural link timeout or error.`);
       }
 
       const data = await response.json();
@@ -165,6 +199,7 @@ export default function OrbitChat({ onOpenGuide }) {
       setConnectionStatus('autonomous');
       const autonomousReply = generateAutonomousAnswer(query, { mode: chatMode, messages: updatedMessages });
       setMessages([...updatedMessages, { role: 'assistant', content: autonomousReply }]);
+      setErrorMessage(err.message.includes('API_KEY') ? "Gemini API Key missing or invalid. Operating in Autonomous Core mode." : null);
     } finally {
       setLoading(false);
     }
@@ -491,6 +526,11 @@ export default function OrbitChat({ onOpenGuide }) {
                       ? 'bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-tr-none shadow-lg shadow-orange-900/20'
                       : 'bg-[#10172A] text-slate-200 border border-white/10 rounded-tl-none shadow-xl'
                   }`}>
+                    {msg.image && (
+                      <div className="mb-3 rounded-lg overflow-hidden border border-white/10 max-w-[200px]">
+                        <img src={msg.image.data} alt="Attached screenshot" className="w-full h-auto" />
+                      </div>
+                    )}
                     {renderFormattedText(msg.content)}
 
                     {msg.role === 'assistant' && (
@@ -519,6 +559,24 @@ export default function OrbitChat({ onOpenGuide }) {
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Attached Image Preview */}
+          {attachedImage && (
+            <div className="px-4 py-2 bg-[#0A0E1A] border-t border-white/10 flex items-center space-x-3">
+              <div className="relative w-12 h-12 rounded border border-cyan-500/50 overflow-hidden bg-black">
+                <img src={attachedImage.data} alt="Preview" className="w-full h-full object-cover" />
+                <button
+                  onClick={() => setAttachedImage(null)}
+                  className="absolute top-0 right-0 p-0.5 bg-black/60 text-white hover:text-red-400"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+              <div className="text-[10px] text-slate-400 font-mono truncate">
+                {attachedImage.name}
+              </div>
+            </div>
+          )}
+
           {/* Suggested Prompts */}
           <div className="px-4 py-2 bg-[#0A0E1A] border-t border-white/10 flex items-center space-x-2 overflow-x-auto scrollbar-none">
             {suggestedPrompts.map((prompt, idx) => (
@@ -536,6 +594,22 @@ export default function OrbitChat({ onOpenGuide }) {
           {/* Input Bar */}
           <div className="p-3 bg-[#070B14] border-t border-cyan-500/30 flex items-center space-x-2">
             <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept="image/*"
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading}
+              className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-400 hover:text-cyan-400 hover:border-cyan-500/40 transition-all cursor-pointer"
+              title="Attach Image for Analysis"
+            >
+              <ImageIcon className="w-4 h-4" />
+            </button>
+            
+            <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -546,7 +620,7 @@ export default function OrbitChat({ onOpenGuide }) {
             />
             <button
               onClick={() => handleSend()}
-              disabled={loading || !input.trim()}
+              disabled={loading || (!input.trim() && !attachedImage)}
               className="p-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-500 hover:to-cyan-600 text-white disabled:opacity-50 transition-all cursor-pointer shadow-lg shadow-cyan-900/30"
             >
               <Send className="w-4 h-4" />

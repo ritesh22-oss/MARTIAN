@@ -1,3 +1,6 @@
+import { doc, writeBatch, collection } from 'firebase/firestore';
+import { db, auth, isFirestoreQuotaExceeded } from '../firebase';
+
 /**
  * AI4Mars Ground-Truth Dataset Matcher & Supervised Evaluation Service
  * Authoritative integration for NASA JPL AI4Mars terrain dataset and custom annotations.
@@ -138,6 +141,31 @@ export const VERIFIED_GT_REGISTRY: Record<string, GroundTruthRecord> = {
     gtMaskPathOrGen: '/assets/aistudio/vis_4_2bcd6691.png'
   }
 };
+
+/**
+ * Seeds the verified benchmark datasets into Firestore so they are visible in the console.
+ */
+export async function seedVerifiedDatasetsToFirestore() {
+  const SEED_KEY = 'marsnav_datasets_seeded_v1';
+  if (localStorage.getItem(SEED_KEY) === 'true') return;
+  if (isFirestoreQuotaExceeded()) return;
+
+  try {
+    const batch = writeBatch(db);
+    const datasetsCol = collection(db, 'datasets');
+    
+    Object.values(VERIFIED_GT_REGISTRY).forEach(record => {
+      const docRef = doc(datasetsCol, record.id);
+      batch.set(docRef, record);
+    });
+
+    await batch.commit();
+    localStorage.setItem(SEED_KEY, 'true');
+    console.log('MARSNAV: Verified benchmark datasets successfully seeded to Firestore.');
+  } catch (error) {
+    console.warn('MARSNAV: Firestore seeding skipped or failed:', error);
+  }
+}
 
 /**
  * Exact Match Search Engine: Matches image identifiers against official dataset manifest

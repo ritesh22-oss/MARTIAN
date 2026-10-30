@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { MARS_REFERENCE_DATUM } from '../../utils/marsScienceData';
+import ConnectionDiagnostics from '../ConnectionDiagnostics';
 
 export default function SettingsWorkspace() {
   const { settings, updateSettings, systemStatus, checkSystemHealth } = useWorkspace();
@@ -182,43 +183,8 @@ export default function SettingsWorkspace() {
 
       {/* Tab 2: AI & Backend Status */}
       {activeTab === 'ai' && (
-        <div className="bg-[#090E1C] border border-slate-800 p-6 rounded-2xl space-y-6">
-          <div className="border-b border-slate-800 pb-2 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
-              <Cpu className="w-4 h-4 text-cyan-400" />
-              <span>AI Service Diagnostics & Telemetry</span>
-            </h2>
-            <button
-              onClick={checkSystemHealth}
-              className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs cursor-pointer"
-            >
-              Run Diagnostic Check
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 bg-black/40 rounded-xl border border-slate-800 space-y-2">
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">GEMINI AI INTEGRATION</span>
-              <div className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="font-bold text-white text-sm">gemini-3.8-flash</span>
-              </div>
-              <p className="text-[10px] text-slate-400 leading-relaxed">
-                Server-side proxy mounted via <code className="text-cyan-300">/api/orbit/chat</code> and <code className="text-cyan-300">/api/analyze-terrain</code> with strict 3.5s timeout protection and autonomous knowledge core.
-              </p>
-            </div>
-
-            <div className="p-4 bg-black/40 rounded-xl border border-slate-800 space-y-2">
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">DATABASE STORAGE</span>
-              <div className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-                <span className="font-bold text-white text-sm">Google Cloud Firestore</span>
-              </div>
-              <p className="text-[10px] text-slate-400 leading-relaxed">
-                Project database: <code className="text-cyan-300">ai-studio-marsnavaipowered-...</code> with security rules and saved mission persistence.
-              </p>
-            </div>
-          </div>
+        <div className="bg-[#090E1C] border border-slate-800 p-6 rounded-2xl">
+          <ConnectionDiagnostics />
         </div>
       )}
 

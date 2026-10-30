@@ -27,19 +27,19 @@ export const OfflineScreen: React.FC<OfflineScreenProps> = ({ onContinueOffline 
 
   const handleRetry = async () => {
     setRetrying(true);
-    setRetryMessage('Pinging MarsNav ground station telemetry endpoint...');
+    setRetryMessage('Probing global network and DSN ground station...');
     try {
       const result = await network.retry();
       if (result.isOnline) {
-        setRetryMessage('Deep Space Telemetry connection restored! Reconnecting...');
+        setRetryMessage('Network connection restored! Re-establishing DSN telemetry link...');
         setTimeout(() => {
           onContinueOffline();
         }, 1200);
       } else {
-        setRetryMessage('Ground station unreachable. Local autonomous mode remains active.');
+        setRetryMessage('Connection attempt failed. Hardware interface remains offline.');
       }
     } catch {
-      setRetryMessage('Link attempt timed out. Check hardware network interface.');
+      setRetryMessage('Link attempt timed out. Check local hardware network interface.');
     } finally {
       setTimeout(() => setRetrying(false), 500);
     }
@@ -85,10 +85,10 @@ export const OfflineScreen: React.FC<OfflineScreenProps> = ({ onContinueOffline 
           {/* Main Message */}
           <div className="space-y-4 mb-8">
             <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight leading-tight">
-              Operating in Autonomous Offline Mode
+              Hardware Network Connection Severed
             </h3>
             <p className="text-sm text-slate-300 leading-relaxed max-w-lg">
-              MarsNav has lost contact with the mission telemetry backend. Your current session has transitioned to <strong>Local Autonomous Control</strong>.
+              MarsNav has detected that your device is no longer connected to the internet. Access to remote DSN telemetry and Gemini intelligence has been suspended.
             </p>
           </div>
 

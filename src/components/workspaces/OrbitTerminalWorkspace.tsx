@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { generateAutonomousAnswer } from '../../utils/orbitKnowledgeEngine';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { apiPost } from '../../utils/apiClient';
 
 export default function OrbitTerminalWorkspace() {
   const { telemetry, systemStatus, activeWorkspace, activeDataset, selectedObservation } = useWorkspace();
@@ -63,25 +64,23 @@ export default function OrbitTerminalWorkspace() {
     const timer = setTimeout(() => controller.abort(), 6000);
 
     try {
-      const res = await fetch('/api/orbit/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          messages: updated,
-          mode: chatMode,
-          appContext: {
-            activeWorkspace,
-            activeDataset,
-            selectedObservation,
-            telemetry
-          }
-        })
-      });
+      const { data, error, isHtml } = await apiPost<any>('/api/orbit/chat', {
+        messages: updated,
+        mode: chatMode,
+        appContext: {
+          activeWorkspace,
+          activeDataset,
+          selectedObservation,
+          telemetry
+        }
+      }, { signal: controller.signal });
+      
       clearTimeout(timer);
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      if (error || isHtml || !data) {
+        throw new Error(error || 'Empty response');
+      }
+
       const reply = data.reply || generateAutonomousAnswer(q, { mode: chatMode, messages: updated });
       setMessages([...updated, { role: 'assistant', content: reply }]);
     } catch {

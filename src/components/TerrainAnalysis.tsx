@@ -26,6 +26,7 @@ import {
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useTerrainAnalysis } from '../context/TerrainAnalysisContext';
 import { useMissionRecord } from '../context/MissionRecordContext';
+import { apiGet, apiPost } from '../utils/apiClient';
 // ... (imports remain)
 
 const AI4MARS_CLASSES = [
@@ -103,8 +104,10 @@ export default function TerrainAnalysis() {
   const checkCheckpointStatus = async () => {
     setStatusLoading(true);
     try {
-      const res = await fetch('/api/ai4mars/status');
-      const data = await res.json();
+      const { data, error, isHtml } = await apiGet<any>('/api/ai4mars/status');
+      if (error || isHtml || !data) {
+        throw new Error(error || 'Empty status response');
+      }
       setModelStatus(data);
     } catch (err) {
       setModelStatus({
@@ -118,9 +121,10 @@ export default function TerrainAnalysis() {
 
   const loadBenchmarks = async () => {
     try {
-      const res = await fetch('/api/ai4mars/benchmarks');
-      const data = await res.json();
-      setBenchmarksData(data);
+      const { data, error, isHtml } = await apiGet<any>('/api/ai4mars/benchmarks');
+      if (!error && !isHtml && data) {
+        setBenchmarksData(data);
+      }
     } catch (err) {
       console.warn('Could not load benchmark data:', err);
     }
@@ -216,13 +220,9 @@ export default function TerrainAnalysis() {
       // 2. Try posting to /api/ai4mars/segment
       let apiResponse: any = null;
       try {
-        const res = await fetch('/api/ai4mars/segment', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: inputDataUrl })
-        });
-        if (res.ok) {
-          apiResponse = await res.json();
+        const { data, error, isHtml } = await apiPost<any>('/api/ai4mars/segment', { image: inputDataUrl });
+        if (!error && !isHtml && data) {
+          apiResponse = data;
         }
       } catch (err) {
         console.warn('API inference call failed, using client-side ImageNet normalized parser:', err);
@@ -488,9 +488,9 @@ export default function TerrainAnalysis() {
 
     // Check 2: Model Registry & Checkpoint Discovery
     try {
-      const res = await fetch('/api/ai4mars/status');
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-      const data = await res.json();
+      const { data, error, isHtml, status } = await apiGet<any>('/api/ai4mars/status');
+      if (error || isHtml || !data) throw new Error(error || `HTTP ${status}`);
+      
       if (data.checkpointAvailable) {
         checks.push({
           name: 'Model Registry & Checkpoint Discovery',
@@ -759,33 +759,28 @@ export default function TerrainAnalysis() {
       dCtx.fillRect(0, 0, 32, 32);
 
       const t0 = performance.now();
-      const res = await fetch('/api/ai4mars/segment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: dummyCanvas.toDataURL('image/png') })
-      });
+      const { data, error, isHtml, status } = await apiPost<any>('/api/ai4mars/segment', { image: dummyCanvas.toDataURL('image/png') });
       const durationMs = Math.round(performance.now() - t0);
 
-      if (res.ok) {
-        const segData = await res.json();
-        if (segData.status === 'success') {
+      if (!error && !isHtml && data) {
+        if (data.status === 'success') {
           checks.push({
             name: 'Inference Server API Round-Trip',
             status: 'Passed',
-            details: `API endpoint /api/ai4mars/segment responded successfully in ${durationMs} ms (Architecture: ${segData.modelArchitecture || 'ResNet34-UNet'}).`
+            details: `API endpoint /api/ai4mars/segment responded successfully in ${durationMs} ms (Architecture: ${data.modelArchitecture || 'ResNet34-UNet'}).`
           });
         } else {
           checks.push({
             name: 'Inference Server API Round-Trip',
             status: 'Failed',
-            details: `Server returned error status: ${segData.message || 'Unknown error'}`
+            details: `Server returned error status: ${data.message || 'Unknown error'}`
           });
         }
       } else {
         checks.push({
           name: 'Inference Server API Round-Trip',
           status: 'Failed',
-          details: `Server returned HTTP ${res.status} ${res.statusText}`
+          details: error || `Server returned HTTP ${status}`
         });
       }
     } catch (e: any) {

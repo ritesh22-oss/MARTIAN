@@ -1271,6 +1271,8 @@ export const VERIFIED_REGION_IMAGES: Record<string, RegionImageRecord[]> = Objec
   ])
 );
 
+import { apiGet } from '../utils/apiClient';
+
 /**
  * Fetch verified images for a given region with caching and search filter support
  */
@@ -1282,20 +1284,17 @@ export async function getRegionGallery(regionId: string, filters?: RegionFilterO
 
   // Try fetching live server additions if endpoint is available
   try {
-    const res = await fetch(`/api/nasa/regions/${matchedKey}/gallery`);
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data.images) && data.images.length > 0) {
-        const combined = [...data.images];
-        const seen = new Set(data.images.map((im: any) => im.id));
-        for (const localImg of (VERIFIED_REGION_IMAGES[matchedKey] || [])) {
-          if (!seen.has(localImg.id)) {
-            combined.push(localImg);
-            seen.add(localImg.id);
-          }
+    const { data, error, isHtml } = await apiGet<any>(`/api/nasa/regions/${matchedKey}/gallery`);
+    if (!error && !isHtml && data && Array.isArray(data.images) && data.images.length > 0) {
+      const combined = [...data.images];
+      const seen = new Set(data.images.map((im: any) => im.id));
+      for (const localImg of (VERIFIED_REGION_IMAGES[matchedKey] || [])) {
+        if (!seen.has(localImg.id)) {
+          combined.push(localImg);
+          seen.add(localImg.id);
         }
-        list = combined;
       }
+      list = combined;
     }
   } catch {
     // Graceful offline/local fallback

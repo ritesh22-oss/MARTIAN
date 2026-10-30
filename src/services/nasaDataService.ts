@@ -1,3 +1,5 @@
+import { apiGet } from '../utils/apiClient';
+
 /**
  * NASA & PDS Data Service Layer
  * Authoritative data-access client for live Mars raw imagery, PDS HiRISE DTMs,
@@ -116,11 +118,11 @@ function saveToCache<T>(key: string, data: T) {
  * Check and synchronize latest NASA Mars rover observations
  */
 export async function syncLatestObservation(mission: 'mars2020' | 'msl' = 'mars2020'): Promise<SyncLatestResult> {
-  const res = await fetch(`/api/nasa/sync/latest?mission=${mission}`);
-  if (!res.ok) {
-    throw new Error(`Failed to check latest NASA observations: HTTP ${res.status}`);
+  const { data, error, isHtml } = await apiGet<SyncLatestResult>(`/api/nasa/sync/latest?mission=${mission}`);
+  if (error || !data || isHtml) {
+    throw new Error(error || 'Failed to synchronize latest observations');
   }
-  return await res.json();
+  return data;
 }
 
 /**
@@ -162,11 +164,10 @@ export async function fetchMarsRawImages(params: FetchRawImagesParams = {}): Pro
   if (sol !== undefined && sol !== 'latest') queryParams.set('sol', String(sol));
 
   try {
-    const res = await fetch(`/api/nasa/mars2020/raw?${queryParams.toString()}`, { signal });
-    if (!res.ok) {
-      throw new Error(`Failed to fetch Mars raw images: HTTP ${res.status}`);
+    const { data, error, isHtml } = await apiGet<any>(`/api/nasa/mars2020/raw?${queryParams.toString()}`, { signal });
+    if (error || isHtml || !data) {
+      throw new Error(error || 'Failed to fetch Mars raw images');
     }
-    const data = await res.json();
     saveToCache(cacheKey, data);
     return data;
   } catch (err: any) {
@@ -190,11 +191,10 @@ export async function fetchHiRISEProducts(query?: string): Promise<{
   const cached = getFromCache<any>(cacheKey);
   if (cached) return cached;
 
-  const res = await fetch(`/api/nasa/hirise/products${query ? `?q=${encodeURIComponent(query)}` : ''}`);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch HiRISE products: HTTP ${res.status}`);
+  const { data, error, isHtml } = await apiGet<any>(`/api/nasa/hirise/products${query ? `?q=${encodeURIComponent(query)}` : ''}`);
+  if (error || isHtml || !data) {
+    throw new Error(error || 'Failed to fetch HiRISE products');
   }
-  const data = await res.json();
   saveToCache(cacheKey, data);
   return data;
 }
@@ -208,11 +208,11 @@ export async function fetchSourcesHealth(): Promise<{
   timestamp: string;
 }> {
   try {
-    const res = await fetch('/api/sources/health');
-    if (!res.ok) {
-      throw new Error(`Health check failed with status ${res.status}`);
+    const { data, error, isHtml } = await apiGet<any>('/api/sources/health');
+    if (error || isHtml || !data) {
+      throw new Error(error || 'Health check failed');
     }
-    return await res.json();
+    return data;
   } catch (err: any) {
     return {
       sources: [

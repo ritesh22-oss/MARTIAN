@@ -1,3 +1,5 @@
+import { request } from '../utils/apiClient';
+
 /**
  * MARSNAV Deep Space Network Telemetry & Connectivity Manager
  * Tracks actual ping latency, navigator connection flags, and independent service health.
@@ -176,12 +178,12 @@ class NetworkManager {
 
       // Final fallback: if we can't reach any public endpoints, check our own origin
       try {
-        const selfCheck = await fetch('/api/health?probe=' + Date.now(), { 
+        const { status, isHtml } = await request('/api/health?probe=' + Date.now(), { 
           method: 'HEAD', 
           cache: 'no-store',
           signal: controller.signal
         });
-        return selfCheck.ok;
+        return status === 200 && !isHtml;
       } catch {
         return false;
       }
@@ -207,8 +209,8 @@ class NetworkManager {
     let backendStatus: ServiceStatus = 'UNAVAILABLE';
     let telemetryStatus: ServiceStatus = 'UNAVAILABLE';
     try {
-      const resp = await fetch('/api/health?t=' + Date.now(), { cache: 'no-store' });
-      if (resp.ok) {
+      const { status, isHtml } = await request<{ status: string }>('/api/health?t=' + Date.now(), { cache: 'no-store' });
+      if (status === 200 && !isHtml) {
         backendStatus = 'CONNECTED';
         telemetryStatus = 'CONNECTED';
       } else {
@@ -231,9 +233,8 @@ class NetworkManager {
     let geminiStatus: ServiceStatus = 'UNAVAILABLE';
     if (backendStatus === 'CONNECTED') {
       try {
-        const resp = await fetch('/api/orbit/models', { cache: 'no-store' });
-        if (resp.ok) {
-          const data = await resp.json();
+        const { data, status, isHtml } = await request<any>('/api/orbit/models', { cache: 'no-store' });
+        if (status === 200 && !isHtml && data) {
           geminiStatus = data.neuralLinkStatus === 'active' ? 'CONNECTED' : 'DEGRADED';
         }
       } catch {

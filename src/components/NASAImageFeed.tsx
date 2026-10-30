@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { syncLatestObservation, SyncLatestResult } from '../services/nasaDataService';
+import { apiGet } from '../utils/apiClient';
 
 interface NASAImageFeedProps {
   onSelectImage?: (img: any) => void;
@@ -141,12 +142,11 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
         queryParams.append('camera', camVal);
       }
 
-      const res = await fetch(`/api/nasa/mars2020/raw?${queryParams.toString()}`);
-      if (!res.ok) {
-        throw new Error(`NASA JPL API responded with HTTP ${res.status}`);
+      const { data, error, isHtml, status } = await apiGet<any>(`/api/nasa/mars2020/raw?${queryParams.toString()}`);
+      
+      if (error || isHtml || !data) {
+        throw new Error(error || `NASA JPL API responded with HTTP ${status}`);
       }
-
-      const data = await res.json();
       if (data && Array.isArray(data.images)) {
         if (append) {
           // Deduplicate when appending

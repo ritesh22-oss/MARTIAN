@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { apiGet, apiPost } from '../utils/apiClient';
 import { MARS_REFERENCE_DATUM, NASA_DATA_SOURCES, JEZERO_ENVIRONMENTAL_CONTEXT } from '../utils/marsScienceData';
 import type { MarsRawImage } from '../services/nasaDataService';
 import {
@@ -486,9 +487,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const checkSystemHealth = async () => {
     const t0 = Date.now();
     try {
-      const res = await fetch('/api/ai4mars/status');
+      const { status, isHtml } = await apiGet<any>('/api/ai4mars/status');
       const latency = Date.now() - t0;
-      if (res.ok) {
+      if (status === 200 && !isHtml) {
         setSystemStatus({
           backend: 'connected',
           backendLatencyMs: latency,

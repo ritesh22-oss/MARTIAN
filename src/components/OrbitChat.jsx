@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { generateAutonomousAnswer } from '../utils/orbitKnowledgeEngine';
+import { apiPost } from '../utils/apiClient';
 
 export default function OrbitChat({ onOpenGuide }) {
   const { activeWorkspace, activeDataset, telemetry, activeMission } = useWorkspace();
@@ -160,36 +161,30 @@ export default function OrbitChat({ onOpenGuide }) {
     setErrorMessage(null);
 
     try {
-      const response = await fetch('/api/orbit/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          messages: updatedMessages,
-          mode: chatMode,
-          appContext: {
-            activeWorkspace,
-            activeDataset,
-            telemetry,
-            activeMission: activeMission ? {
-              id: activeMission.id,
-              name: activeMission.name,
-              status: activeMission.status,
-              roverProfile: activeMission.roverProfile,
-              startPoint: activeMission.startPoint,
-              destinationPoint: activeMission.destinationPoint,
-              hazardsCount: Array.isArray(activeMission.segmentedHazards) ? activeMission.segmentedHazards.length : 0,
-              checkpointsPassed: Array.isArray(activeMission.checkpoints) ? activeMission.checkpoints.filter((c) => c.status === 'Completed').length : 0
-            } : null
-          }
-        })
+      const { data, error, isHtml, status } = await apiPost('/api/orbit/chat', { 
+        messages: updatedMessages,
+        mode: chatMode,
+        appContext: {
+          activeWorkspace,
+          activeDataset,
+          telemetry,
+          activeMission: activeMission ? {
+            id: activeMission.id,
+            name: activeMission.name,
+            status: activeMission.status,
+            roverProfile: activeMission.roverProfile,
+            startPoint: activeMission.startPoint,
+            destinationPoint: activeMission.destinationPoint,
+            hazardsCount: Array.isArray(activeMission.segmentedHazards) ? activeMission.segmentedHazards.length : 0,
+            checkpointsPassed: Array.isArray(activeMission.checkpoints) ? activeMission.checkpoints.filter((c) => c.status === 'Completed').length : 0
+          } : null
+        }
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Neural link timeout or error.`);
+      if (error || isHtml || !data) {
+        throw new Error(error || `Neural link timeout or error (${status}).`);
       }
 
-      const data = await response.json();
       setConnectionStatus(data.status);
       
       const replyContent = data.reply || "Connection interrupted. Re-establishing link...";

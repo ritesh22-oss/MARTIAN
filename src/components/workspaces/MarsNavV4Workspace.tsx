@@ -69,6 +69,7 @@ import {
 import { useWorkspace } from '../../context/WorkspaceContext';
 import NASAImageFeed from '../NASAImageFeed';
 import { useTerrainAnalysis } from '../../context/TerrainAnalysisContext';
+import { apiGet, apiPost } from '../../utils/apiClient';
 import { AStarGrid, calculatePathLength, smoothPathCollisionFree } from '../../utils/astar';
 import {
   getSavedNotes,
@@ -623,8 +624,10 @@ export default function MarsNavV4Workspace() {
   const fetchNasaFeed = async () => {
     setLoadingNasa(true);
     try {
-      const res = await fetch('/api/nasa/mars2020/raw?num=12');
-      const data = await res.json();
+      const { data, error, isHtml } = await apiGet<any>('/api/nasa/mars2020/raw?num=12');
+      if (error || isHtml || !data) {
+        throw new Error(error || 'Empty NASA feed response');
+      }
       if (data.images && data.images.length > 0) {
         setNasaImages(data.images);
       }
@@ -827,17 +830,12 @@ export default function MarsNavV4Workspace() {
     const t0 = Date.now();
     addTimelineEvent('analysis', 'Started Image Analysis', 'Executing AI4Mars ResNet-34 U-Net segmentation pipeline...');
     try {
-      const res = await fetch('/api/ai4mars/segment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: terrainImage })
-      });
+      const { data, error, isHtml, status } = await apiPost<any>('/api/ai4mars/segment', { image: terrainImage });
 
       const runtime = Date.now() - t0;
       setInferenceTimeMs(runtime);
 
-      if (res.ok) {
-        const data = await res.json();
+      if (!error && !isHtml && data) {
         if (data && data.status === 'success') {
           setSegmentationMetrics(data);
           setHasAnalyzed(true);
@@ -847,8 +845,8 @@ export default function MarsNavV4Workspace() {
           addTimelineEvent('analysis', 'Analysis Model Notice', 'Primary checkpoint missing; extracted RGB surface metrics.');
         }
       } else {
-        setAnalysisError(`Server API error (${res.status})`);
-        addTimelineEvent('analysis', 'Analysis Error', `HTTP status ${res.status}`);
+        setAnalysisError(error || `Server API error (${status})`);
+        addTimelineEvent('analysis', 'Analysis Error', error || `HTTP status ${status}`);
       }
     } catch (e: any) {
       console.warn('Image analysis exception:', e);

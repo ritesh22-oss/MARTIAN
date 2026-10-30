@@ -17,6 +17,7 @@ import {
   Search,
   Check
 } from 'lucide-react';
+import { apiPost } from '../utils/apiClient';
 import {
   MARSNAV_BASELINE,
   parsePDSLabelText,
@@ -196,17 +197,12 @@ export default function DatasetCatalogue() {
 
     try {
       // Fetch via backend proxy /api/pds/parse
-      const res = await fetch('/api/pds/parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: datasetToVerify.url,
-          productId: datasetToVerify.product
-        })
+      const { data, error, isHtml, status } = await apiPost<any>('/api/pds/parse', {
+        url: datasetToVerify.url,
+        productId: datasetToVerify.product
       });
 
-      if (res.ok) {
-        const data = await res.json();
+      if (!error && !isHtml && data) {
         if (data.success && data.metadata) {
           parsedMetadata = {
             ...data.metadata,
@@ -214,10 +210,10 @@ export default function DatasetCatalogue() {
             sourceUrl: data.sourceUrl || datasetToVerify.url
           };
         } else {
-          fetchErrorMsg = data.retrievalError || `HTTP Response Error when fetching ${datasetToVerify.url}`;
+          fetchErrorMsg = data.retrievalError || `Response Error when fetching ${datasetToVerify.url}`;
         }
       } else {
-        fetchErrorMsg = `Server responded with HTTP ${res.status} when requesting PDS label.`;
+        fetchErrorMsg = error || `Server responded with HTTP ${status} when requesting PDS label.`;
       }
     } catch (err) {
       fetchErrorMsg = `Network error fetching PDS archive: ${err.message}`;
@@ -364,15 +360,10 @@ export default function DatasetCatalogue() {
     };
 
     try {
-      const res = await fetch('/api/pds/parse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId: queryTerm })
-      });
+      const { data, error, isHtml } = await apiPost<any>('/api/pds/parse', { productId: queryTerm });
 
       let parsedMeta = null;
-      if (res.ok) {
-        const data = await res.json();
+      if (!error && !isHtml && data) {
         if (data.success && data.metadata) {
           parsedMeta = data.metadata;
         }

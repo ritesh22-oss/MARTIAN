@@ -43,10 +43,10 @@ const apiKey = process.env.GEMINI_API_KEY;
 const nasaApiKey = process.env.NASA_API_KEY;
 
 console.log(
-  nasaApiKey ? 'CUSTOM NASA API KEY LOADED' : 'NASA API KEY MISSING'
+  nasaApiKey ? 'CUSTOM NASA API KEY DETECTED' : 'NASA API KEY NOT PROVIDED (Using Public Mode)'
 );
-const nasaUrl = `https://api.nasa.gov/planetary/apod?api_key=${nasaApiKey}`;
-const nasaResponse = await fetch(nasaUrl);
+
+export { app };
 
 const ai = new GoogleGenAI({
   apiKey: apiKey,
@@ -895,12 +895,20 @@ app.get(['/api/nasa/mars2020/raw', '/api/nasa/raw'], async (req, res) => {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
+    
+    // Ensure parameters like search, condition_main, sample_type are present as empty if not provided,
+    // as some JPL feeds are sensitive to their absence in certain orderings.
+    if (!queryParams.has('search')) queryParams.append('search', '');
+    
     const jplUrl = `https://mars.nasa.gov/rss/api/?${queryParams.toString()}`;
+    console.log(`[NASA_FETCH] Fetching: ${jplUrl}`);
+
     const nasaRes = await fetch(jplUrl, {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'MarsNav/4.0 (NASA Mars Mission Operations; AI Studio Build)',
-        'Accept': 'application/json'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Referer': 'https://mars.nasa.gov/'
       }
     });
     clearTimeout(timeout);
@@ -1085,8 +1093,9 @@ app.get('/api/nasa/sync/latest', async (req, res) => {
     const upstreamRes = await fetch(jplUrl, {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'MarsNav/4.0 (NASA Mars Mission Operations; AI Studio Build)',
-        'Accept': 'application/json'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Referer': 'https://mars.nasa.gov/'
       }
     });
     clearTimeout(timeout);
@@ -1608,6 +1617,45 @@ app.get('/api/nasa/images-library/asset/:nasaId', async (req, res) => {
 });
 
 // 6. Real-Time Data Source Health & Connectivity Probe
+app.get('/api/nasa/diagnostics', async (_req, res) => {
+  const diagnosticUrls = [
+    { name: 'NASA APOD (API Key Check)', url: `https://api.nasa.gov/planetary/apod?api_key=${process.env.NASA_API_KEY || 'DEMO_KEY'}` },
+    { name: 'Mars 2020 Raw JSON Feed', url: 'https://mars.nasa.gov/rss/api/?feed=raw_images&category=mars2020&feedtype=json&num=1' },
+    { name: 'MSL Raw JSON Feed', url: 'https://mars.nasa.gov/rss/api/?feed=raw_images&category=msl&feedtype=json&num=1' },
+    { name: 'NASA Images API', url: 'https://images-api.nasa.gov/search?q=mars&media_type=image' },
+    { name: 'HiRISE PDS Archive', url: 'https://hirise-pds.lpl.arizona.edu/PDS/EXTRAS/RDR/PSP/ORB_001400_001499/PSP_001414_1780/PSP_001414_1780_RED.NOMAP.browse.jpg' }
+  ];
+
+  const results = await Promise.all(diagnosticUrls.map(async (item) => {
+    try {
+      const resp = await fetch(item.url, { method: 'HEAD', timeout: 5000 } as any);
+      return {
+        name: item.name,
+        url: item.url.replace(process.env.NASA_API_KEY || '', 'REDACTED'),
+        status: resp.status,
+        ok: resp.ok
+      };
+    } catch (err: any) {
+      return {
+        name: item.name,
+        url: item.url.replace(process.env.NASA_API_KEY || '', 'REDACTED'),
+        status: 'error',
+        ok: false,
+        error: err.message
+      };
+    }
+  }));
+
+  return res.json({
+    diagnostics: results,
+    env: {
+      hasNasaKey: !!process.env.NASA_API_KEY,
+      nodeEnv: process.env.NODE_ENV,
+      vercel: !!process.env.VERCEL
+    }
+  });
+});
+
 app.get('/api/sources/health', async (_req, res) => {
   const sourcesToCheck = [
     {
@@ -1679,19 +1727,31 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
-    });
+    // In production (Vercel), we serve the built static files from 'dist'
+    // This part is only reached if startServer() is called in prod, 
+    // but Vercel usually handles static files via its own routing.
+    const distPath = path.resolve(__dirname, 'dist');
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api')) return next();
+        res.sendFile(path.resolve(distPath, 'index.html'));
+      });
+    }
   }
 
-  const server = app.listen(port, '0.0.0.0', () => {
-    console.log(`MarsNav Full-Stack Server listening on http://0.0.0.0:${port}`);
-  });
-
-  server.on('error', (err: any) => {
-    console.error('Server error:', err);
-  });
+  // Only listen if we are not on Vercel (which manages the listener)
+  if (!process.env.VERCEL) {
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`MarsNav Full-Stack Server listening on http://0.0.0.0:${port}`);
+    });
+  }
 }
 
-startServer();
+// Only auto-start if we are not being imported by Vercel's serverless builder
+// or if we are in development mode.
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  startServer();
+}
+
+export default app;

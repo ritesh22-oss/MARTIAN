@@ -44,6 +44,18 @@ export interface RegionGalleryData {
   images: RegionImageRecord[];
 }
 
+/**
+ * Helper to wrap external NASA URLs in the application's proxy
+ */
+function proxyNasaUrl(url: string): string {
+  if (!url) return '';
+  if (url.startsWith('/') || url.startsWith('blob:') || url.startsWith('data:')) return url;
+  if (url.includes('nasa.gov') || url.includes('jpl.nasa.gov') || url.includes('arizona.edu')) {
+    return `/api/nasa/proxy-image?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
 export interface RegionFilterOptions {
   searchQuery?: string;
   mission?: string;
@@ -53,7 +65,7 @@ export interface RegionFilterOptions {
   sortBy?: 'obsDateDesc' | 'obsDateAsc' | 'mission' | 'resolution';
 }
 
-export const VERIFIED_REGION_IMAGES: Record<string, RegionImageRecord[]> = {
+const RAW_VERIFIED_REGION_IMAGES: Record<string, RegionImageRecord[]> = {
   arcadia: [
     {
       id: 'ESP_018549_2195',
@@ -1247,6 +1259,17 @@ export const VERIFIED_REGION_IMAGES: Record<string, RegionImageRecord[]> = {
     }
   ]
 };
+
+export const VERIFIED_REGION_IMAGES: Record<string, RegionImageRecord[]> = Object.fromEntries(
+  Object.entries(RAW_VERIFIED_REGION_IMAGES).map(([key, images]) => [
+    key,
+    images.map(img => ({
+      ...img,
+      assetUrl: proxyNasaUrl(img.assetUrl),
+      thumbnailUrl: proxyNasaUrl(img.thumbnailUrl)
+    }))
+  ])
+);
 
 /**
  * Fetch verified images for a given region with caching and search filter support

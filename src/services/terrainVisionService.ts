@@ -196,8 +196,21 @@ export function analyzeImageTerrainFeatures(
   activeRouteWaypoints: Array<{ x: number; y: number }>,
   sourceDimensions: { width: number; height: number } = { width: 776, height: 256 }
 ): TerrainFeatureExtractionResult {
-  const analysisWidth = imageElement.naturalWidth || sourceDimensions.width || validation.width || 776;
-  const analysisHeight = imageElement.naturalHeight || sourceDimensions.height || validation.height || 256;
+  // Limit analysis resolution to prevent browser hangs on extremely high-res NASA assets
+  const MAX_ANALYSIS_DIM = 2048;
+  let analysisWidth = imageElement.naturalWidth || sourceDimensions.width || validation.width || 776;
+  let analysisHeight = imageElement.naturalHeight || sourceDimensions.height || validation.height || 256;
+
+  if (analysisWidth > MAX_ANALYSIS_DIM || analysisHeight > MAX_ANALYSIS_DIM) {
+    const ratio = analysisWidth / analysisHeight;
+    if (ratio > 1) {
+      analysisWidth = MAX_ANALYSIS_DIM;
+      analysisHeight = Math.round(MAX_ANALYSIS_DIM / ratio);
+    } else {
+      analysisHeight = MAX_ANALYSIS_DIM;
+      analysisWidth = Math.round(MAX_ANALYSIS_DIM * ratio);
+    }
+  }
 
   // Create offscreen canvas for computer vision pixel extraction
   const canvas = document.createElement('canvas');

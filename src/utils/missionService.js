@@ -15,35 +15,35 @@ export function createDefaultCheckpoints() {
       id: 'dtm',
       label: 'Verify HiRISE Digital Elevation Model (DEM) datum and resolution (0.25 m/px)',
       category: 'dem',
-      status: 'Pending',
+      status: 'Incomplete',
       reason: 'No valid DEM metadata or terrain image loaded for this mission.'
     },
     {
       id: 'ai4mars',
       label: 'Confirm AI4Mars semantic segmentation weights checkpoint',
       category: 'model',
-      status: 'Pending',
+      status: 'Incomplete',
       reason: 'Terrain segmentation analysis not yet executed for this mission.'
     },
     {
       id: 'waypoints',
       label: 'Set start position and target science waypoint on Jezero grid',
       category: 'waypoints',
-      status: 'Pending',
+      status: 'Incomplete',
       reason: 'Start or destination coordinates not yet configured.'
     },
     {
       id: 'slope',
       label: 'Set configured traversability slope threshold (14.0° max limit)',
       category: 'slope',
-      status: 'Pending',
+      status: 'Incomplete',
       reason: 'Slope threshold needs verification.'
     },
     {
       id: 'harness',
       label: 'Execute unit validation test harness before route dispatch',
       category: 'validation',
-      status: 'Pending',
+      status: 'Incomplete',
       reason: 'Validation test harness has not been executed.'
     }
   ];
@@ -70,21 +70,14 @@ export function createNewMissionRecord({
     roverProfile: roverProfile || 'Perseverance (Mars 2020)',
     createdAt: now,
     updatedAt: now,
-    terrainImage: 'https://images-assets.nasa.gov/image/PIA24424/PIA24424~orig.jpg',
-    imageProvenance: {
-      source: 'HiRISE DTM (Jezero Crater)',
-      rover: 'Perseverance (Mars 2020)',
-      camera: 'NAVCAM_LEFT',
-      sol: 428,
-      acquisitionUtc: now,
-      identifier: 'PSP_001414_1780',
-      sourceUrl: '/assets/aistudio/vis_0_f6a9756b.png'
-    },
-    startPoint: { x: 35, y: 220 },
-    destinationPoint: { x: 220, y: 45 },
+    terrainImage: null, // Start empty
+    imageProvenance: null, // Start empty
+    startPoint: null, // Start empty
+    destinationPoint: null, // Start empty
+    maxSlopeLimit: null, // Start as unverified
     obstacles: [],
     segmentedHazards: [],
-    detectionMethod: 'Classical Computer Vision Baseline',
+    detectionMethod: null,
     scienceTargets: [],
     selectedStrategy: 'alpha',
     routeMetrics: {
@@ -106,13 +99,17 @@ export function createNewMissionRecord({
         timestamp: now,
         type: 'Mission Created',
         status: 'Info',
-        details: `Initialized mission "${name.trim() || 'Untitled Mission'}" with empty state & isolated checkpoints.`,
+        details: `Initialized mission "${name.trim() || 'Untitled Mission'}" with 0% progress. All systems pending verification.`,
         missionId: id,
         method: 'MARSNAV System'
       }
     ],
     validationPassed: false,
-    isArchived: false
+    isArchived: false,
+    // Progress flags for "In Progress" status
+    isAnalyzingTerrain: false,
+    isAnalyzingHazards: false,
+    isCalculatingRoute: false
   };
 }
 
@@ -136,55 +133,62 @@ export function evaluateMissionCheckpoints(mission, appState = {}) {
 
     if (cp.id === 'dtm') {
       const hasImage = Boolean(mission.terrainImage && mission.terrainImage.trim().length > 0);
-      const hasDataset = Boolean(activeDataset || (mission.imageProvenance && mission.imageProvenance.source));
-      if (hasImage || hasDataset) {
+      
+      if (mission.isAnalyzingTerrain) {
+        status = 'In Progress';
+        reason = 'Retrieving and verifying HiRISE Digital Elevation Model assets...';
+      } else if (hasImage) {
         status = 'Completed';
-        reason = `Verified DEM / Observation (${(mission.imageProvenance && mission.imageProvenance.source) || activeDataset || '0.25 m/px Datum'}).`;
+        reason = `Verified DEM / Observation (${(mission.imageProvenance && mission.imageProvenance.source) || '0.25 m/px Datum'}).`;
       } else {
-        status = 'Pending';
+        status = 'Incomplete';
         reason = 'No DEM metadata or terrain image loaded for this mission.';
       }
     } else if (cp.id === 'ai4mars') {
       const hasDetections = Array.isArray(mission.segmentedHazards) && mission.segmentedHazards.length > 0;
-      const isServerOnline = systemStatus && systemStatus.backend === 'connected';
       
-      if (hasDetections) {
+      if (mission.isAnalyzingHazards) {
+        status = 'In Progress';
+        reason = 'Executing AI4Mars ResNet-34 semantic segmentation pipeline...';
+      } else if (hasDetections) {
         status = 'Completed';
-        reason = `Segmentation executed using ${mission.detectionMethod || 'Classical Computer Vision'}. ${mission.segmentedHazards.length} hazards identified.`;
-      } else if (isServerOnline) {
-        status = 'Pending';
-        reason = 'Server online with AI weights ready. Run "Detect Terrain" to complete checkpoint.';
+        reason = `Segmentation executed using ${mission.detectionMethod || 'AI4Mars ResNet-34'}. ${mission.segmentedHazards.length} hazards identified.`;
       } else {
-        status = 'Pending';
-        reason = 'Segmentation not yet executed for this mission.';
+        status = 'Incomplete';
+        reason = 'Terrain segmentation analysis not yet executed for this mission.';
       }
     } else if (cp.id === 'waypoints') {
       const hasStart = Boolean(mission.startPoint && typeof mission.startPoint.x === 'number');
       const hasDest = Boolean(mission.destinationPoint && typeof mission.destinationPoint.x === 'number');
       
-      if (hasStart && hasDest) {
+      if (mission.isCalculatingRoute) {
+        status = 'In Progress';
+        reason = 'Calculating optimal traverse vectors using Weighted A*...';
+      } else if (hasStart && hasDest) {
         status = 'Completed';
         reason = `Start (${mission.startPoint.x}, ${mission.startPoint.y}) and Destination (${mission.destinationPoint.x}, ${mission.destinationPoint.y}) set.`;
       } else {
-        status = 'Pending';
+        status = 'Incomplete';
         reason = 'Start or Destination endpoint not set for this mission.';
       }
     } else if (cp.id === 'slope') {
-      const slopeVal = mission.maxSlopeLimit || (settings && settings.maxSlopeLimitDeg) || 14.0;
+      // For slope, we consider it "Incomplete" if it hasn't been explicitly touched or if it's default 0/null
+      // But usually it has a default. Let's say it's completed if maxSlopeLimit exists and is within range.
+      const slopeVal = mission.maxSlopeLimit;
       if (typeof slopeVal === 'number' && slopeVal > 0 && slopeVal <= 30) {
         status = 'Completed';
         reason = `Traversability max slope threshold set to ${slopeVal.toFixed(1)}°.`;
       } else {
-        status = 'Pending';
-        reason = 'Slope threshold must be configured between 1° and 30°.';
+        status = 'Incomplete';
+        reason = 'Slope threshold needs verification (Range: 1° - 30°).';
       }
     } else if (cp.id === 'harness') {
       if (mission.validationPassed) {
         status = 'Completed';
         reason = 'Unit validation test harness executed and passed for this mission.';
       } else {
-        status = 'Pending';
-        reason = 'Validation test harness has not been executed yet. Click to open Validation Harness.';
+        status = 'Incomplete';
+        reason = 'Validation test harness has not been executed yet.';
       }
     }
 

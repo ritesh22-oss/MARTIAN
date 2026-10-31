@@ -208,7 +208,9 @@ export default function MarsNavV4Workspace() {
     updateSharedSession,
     activeMission,
     selectedRegion,
-    setActiveWorkspace
+    setActiveWorkspace,
+    rightInspectorOpen,
+    toggleRightInspector
   } = useWorkspace();
 
   const {
@@ -1861,13 +1863,13 @@ export default function MarsNavV4Workspace() {
 
       {/* 3. MAIN WORKSPACE ROW: CENTERPIECE TERRAIN VIEWER + RIGHT CONTEXTUAL ANALYSIS PANEL */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch flex-1 min-h-[560px]">
-        {/* CENTERPIECE TERRAIN VIEWER (SPAN 7) */}
+        {/* CENTERPIECE TERRAIN VIEWER (SPAN 7 or 12) */}
         <div
           ref={viewerContainerRef}
           onWheel={handleWheelZoom}
           onDragOver={e => e.preventDefault()}
           onDrop={handleDropUpload}
-          className={`lg:col-span-7 bg-[#03050C] border border-slate-800/80 rounded-2xl p-3 flex flex-col justify-between relative overflow-hidden shadow-2xl transition-all ${
+          className={`${rightInspectorOpen ? 'lg:col-span-7' : 'lg:col-span-12'} bg-[#03050C] border border-slate-800/80 rounded-2xl p-3 flex flex-col justify-between relative overflow-hidden shadow-2xl transition-all ${
             isFullscreen ? 'fixed inset-4 z-50 bg-[#03050C] border-cyan-500/50' : 'min-h-[520px]'
           }`}
         >
@@ -1883,6 +1885,19 @@ export default function MarsNavV4Workspace() {
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                onClick={toggleRightInspector}
+                className={`px-2 py-0.5 rounded border text-[10px] font-mono flex items-center gap-1.5 transition-all cursor-pointer ${
+                  rightInspectorOpen
+                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm'
+                    : 'bg-black/40 text-slate-400 border-slate-800 hover:text-white'
+                }`}
+                title="Toggle Right Inspector Panel (Shortcut: I)"
+              >
+                <Sliders className="w-3 h-3" />
+                <span>{rightInspectorOpen ? 'Hide Inspector' : 'Show Inspector'}</span>
+                <kbd className="px-1 py-0.2 rounded bg-black/60 text-[9px] text-cyan-300 border border-cyan-500/30">I</kbd>
+              </button>
               <button onClick={() => setShowMetadataStrip(prev => !prev)} className="px-2 py-0.5 rounded bg-black/40 border border-slate-800 text-slate-400 hover:text-white cursor-pointer">
                 {showMetadataStrip ? 'Hide Strip' : 'Show Strip'}
               </button>
@@ -2624,7 +2639,8 @@ export default function MarsNavV4Workspace() {
         </div>
 
         {/* RIGHT PANEL: CONTEXTUAL ANALYSIS, MEASUREMENTS & FIELD NOTES */}
-        <div className="lg:col-span-5 bg-[#090D1A] border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between space-y-3 shadow-lg">
+        {rightInspectorOpen && (
+          <div className="lg:col-span-5 bg-[#090D1A] border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between space-y-3 shadow-lg animate-fadeIn">
           <div className="flex-1 flex flex-col min-h-0">
             {/* Tab Switcher Header */}
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-3 shrink-0">
@@ -3111,6 +3127,7 @@ export default function MarsNavV4Workspace() {
             </div>
           </div>
         </div>
+        )}
       </div>
 
       {/* WORKSPACE FIELD NOTE EDITOR MODAL */}

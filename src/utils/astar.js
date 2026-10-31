@@ -368,8 +368,8 @@ export class AStarGrid {
       ? { x: Math.max(0, Math.min(this.width - 1, Math.round(goalArg.x))), y: Math.max(0, Math.min(this.height - 1, Math.round(goalArg.y))) }
       : this.goal;
 
-    const rawBlocked = isStateless ? isBlockedArg : (x, y) => this.grid[y]?.[x] === 3;
-    const rawCost = isStateless ? getCostArg : (x, y) => (this.grid[y]?.[x] === 1 ? 2.0 : 1.0);
+    const rawBlocked = isBlockedArg || ((x, y) => this.grid[y]?.[x] === 3);
+    const rawCost = getCostArg || ((x, y) => (this.grid[y]?.[x] === 1 ? 2.0 : 1.0));
     const isCoreBlocked = options.isCoreBlocked || rawBlocked;
 
     const startBlocked = rawBlocked(start.x, start.y);

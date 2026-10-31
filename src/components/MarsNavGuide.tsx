@@ -777,12 +777,29 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
 
   const categories = ['ALL', 'Mission', 'Analysis', 'Navigation', 'Validation', 'Assistance'];
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   // Unconditional return rule: all hooks are mounted above
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 select-none animate-fadeIn font-sans">
-      <div className="bg-[#050814] border border-white/20 rounded-3xl w-full max-w-[1480px] h-[94vh] flex flex-col overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.95)]">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 select-none animate-fadeIn font-sans"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-[#050814] border border-white/20 rounded-3xl w-full max-w-[1480px] h-[94vh] flex flex-col overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.95)]"
+      >
         
         {/* Top Header Bar */}
         <div className="h-16 bg-[#04060f] border-b border-white/10 px-5 sm:px-6 flex items-center justify-between shrink-0">

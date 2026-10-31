@@ -9,7 +9,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "desktop:mac": "pake https://marsnav.vercel.app --name MarsNav --icon assets/marsnav-icon.png",
+    "desktop:win": "pake https://marsnav.vercel.app --name MarsNav --icon assets/marsnav-icon.ico",
+    "generate-icons": "node scripts/generate-icons.js"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -18,11 +21,13 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "firebase": "^13.0.0",
+    "geotiff": "^3.0.5",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.9",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "png-to-ico": "^3.0.2",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "sharp": "^0.35.5",

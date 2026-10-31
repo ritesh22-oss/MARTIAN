@@ -1,19 +1,17 @@
 import React, { useState } from 'react';
 import {
-  Database,
-  Download,
-  BookOpen,
   Cloud,
   CheckCircle2,
-  SlidersHorizontal,
   Wifi,
   WifiOff,
   User as UserIcon,
   LogOut,
   LogIn,
-  ChevronDown
+  ChevronDown,
+  Orbit,
+  BookOpen
 } from 'lucide-react';
-import { useWorkspace, WorkspaceId } from '../../context/WorkspaceContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { useAuth } from '../../context/AuthContext';
 
@@ -25,10 +23,7 @@ interface AppTopBarProps {
 export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBarProps) {
   const {
     activeWorkspace,
-    activeDataset,
-    systemStatus,
-    checkSystemHealth,
-    setCommandPaletteOpen,
+    setActiveWorkspace,
     activeMission,
     setMissionManagerOpen
   } = useWorkspace();
@@ -38,57 +33,37 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
   const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
-  const handleOpenMissionManager = () => {
-    setMissionManagerOpen(true);
-    if (onOpenMissions) onOpenMissions();
+  // Mapping workspaces to categories for active state highlighting
+  const workspaceToCategory: Record<string, string> = {
+    'overview': 'MISSION',
+    'explorer-3d': 'MISSION',
+    'live-mission-data': 'MISSION',
+    'mission-data': 'MISSION',
+    'configuration': 'MISSION',
+    'base-camp-intel': 'ANALYSIS',
+    'nasa-raw-feed': 'ANALYSIS',
+    'terrain-intelligence': 'ANALYSIS',
+    'dataset-catalogue': 'ANALYSIS',
+    'hazard-analysis': 'ANALYSIS',
+    'risk-assessment': 'ANALYSIS',
+    'marsnav-v4': 'NAVIGATION',
+    'route-lab': 'NAVIGATION',
+    'route-comparison': 'NAVIGATION',
+    'scenario-testing': 'NAVIGATION',
+    'validation-harness': 'VALIDATION',
+    'model-eval': 'VALIDATION',
+    'audit': 'VALIDATION',
+    'field-notebook': 'MISSION'
   };
 
-  const getWorkspaceCategory = (id: WorkspaceId): { category: string; title: string } => {
-    switch (id) {
-      case 'overview':
-        return { category: 'Mission', title: 'Mission Overview' };
-      case 'explorer-3d':
-        return { category: 'Mission', title: '3D Terrain Explorer' };
-      case 'live-mission-data':
-        return { category: 'Mission', title: 'Live NASA Stream' };
-      case 'mission-data':
-        return { category: 'Mission', title: 'Mission Data & DEM' };
-      case 'configuration':
-        return { category: 'Mission', title: 'Configuration' };
-      case 'terrain-intelligence':
-        return { category: 'Analysis', title: 'Terrain Intelligence' };
-      case 'dataset-catalogue':
-        return { category: 'Analysis', title: 'Dataset Catalogue' };
-      case 'hazard-analysis':
-        return { category: 'Analysis', title: 'Hazard Analysis' };
-      case 'risk-assessment':
-        return { category: 'Analysis', title: 'Risk Assessment' };
-      case 'marsnav-v4':
-        return { category: 'Navigation', title: 'MARSWALK OPS Simulator' };
-      case 'route-lab':
-        return { category: 'Navigation', title: 'Route Laboratory' };
-      case 'route-comparison':
-        return { category: 'Navigation', title: 'Route Comparison' };
-      case 'scenario-testing':
-        return { category: 'Navigation', title: 'Scenario Testing' };
-      case 'validation-harness':
-        return { category: 'Validation', title: 'Validation Harness' };
-      case 'model-eval':
-        return { category: 'Validation', title: 'Model Evaluation' };
-      case 'audit':
-        return { category: 'Validation', title: 'Mission Audit' };
-      case 'guide':
-        return { category: 'Assistance', title: 'Mission Manual' };
-      case 'orbit-terminal':
-        return { category: 'Assistance', title: 'ORBIT AI Terminal' };
-      case 'settings':
-        return { category: 'Assistance', title: 'System Settings' };
-      default:
-        return { category: 'Workspace', title: 'Mission Control' };
-    }
-  };
+  const currentCategory = workspaceToCategory[activeWorkspace] || 'MISSION';
 
-  const { category, title } = getWorkspaceCategory(activeWorkspace);
+  const categories = [
+    { label: 'MISSION', defaultWorkspace: 'overview' },
+    { label: 'ANALYSIS', defaultWorkspace: 'terrain-intelligence' },
+    { label: 'NAVIGATION', defaultWorkspace: 'marsnav-v4' },
+    { label: 'VALIDATION', defaultWorkspace: 'validation-harness' }
+  ];
 
   const handleLogin = async () => {
     try {
@@ -108,156 +83,154 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
   };
 
   return (
-    <header className="h-12 bg-[#090C16] border-b border-slate-800/80 px-4 flex items-center justify-between text-xs shrink-0 select-none z-20">
-      {/* Zone 1: Brand & Clean Unboxed Breadcrumbs */}
-      <div className="flex items-center gap-2 text-slate-400 font-sans truncate">
-        <span className="font-bold text-white text-sm tracking-tight whitespace-nowrap">MARSNAV</span>
-        <span className="text-slate-600" aria-hidden="true">/</span>
-        <span className="text-slate-400 text-xs font-medium whitespace-nowrap">{category}</span>
-        <span className="text-slate-600" aria-hidden="true">/</span>
-        <span className="text-orange-300 text-xs font-semibold whitespace-nowrap truncate">{title}</span>
+    <header className="h-14 bg-[#0A0E1A]/80 backdrop-blur-xl border border-white/10 rounded-xl px-5 flex items-center justify-between shadow-2xl select-none z-30 transition-all duration-300">
+      {/* LEFT ZONE: Brand & Core Navigation */}
+      <div className="flex items-center gap-6 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center shadow-lg shadow-orange-950/20 ring-1 ring-white/10">
+            <Orbit className="w-4.5 h-4.5 text-white" />
+          </div>
+          <span className="font-extrabold text-white text-base tracking-tighter font-mono hidden sm:inline">MARSNAV</span>
+        </div>
+
+        {/* Global Navigation Hub */}
+        <nav className="hidden xl:flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
+          {categories.map((cat) => {
+            const isActive = currentCategory === cat.label;
+            return (
+              <button
+                key={cat.label}
+                onClick={() => setActiveWorkspace(cat.defaultWorkspace as any)}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest transition-all cursor-pointer relative ${
+                  isActive 
+                    ? 'text-cyan-400 bg-cyan-400/10 border border-cyan-400/20 shadow-[0_0_15px_rgba(34,211,238,0.1)]' 
+                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                {cat.label}
+                {isActive && (
+                  <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-cyan-400 rounded-full shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
+                )}
+              </button>
+            );
+          })}
+        </nav>
       </div>
 
-      {/* Zone 2: Active Mission Indicator */}
-      <div className="flex items-center">
+      {/* RIGHT ZONE: Context, Intelligence, & Identity */}
+      <div className="flex items-center gap-3">
+        {/* Compact Mission Monitor */}
         {activeMission && (
-          <button
-            onClick={handleOpenMissionManager}
-            className="flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/40 text-cyan-200 hover:text-white transition-all cursor-pointer shadow-sm text-xs font-mono group"
-            title="Active Mission workspace - click to switch or manage missions"
-          >
-            <span className="relative flex h-2 w-2">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                activeMission.status === 'Completed' ? 'bg-emerald-400' :
-                activeMission.status === 'Blocked' ? 'bg-rose-400' :
-                activeMission.status === 'In Progress' ? 'bg-cyan-400' : 'bg-amber-400'
-              }`}></span>
-              <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                activeMission.status === 'Completed' ? 'bg-emerald-500' :
-                activeMission.status === 'Blocked' ? 'bg-rose-500' :
-                activeMission.status === 'In Progress' ? 'bg-cyan-500' : 'bg-amber-500'
-              }`}></span>
-            </span>
-            <span className="text-[10px] uppercase tracking-wider text-cyan-400 font-bold">ACTIVE MSN:</span>
-            <span className="font-semibold text-slate-100 max-w-[160px] sm:max-w-[220px] truncate">{activeMission.name}</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-black/40 text-cyan-300 border border-cyan-800/60 hidden md:inline">
-              {activeMission.status || 'In Progress'}
-            </span>
-          </button>
+          <div className="hidden md:flex items-center h-9 px-3 rounded-xl bg-cyan-950/15 border border-cyan-500/20 text-cyan-200">
+            <div className="flex items-center gap-2 max-w-[180px]">
+              <span className="relative flex h-1.5 w-1.5 shrink-0">
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                  activeMission.status === 'Completed' ? 'bg-emerald-400' :
+                  activeMission.status === 'Blocked' ? 'bg-rose-400' :
+                  activeMission.status === 'In Progress' ? 'bg-cyan-400' : 'bg-amber-400'
+                }`}></span>
+                <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
+                  activeMission.status === 'Completed' ? 'bg-emerald-500' :
+                  activeMission.status === 'Blocked' ? 'bg-rose-500' :
+                  activeMission.status === 'In Progress' ? 'bg-cyan-500' : 'bg-amber-500'
+                }`}></span>
+              </span>
+              <span className="text-[11px] font-semibold text-slate-100 truncate">{activeMission.name}</span>
+            </div>
+          </div>
         )}
-      </div>
 
-      {/* Zone 3: Actions & Controls */}
-      <div className="flex items-center gap-2 relative">
-        {/* Deep Space Network Live Telemetry Badge */}
-        <div
-          className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-mono select-none ${
-            network.state === 'OFFLINE'
-              ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
-              : (network.state === 'SLOW_CONNECTION' || network.state === 'ONLINE_LIMITED')
-              ? 'bg-amber-950/40 border-amber-500/40 text-amber-300'
-              : 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
+        <div className="flex items-center gap-1.5 h-9 p-1 rounded-xl bg-white/5 border border-white/5">
+          <button
+            onClick={() => setMissionManagerOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-all text-[11px] font-medium cursor-pointer"
+            title="Open Mission Archive"
+          >
+            <Cloud className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden lg:inline">Archive</span>
+          </button>
+          <div className="w-px h-4 bg-white/10" />
+          <button
+            onClick={onOpenGuideModal}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-all text-[11px] font-medium cursor-pointer"
+            title="Open Training Manual"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-orange-400" />
+            <span className="hidden lg:inline">Guide</span>
+          </button>
+        </div>
+
+        {/* System Telemetry */}
+        <div 
+          className={`hidden sm:flex items-center gap-2 px-2.5 h-9 rounded-xl border transition-colors cursor-help ${
+            network.state === 'OFFLINE' ? 'bg-rose-950/20 border-rose-500/30 text-rose-400' :
+            network.state === 'SLOW_CONNECTION' ? 'bg-amber-950/20 border-amber-500/30 text-amber-400' :
+            'bg-emerald-950/10 border-emerald-500/20 text-emerald-400'
           }`}
-          title={`Deep Space Network Link: ${network.state} (${network.latencyMs ? `${network.latencyMs}ms` : 'Local'})`}
+          title={`DSN Uplink: ${network.state} (${network.latencyMs || 'Local'})`}
         >
-          {network.state === 'OFFLINE' ? (
-            <WifiOff className="w-3.5 h-3.5 text-rose-400" />
-          ) : (
-            <Wifi className={`w-3.5 h-3.5 ${network.state === 'ONLINE' ? 'text-emerald-400' : 'text-amber-400'}`} />
-          )}
-          <span>
-            {network.state === 'OFFLINE'
-              ? 'OFFLINE'
-              : network.state === 'ONLINE_LIMITED'
-              ? 'LIMITED'
-              : network.state === 'SLOW_CONNECTION'
-              ? `SLOW ${network.latencyMs ? `(${network.latencyMs}ms)` : ''}`
-              : `DSN ${network.latencyMs ? `${network.latencyMs}ms` : 'OK'}`}
+          {network.state === 'OFFLINE' ? <WifiOff className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
+          <span className="text-[9px] font-bold tracking-widest font-mono uppercase hidden lg:inline">
+            {network.state === 'OFFLINE' ? 'LOST' : 'LINK'}
           </span>
         </div>
 
-        {/* Cloud Missions Modal Action */}
-        <button
-          onClick={handleOpenMissionManager}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/40 hover:bg-slate-800/80 border border-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer text-[11px]"
-          title="Open mission manager"
-        >
-          <Cloud className="w-3.5 h-3.5 text-cyan-400" />
-          <span className="hidden sm:inline">All Missions</span>
-        </button>
+        <div className="w-px h-6 bg-white/10 mx-1" />
 
-        {/* User Profile / Login */}
-        {user ? (
-          <div className="relative">
-            <button
-              onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-              className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full bg-slate-900/60 border border-slate-700 hover:border-cyan-500/50 transition-all cursor-pointer group"
-            >
-              {user.photoURL ? (
-                <img src={user.photoURL} alt="User" className="w-6 h-6 rounded-full border border-white/10" />
-              ) : (
-                <div className="w-6 h-6 rounded-full bg-cyan-900/50 flex items-center justify-center border border-cyan-500/30">
-                  <UserIcon className="w-3.5 h-3.5 text-cyan-400" />
+        {/* Global Notifications & Account */}
+        <div className="flex items-center gap-2 shrink-0">
+          {user ? (
+            <div className="relative">
+              <button
+                onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                className="w-9 h-9 rounded-full bg-slate-900 border border-white/10 hover:border-cyan-500/50 hover:shadow-[0_0_15px_rgba(6,182,212,0.2)] transition-all cursor-pointer overflow-hidden group"
+              >
+                {user.photoURL ? (
+                  <img src={user.photoURL} alt="User" className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-cyan-900/40">
+                    <UserIcon className="w-4 h-4 text-cyan-400" />
+                  </div>
+                )}
+              </button>
+
+              {userDropdownOpen && (
+                <div className="absolute top-12 right-0 w-56 bg-[#0B101D] border border-white/10 rounded-2xl shadow-2xl py-2 z-50 animate-in fade-in zoom-in duration-200">
+                  <div className="px-4 py-3 border-b border-white/5 mb-1">
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Auth Verified</p>
+                    <p className="text-xs font-semibold text-white truncate">{userProfile?.displayName || user.email}</p>
+                    <p className="text-[10px] text-slate-500 truncate">{user.email}</p>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-xs text-rose-400 hover:bg-rose-500/10 transition-colors text-left font-medium"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>End Session</span>
+                  </button>
                 </div>
               )}
-              <span className="hidden lg:inline text-[11px] font-bold text-slate-200 group-hover:text-white truncate max-w-[80px]">
-                {userProfile?.displayName?.split(' ')[0] || 'Commander'}
-              </span>
-              <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${userDropdownOpen ? 'rotate-180' : ''}`} />
+            </div>
+          ) : (
+            <button
+              onClick={handleLogin}
+              disabled={authLoading}
+              className="h-9 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white transition-all cursor-pointer text-xs font-bold active:scale-95 disabled:opacity-50 shadow-lg shadow-cyan-900/30 flex items-center gap-2"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">SIGN IN</span>
             </button>
-
-            {userDropdownOpen && (
-              <div className="absolute top-10 right-0 w-48 bg-[#0D121F] border border-slate-800 rounded-xl shadow-2xl py-2 z-[60] animate-in fade-in zoom-in duration-150">
-                <div className="px-4 py-2 border-b border-slate-800 mb-1">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">Identified as</p>
-                  <p className="text-xs font-semibold text-white truncate">{user.email}</p>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-xs text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Terminate Session</span>
-                </button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <button
-            onClick={handleLogin}
-            disabled={authLoading}
-            className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white transition-all cursor-pointer text-[11px] font-bold shadow-lg shadow-cyan-900/20 active:scale-95 disabled:opacity-50"
-          >
-            <LogIn className="w-3.5 h-3.5" />
-            <span>SIGN IN</span>
-          </button>
-        )}
-
-        {/* Prominent Guide & Tutorials Action */}
-        <button
-          onClick={() => {
-            try {
-              localStorage.setItem('marsnav_guide_visited', 'true');
-            } catch (e) {}
-            onOpenGuideModal();
-          }}
-          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-orange-600/30 to-amber-600/30 hover:from-orange-600/40 hover:to-amber-600/40 border border-orange-500/50 text-orange-200 hover:text-white transition-all cursor-pointer text-xs font-mono font-bold shadow-md ${
-            typeof window !== 'undefined' && !localStorage.getItem('marsnav_guide_visited') ? 'animate-pulse ring-2 ring-orange-500/50' : ''
-          }`}
-          title="Open MARSNAV Mission Academy & Tutorials"
-        >
-          <BookOpen className="w-4 h-4 text-amber-400" />
-          <span className="hidden sm:inline">GUIDE &amp; TUTORIALS</span>
-        </button>
-
-        {/* Export Notification Toast */}
-        {exportNotice && (
-          <div className="absolute top-14 right-4 px-3 py-1.5 bg-[#0D182A] border border-emerald-500/40 text-emerald-300 rounded-md text-xs flex items-center gap-2 shadow-xl z-50">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span>{exportNotice}</span>
-          </div>
-        )}
+          )}
+        </div>
       </div>
+
+      {/* Export/Status Overlay */}
+      {exportNotice && (
+        <div className="absolute -bottom-14 right-0 px-4 py-2 bg-[#0D182A] border border-emerald-500/40 text-emerald-300 rounded-xl text-xs flex items-center gap-2 shadow-2xl animate-in slide-in-from-top-2 duration-300">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{exportNotice}</span>
+        </div>
+      )}
     </header>
   );
 }

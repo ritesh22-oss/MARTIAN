@@ -78,7 +78,7 @@ export const CANDIDATE_REGIONS: CandidateRegion[] = [
     defaultProduct: {
       id: 'PIA24814',
       title: "Jezero Crater's Kodiak and Scarps",
-      url: 'https://images-assets.nasa.gov/image/PIA24814/PIA24814~orig.jpg',
+      url: 'https://images-assets.nasa.gov/image/PIA24814/PIA24814~large.jpg',
       fileName: 'PIA24814_JEZERO_HIRISE_KODIAK.jpg',
       scaleMPerPx: 0.25,
       mission: 'Mars Reconnaissance Orbiter (MRO)',
@@ -96,7 +96,7 @@ export const CANDIDATE_REGIONS: CandidateRegion[] = [
     defaultProduct: {
       id: 'PIA26321',
       title: 'HiRISE Arcadia Planitia Polygonal Ground & Sheet Ice Swath',
-      url: 'https://images-assets.nasa.gov/image/PIA26321/PIA26321~orig.jpg',
+      url: 'https://images-assets.nasa.gov/image/PIA26321/PIA26321~large.jpg',
       fileName: 'PIA26321_HIRISE_ARCADIA_ICE.jpg',
       scaleMPerPx: 0.25,
       mission: 'Mars Reconnaissance Orbiter (MRO)',
@@ -114,7 +114,7 @@ export const CANDIDATE_REGIONS: CandidateRegion[] = [
     defaultProduct: {
       id: 'PIA19068',
       title: 'Inclined Martian Sandstone Beds Near Kimberley in Gale Crater',
-      url: 'https://images-assets.nasa.gov/image/PIA19068/PIA19068~orig.jpg',
+      url: 'https://images-assets.nasa.gov/image/PIA19068/PIA19068~large.jpg',
       fileName: 'PIA19068_MSL_GALE_KIMBERLEY.jpg',
       scaleMPerPx: null,
       mission: 'MSL (Curiosity Rover)',
@@ -132,7 +132,7 @@ export const CANDIDATE_REGIONS: CandidateRegion[] = [
     defaultProduct: {
       id: 'PIA25889',
       title: 'Perseverance Mastcam-Z View at Belva Crater Rim & Slump',
-      url: 'https://images-assets.nasa.gov/image/PIA25889/PIA25889~orig.jpg',
+      url: 'https://images-assets.nasa.gov/image/PIA25889/PIA25889~large.jpg',
       fileName: 'PIA25889_BELVA_CRATER_MOSAIC.jpg',
       scaleMPerPx: null,
       mission: 'Mars 2020 (Perseverance Rover)',
@@ -266,7 +266,7 @@ export default function ScenarioTestingLab() {
 
   // Active Terrain Image & Region State
   const [selectedRegionId, setSelectedRegionId] = useState<string>('jezero');
-  const [currentImageSrc, setCurrentImageSrc] = useState<string>(CANDIDATE_REGIONS[0].defaultProduct.url);
+  const [currentImageSrc, setCurrentImageSrc] = useState<string | null>(CANDIDATE_REGIONS[0].defaultProduct.url);
   const [currentFileName, setCurrentFileName] = useState<string>(CANDIDATE_REGIONS[0].defaultProduct.fileName);
   const [regionError, setRegionError] = useState<string | null>(null);
   const [isLoadingRegion, setIsLoadingRegion] = useState<boolean>(false);
@@ -292,6 +292,7 @@ export default function ScenarioTestingLab() {
     desc: CANDIDATE_REGIONS[0].defaultProduct.desc
   });
   const [isProcessingImage, setIsProcessingImage] = useState<boolean>(false);
+  const [loadingStatus, setLoadingStatus] = useState<string>('');
   const [validationResult, setValidationResult] = useState<UploadedImageValidation | null>(null);
   const [featureExtraction, setFeatureExtraction] = useState<TerrainFeatureExtractionResult | null>(null);
 
@@ -431,7 +432,7 @@ export default function ScenarioTestingLab() {
       return;
     }
     lastProcessedKeyRef.current = key;
-
+    setLoadingStatus('Validating raster encoding & metadata...');
     setIsProcessingImage(true);
     try {
       const isOrbital = fileMeta?.spatialResolutionMPerPx !== null && fileMeta?.spatialResolutionMPerPx !== undefined;
@@ -477,6 +478,7 @@ export default function ScenarioTestingLab() {
       console.error('Error during image processing:', err);
     } finally {
       setIsProcessingImage(false);
+      setLoadingStatus('');
     }
   }, [currentFileName]);
 
@@ -526,7 +528,7 @@ export default function ScenarioTestingLab() {
   }, [featureExtraction, validationResult, activeRoute.waypoints, viewWidth, viewHeight]);
 
   // Helper to load and process authentic NASA product
-  const applyNasaProduct = useCallback((
+  const applyNasaProduct = useCallback(async (
     seq: number,
     imageUrl: string,
     fileName: string,
@@ -551,12 +553,33 @@ export default function ScenarioTestingLab() {
     setCurrentImageSrc(imageUrl);
     setRegionMetadata(meta);
     setRegionError(null);
-
+    setIsLoadingRegion(true);
     setIsProcessingImage(true);
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
+    setLoadingStatus('Handshaking with NASA Asset CDN...');
+    
+    try {
+      // Use a promise to wait for the image to load with a timeout
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('IMAGE_LOAD_TIMEOUT'));
+        }, 20000); // 20s timeout for large NASA assets
+
+        const loadImg = new Image();
+        loadImg.crossOrigin = 'anonymous';
+        loadImg.onload = () => {
+          clearTimeout(timeout);
+          resolve(loadImg);
+        };
+        loadImg.onerror = () => {
+          clearTimeout(timeout);
+          reject(new Error('IMAGE_LOAD_ERROR'));
+        };
+        loadImg.src = imageUrl;
+      });
+
       if (requestSeqRef.current !== seq) return;
+      
+      setLoadingStatus('Rasterizing terrain observation...');
       const isOrbital = scaleMPerPx !== null && scaleMPerPx > 0;
       processImage(img, {
         fileName,
@@ -583,15 +606,20 @@ export default function ScenarioTestingLab() {
           description
         ]
       }, true);
-      setIsLoadingRegion(false);
-    };
-    img.onerror = () => {
+      
+    } catch (err: any) {
       if (requestSeqRef.current !== seq) return;
-      setIsProcessingImage(false);
-      setIsLoadingRegion(false);
-      setRegionError('Failed to load verified NASA image asset. Please click Retry.');
-    };
-    img.src = imageUrl;
+      console.error('applyNasaProduct error:', err);
+      setRegionError(err.message === 'IMAGE_LOAD_TIMEOUT' 
+        ? 'NASA asset load timed out. The file may be very large or the CDN is throttled.'
+        : 'Failed to load verified NASA image asset. Please click Retry.');
+    } finally {
+      if (requestSeqRef.current === seq) {
+        setIsLoadingRegion(false);
+        setIsProcessingImage(false);
+        setLoadingStatus('');
+      }
+    }
   }, [processImage]);
 
   // Handle switching between candidate regions with live NASA backend matching
@@ -607,7 +635,7 @@ export default function ScenarioTestingLab() {
     abortControllerRef.current = controller;
 
     // Immediately clear previous region's image and analysis context while fetching
-    setCurrentImageSrc('');
+    setCurrentImageSrc(null);
     setCurrentFileName('');
     setRegionError(null);
     setIsLoadingRegion(true);
@@ -668,7 +696,7 @@ export default function ScenarioTestingLab() {
 
       const scale = firstImage.scaleMPerPx !== undefined ? firstImage.scaleMPerPx : region.defaultProduct.scaleMPerPx;
 
-      applyNasaProduct(currentSeq, safeUrl, `${firstImage.id || region.id}_NASA.jpg`, {
+      await applyNasaProduct(currentSeq, safeUrl, `${firstImage.id || region.id}_NASA.jpg`, {
         regionName: data.regionName || region.name,
         coordinates: data.coordinates || region.coordinates,
         mission: firstImage.mission || region.defaultProduct.mission,
@@ -687,7 +715,7 @@ export default function ScenarioTestingLab() {
       if (matched && matched.defaultProduct) {
         const fallback = matched.defaultProduct;
         const proxyFallbackUrl = `/api/nasa/proxy-image?url=${encodeURIComponent(fallback.url)}`;
-        applyNasaProduct(currentSeq, proxyFallbackUrl, fallback.fileName, {
+        await applyNasaProduct(currentSeq, proxyFallbackUrl, fallback.fileName, {
           regionName: matched.name,
           coordinates: matched.coordinates,
           mission: fallback.mission,
@@ -701,14 +729,23 @@ export default function ScenarioTestingLab() {
       } else {
         setRegionError('No verified NASA imagery available for this region.');
         setIsLoadingRegion(false);
+        setIsProcessingImage(false);
+      }
+    } finally {
+      if (requestSeqRef.current === currentSeq) {
+        setIsLoadingRegion(false);
       }
     }
   }, [applyNasaProduct]);
 
-  // Initial load
+  // Initial load: Only run once on mount
+  const hasMounted = useRef(false);
   useEffect(() => {
-    handleSelectRegion(CANDIDATE_REGIONS[0]);
-  }, [handleSelectRegion]);
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      handleSelectRegion(CANDIDATE_REGIONS[0]);
+    }
+  }, []); // Empty dependencies to run only once
 
   // Handle local user file upload (drag & drop or picker)
   const handleFileUpload = async (file: File) => {
@@ -1412,7 +1449,7 @@ export default function ScenarioTestingLab() {
                 <div className="absolute inset-0 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center space-y-2 z-20">
                   <Activity className="w-8 h-8 text-cyan-400 animate-spin" />
                   <span className="text-xs font-mono text-cyan-300 font-bold uppercase tracking-wider">
-                    Scanning Surface Topology &amp; Hazard Envelopes...
+                    {loadingStatus || 'Scanning Surface Topology & Hazard Envelopes...'}
                   </span>
                 </div>
               )}
@@ -1444,15 +1481,41 @@ export default function ScenarioTestingLab() {
           {/* Right: Detected Metadata & Validation Dossier */}
           <div className="lg:col-span-4 xl:col-span-4 space-y-4">
             {/* NASA Product & Origin Metadata Card */}
-            <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-3 shadow-lg">
+            <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-4 shadow-lg">
               <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
                 <span className="text-xs font-bold text-white flex items-center gap-2">
                   <FileText className="w-4 h-4 text-cyan-400 shrink-0" />
-                  <span>NASA Product &amp; Origin Metadata</span>
+                  <span>NASA Product & Origin Metadata</span>
                 </span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shrink-0 font-bold">
                   {regionMetadata.productId || 'Not available'}
                 </span>
+              </div>
+
+              {/* Diagnostic State Panel */}
+              <div className="p-3 rounded-xl bg-slate-950 border border-white/5 space-y-2">
+                <div className="flex items-center justify-between text-[10px] font-mono">
+                  <span className="text-slate-400 uppercase font-bold tracking-tighter">Diagnostic Pipeline Status</span>
+                  <span className={`px-1.5 py-0.5 rounded font-bold ${isLoadingRegion || isProcessingImage ? 'text-amber-400 bg-amber-400/10' : 'text-emerald-400 bg-emerald-400/10'}`}>
+                    {isLoadingRegion ? 'FETCHING' : isProcessingImage ? 'PROCESSING' : 'NOMINAL'}
+                  </span>
+                </div>
+                <div className="space-y-1.5 font-mono text-[9px] break-all">
+                  <div className="flex flex-col">
+                    <span className="text-slate-500">RAW_ASSET_URL:</span>
+                    <span className="text-slate-300 truncate max-w-full hover:whitespace-normal hover:overflow-visible hover:bg-black/80 hover:p-1 hover:rounded hover:z-50 cursor-help" title={currentImageSrc || undefined}>
+                      {currentImageSrc || 'NO_ASSET_LOADED'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">VIEWPORT_DIMS:</span>
+                    <span className="text-slate-300">{viewWidth} × {viewHeight} px</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">CORS_MODE:</span>
+                    <span className="text-cyan-400 font-bold underline decoration-dotted decoration-cyan-400/50">ANONYMOUS_PROXY</span>
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-2 text-[11px] font-mono">
@@ -1936,11 +1999,13 @@ export default function ScenarioTestingLab() {
                 className="relative w-full rounded-xl overflow-hidden border border-white/10 bg-slate-950 flex items-center justify-center"
                 style={{ aspectRatio: `${viewWidth} / ${viewHeight}` }}
               >
-                <img
-                  src={currentImageSrc}
-                  alt="Original Terrain"
-                  className="w-full h-full object-contain opacity-60"
-                />
+                {currentImageSrc && (
+                  <img
+                    src={currentImageSrc}
+                    alt="Original Terrain"
+                    className="w-full h-full object-contain opacity-60"
+                  />
+                )}
                 <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} className="absolute inset-0 w-full h-full pointer-events-none">
                   {/* Original Path */}
                   <polyline
@@ -2031,11 +2096,13 @@ export default function ScenarioTestingLab() {
                 className="relative w-full rounded-xl overflow-hidden border border-white/10 bg-slate-950 flex items-center justify-center"
                 style={{ aspectRatio: `${viewWidth} / ${viewHeight}` }}
               >
-                <img
-                  src={currentImageSrc}
-                  alt="Revised Terrain"
-                  className="w-full h-full object-contain opacity-60"
-                />
+                {currentImageSrc && (
+                  <img
+                    src={currentImageSrc}
+                    alt="Revised Terrain"
+                    className="w-full h-full object-contain opacity-60"
+                  />
+                )}
 
                 {currentActiveResult?.revisedRoute ? (
                   <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} className="absolute inset-0 w-full h-full pointer-events-none">

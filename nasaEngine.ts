@@ -256,7 +256,7 @@ export class NASADataEngine {
 
       // 2. Must NOT contain excluded non-terrain patterns
       const hasExcluded = EXCLUDED_PATTERNS.some(pat =>
-        title.includes(pat) || description.includes(pat) || keywords.some(k => k.includes(pat))
+        title.includes(pat) || description.includes(pat) || keywords.some((k: string) => k.includes(pat))
       );
       if (hasExcluded) return false;
 

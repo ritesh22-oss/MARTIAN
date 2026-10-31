@@ -253,6 +253,11 @@ export default function RoutePlanner({ onOpenMissions }) {
     if (isAnimating) return;
     if (animTimeoutRef.current) clearTimeout(animTimeoutRef.current);
 
+    // Update mission state to "In Progress" for waypoints checkpoint
+    if (updateActiveMission) {
+      updateActiveMission({ isCalculatingRoute: true });
+    }
+
     const res = astarInstance.findPath();
     setPathResult(res);
     const computedPath = res.path || [];
@@ -276,8 +281,14 @@ export default function RoutePlanner({ onOpenMissions }) {
             nodeCount: computedPath.length,
             pathfindingStatus: 'Path Found (A*)'
           },
-          rawRoutePath: computedPath
+          rawRoutePath: computedPath,
+          isCalculatingRoute: animSpeed === 'instant' ? false : true
         });
+      }
+    } else {
+      // If failed or instant, reset flag immediately
+      if (updateActiveMission) {
+        updateActiveMission({ isCalculatingRoute: false });
       }
     }
 
@@ -306,6 +317,9 @@ export default function RoutePlanner({ onOpenMissions }) {
             animTimeoutRef.current = setTimeout(animatePath, delay * 2.5);
           } else {
             setIsAnimating(false);
+            if (updateActiveMission) {
+              updateActiveMission({ isCalculatingRoute: false });
+            }
           }
         };
         animatePath();

@@ -45,7 +45,7 @@ import SlowConnectionScreen from './components/SlowConnectionScreen';
 import ServiceStatusBanner from './components/ServiceStatusBanner';
 
 function WorkstationMain() {
-  const { activeWorkspace, setActiveWorkspace, setCommandPaletteOpen } = useWorkspace();
+  const { activeWorkspace, setActiveWorkspace, commandPaletteOpen, setCommandPaletteOpen } = useWorkspace();
   const [missionsModalOpen, setMissionsModalOpen] = useState(false);
   const [guideModalOpen, setGuideModalOpen] = useState(false);
   
@@ -59,6 +59,28 @@ function WorkstationMain() {
       setForceOfflineView(true);
     }
   }, [network.isOnline]);
+
+  // Escape key closes open modals (topmost dialog priority)
+  useEffect(() => {
+    const handleModalEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        // If command palette is open, it has its own priority dismiss
+        if (commandPaletteOpen) return;
+        if (guideModalOpen) {
+          e.preventDefault();
+          setGuideModalOpen(false);
+          return;
+        }
+        if (missionsModalOpen) {
+          e.preventDefault();
+          setMissionsModalOpen(false);
+          return;
+        }
+      }
+    };
+    window.addEventListener('keydown', handleModalEscape);
+    return () => window.removeEventListener('keydown', handleModalEscape);
+  }, [commandPaletteOpen, guideModalOpen, missionsModalOpen]);
 
   // Render the dedicated engineering tool workspace
   const renderWorkspace = () => {
@@ -163,30 +185,35 @@ function WorkstationMain() {
       <AppSidebar />
 
       {/* 2. Main Workstation Body (Flexible width taking most space) */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        {/* Top Compact Application Bar (48px) */}
-        <AppTopBar
-          onOpenMissions={() => setMissionsModalOpen(true)}
-          onOpenGuideModal={() => setGuideModalOpen(true)}
-        />
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden relative">
+        {/* Top Floating Application Bar */}
+        <div className="pt-4 px-6 shrink-0 z-30">
+          <AppTopBar
+            onOpenMissions={() => setMissionsModalOpen(true)}
+            onOpenGuideModal={() => setGuideModalOpen(true)}
+          />
+        </div>
         
-        <ServiceStatusBanner />
+        {/* Refined Global Search Box - Restored below navbar */}
+        <div className="px-6 py-3 shrink-0 z-20">
+          <div className="max-w-[1800px] mx-auto">
+            <button
+              onClick={() => setCommandPaletteOpen(true)}
+              className="w-full h-11 bg-[#0A0E1A]/60 backdrop-blur-xl border border-white/10 hover:border-orange-500/40 rounded-xl px-5 flex items-center justify-between text-slate-400 hover:text-white transition-all shadow-2xl group cursor-pointer"
+            >
+              <div className="flex items-center space-x-3.5">
+                <Search className="w-4 h-4 text-orange-400 group-hover:scale-110 transition-transform" />
+                <span className="text-xs font-semibold tracking-wide">SEARCH MISSIONS, DATASETS, OR ANALYSIS TOOLS...</span>
+              </div>
+              <div className="flex items-center space-x-2 opacity-60">
+                <kbd className="px-2 py-0.5 rounded bg-black/60 text-[10px] font-mono border border-white/10 text-slate-300">⌘ K</kbd>
+              </div>
+            </button>
+          </div>
+        </div>
 
-        {/* Large Search Bar Below Navbar */}
-        <div className="px-6 py-3.5 bg-[#080B18] border-b border-slate-800/80 shrink-0 flex items-center justify-center">
-          <button
-            onClick={() => setCommandPaletteOpen(true)}
-            className="w-full max-w-5xl h-12 bg-slate-900/90 hover:bg-slate-900 border border-slate-700/80 hover:border-orange-500/60 rounded-2xl px-5 flex items-center justify-between text-slate-300 hover:text-white transition-all shadow-lg group cursor-pointer"
-          >
-            <div className="flex items-center space-x-3.5">
-              <Search className="w-5 h-5 text-orange-400 group-hover:scale-110 transition-transform" />
-              <span className="text-sm font-medium tracking-wide">Search missions, analysis modules, tools, and tutorials...</span>
-            </div>
-            <div className="flex items-center space-x-1">
-              <kbd className="px-2 py-1 rounded bg-black/60 text-xs text-slate-400 font-mono border border-slate-700">⌘</kbd>
-              <kbd className="px-2 py-1 rounded bg-black/60 text-xs text-slate-400 font-mono border border-slate-700">K</kbd>
-            </div>
-          </button>
+        <div className="px-6 shrink-0">
+          <ServiceStatusBanner />
         </div>
 
         {/* Central Active Engineering Workspace */}

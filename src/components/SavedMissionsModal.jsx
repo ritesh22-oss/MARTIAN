@@ -46,6 +46,17 @@ export default function SavedMissionsModal({ isOpen, onClose }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
 
+  React.useEffect(() => {
+    if (!isModalVisible) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isModalVisible]);
+
   if (!isModalVisible) return null;
 
   const handleClose = () => {
@@ -84,8 +95,14 @@ export default function SavedMissionsModal({ isOpen, onClose }) {
   const filteredMissions = (missions || []).filter(m => showArchived ? m.isArchived : !m.isArchived);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-      <div className="relative w-full max-w-4xl bg-[#0B1020] border border-white/20 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div
+      onClick={handleClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-4xl bg-[#0B1020] border border-white/20 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+      >
         
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-gradient-to-r from-cyan-950/60 via-slate-900/80 to-slate-950">

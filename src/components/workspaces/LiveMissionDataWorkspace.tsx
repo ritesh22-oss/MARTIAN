@@ -36,6 +36,7 @@ export const LiveMissionDataWorkspace: React.FC = () => {
 
   // HiRISE DTM state
   const [hiriseProducts, setHiriseProducts] = useState<HiRISEProduct[]>([]);
+  const [orbitalLoading, setOrbitalLoading] = useState<boolean>(true);
   const [selectedHiRISE, setSelectedHiRISE] = useState<HiRISEProduct | null>(null);
 
   // Sources health state
@@ -95,14 +96,17 @@ export const LiveMissionDataWorkspace: React.FC = () => {
 
   // Load orbital products
   const loadOrbitalProducts = useCallback(async () => {
+    setOrbitalLoading(true);
     try {
       const res = await fetchHiRISEProducts();
       setHiriseProducts(res.products || []);
       if (res.products && res.products.length > 0 && !selectedHiRISE) {
         setSelectedHiRISE(res.products[0]);
       }
-    } catch {
-      // Keep static
+    } catch (err) {
+      console.error('Failed to load HiRISE products:', err);
+    } finally {
+      setOrbitalLoading(false);
     }
   }, [selectedHiRISE]);
 
@@ -153,9 +157,12 @@ export const LiveMissionDataWorkspace: React.FC = () => {
   };
 
   const handleLoadHiRISEInto3D = (product: HiRISEProduct) => {
-    if (product.id.includes('jezero') || product.observationId.includes('001414')) {
+    const id = product?.id || '';
+    const obsId = product?.observationId || '';
+
+    if (id.includes('jezero') || obsId.includes('001414')) {
       setActiveTerrainSource('hirise-jezero');
-    } else if (product.id.includes('belva') || product.observationId.includes('037166')) {
+    } else if (id.includes('belva') || obsId.includes('037166')) {
       setActiveTerrainSource('hirise-belva');
     } else {
       setActiveTerrainSource('custom');
@@ -493,10 +500,10 @@ export const LiveMissionDataWorkspace: React.FC = () => {
                             <span>UTC:</span>
                             <span className="text-slate-300">{new Date(img.dateUtc).toLocaleDateString()} {new Date(img.dateUtc).toLocaleTimeString()}</span>
                           </div>
-                          {img.extended?.mastAz && (
+                          {img.extended?.mastAz !== undefined && img.extended?.mastAz !== null && !isNaN(Number(img.extended.mastAz)) && (
                             <div className="flex justify-between">
                               <span>Az / El:</span>
-                              <span className="text-slate-300">{parseFloat(img.extended.mastAz).toFixed(1)}° / {parseFloat(img.extended?.mastEl || '0').toFixed(1)}°</span>
+                              <span className="text-slate-300">{Number(img.extended.mastAz).toFixed(1)}° / {Number(img.extended?.mastEl || 0).toFixed(1)}°</span>
                             </div>
                           )}
                         </div>
@@ -583,85 +590,95 @@ export const LiveMissionDataWorkspace: React.FC = () => {
             </div>
 
             {/* DTM Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {hiriseProducts.map(product => {
-                const isSelected = selectedHiRISE?.id === product.id;
-                return (
-                  <div
-                    key={product.id}
-                    className={`bg-[#0b121e] border rounded-lg overflow-hidden flex flex-col justify-between transition hover:border-slate-600 ${
-                      isSelected ? 'border-cyan-500 ring-1 ring-cyan-500/40' : 'border-slate-800'
-                    }`}
-                  >
-                    <div className="p-4 space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-950/80 text-cyan-300 border border-cyan-500/30">
-                          {product.productType}
-                        </span>
-                        <span className="text-[11px] font-mono text-slate-400">
-                          Res: <span className="text-slate-200">{product.spatialResolution}</span>
-                        </span>
-                      </div>
-
-                      <h3 className="text-sm font-semibold text-white">
-                        {product.title}
-                      </h3>
-                      <p className="text-xs text-slate-400 leading-relaxed">
-                        {product.description}
-                      </p>
-
-                      <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-slate-900/60 p-2.5 rounded border border-slate-800">
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">PDS OBS ID</span>
-                          <span className="text-cyan-400 font-semibold">{product.observationId}</span>
+            {orbitalLoading ? (
+              <div className="h-64 flex flex-col items-center justify-center border border-slate-800/80 rounded-lg bg-[#0e1626]">
+                <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mb-3" />
+                <div className="text-sm font-medium text-slate-300 font-mono">Querying USGS STAC Catalogue...</div>
+                <div className="text-xs text-slate-500 mt-1">Retrieving HiRISE DTM elevation products</div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {hiriseProducts.map(product => {
+                  const isSelected = selectedHiRISE?.id === product.id;
+                  return (
+                    <div
+                      key={product.id}
+                      className={`bg-[#0b121e] border rounded-lg overflow-hidden flex flex-col justify-between transition hover:border-slate-600 ${
+                        isSelected ? 'border-cyan-500 ring-1 ring-cyan-500/40' : 'border-slate-800'
+                      }`}
+                    >
+                      <div className="p-4 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-950/80 text-cyan-300 border border-cyan-500/30">
+                            {product.productType}
+                          </span>
+                          <span className="text-[11px] font-mono text-slate-400">
+                            Res: <span className="text-slate-200">{product.spatialResolution}</span>
+                          </span>
                         </div>
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">COORDINATES</span>
-                          <span className="text-slate-300">{product.centerLatitude.toFixed(2)}°N, {product.centerLongitude.toFixed(2)}°E</span>
-                        </div>
-                        {product.elevationMinM !== undefined && (
-                          <div className="col-span-2">
-                            <span className="text-slate-400 block text-[10px]">MOLA ELEVATION RANGE</span>
-                            <span className="text-emerald-400 font-semibold">
-                              {product.elevationMinM.toFixed(1)} m to {product.elevationMaxM?.toFixed(1)} m (Δ {((product.elevationMaxM || 0) - product.elevationMinM).toFixed(1)}m)
+
+                        <h3 className="text-sm font-semibold text-white">
+                          {product.title}
+                        </h3>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          {product.description}
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-slate-900/60 p-2.5 rounded border border-slate-800">
+                          <div>
+                            <span className="text-slate-400 block text-[10px]">PDS OBS ID</span>
+                            <span className="text-cyan-400 font-semibold">{product.observationId}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block text-[10px]">COORDINATES</span>
+                            <span className="text-slate-300">
+                              {typeof product.centerLatitude === 'number' && !isNaN(product.centerLatitude) ? product.centerLatitude.toFixed(2) : Number(product.centerLatitude || 0).toFixed(2)}°N, {typeof product.centerLongitude === 'number' && !isNaN(product.centerLongitude) ? product.centerLongitude.toFixed(2) : Number(product.centerLongitude || 0).toFixed(2)}°E
                             </span>
                           </div>
-                        )}
-                        <div className="col-span-2">
-                          <span className="text-slate-400 block text-[10px]">DATUM &amp; PROVENANCE</span>
-                          <span className="text-slate-400">{product.datum} • {product.provenance}</span>
+                          {product.elevationMinM !== undefined && product.elevationMinM !== null && !isNaN(Number(product.elevationMinM)) && (
+                            <div className="col-span-2">
+                              <span className="text-slate-400 block text-[10px]">MOLA ELEVATION RANGE</span>
+                              <span className="text-emerald-400 font-semibold">
+                                {Number(product.elevationMinM).toFixed(1)} m to {product.elevationMaxM !== undefined && product.elevationMaxM !== null && !isNaN(Number(product.elevationMaxM)) ? Number(product.elevationMaxM).toFixed(1) : '0.0'} m (Δ {(Number(product.elevationMaxM || 0) - Number(product.elevationMinM)).toFixed(1)}m)
+                              </span>
+                            </div>
+                          )}
+                          <div className="col-span-2">
+                            <span className="text-slate-400 block text-[10px]">DATUM &amp; PROVENANCE</span>
+                            <span className="text-slate-400">{product.datum} • {product.provenance}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="p-4 bg-slate-900/40 border-t border-slate-800 flex items-center justify-between gap-2">
-                      <a
-                        href={product.pdsUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
-                      >
-                        NASA PDS Archive Record
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
-                      </a>
+                      <div className="p-4 bg-slate-900/40 border-t border-slate-800 flex items-center justify-between gap-2">
+                        <a
+                          href={product.pdsUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                        >
+                          NASA PDS Archive Record
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </a>
 
-                      <button
-                        onClick={() => handleLoadHiRISEInto3D(product)}
-                        className="px-3 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-semibold text-xs font-mono transition flex items-center gap-1.5"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                        Mount to 3D Explorer
-                      </button>
+                        <button
+                          onClick={() => handleLoadHiRISEInto3D(product)}
+                          className="px-3 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-semibold text-xs font-mono transition flex items-center gap-1.5"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                          Mount to 3D Explorer
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

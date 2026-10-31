@@ -9,6 +9,7 @@ import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 import { generateAutonomousAnswer } from './src/utils/orbitKnowledgeEngine';
 import { NASADataEngine } from './nasaEngine';
+import { getStacCollections, searchStacItems, processDtmRaster } from './src/services/stacProcessor';
 
 dotenv.config();
 
@@ -39,12 +40,20 @@ function getErrorMessage(error: unknown): string {
     if (obj.error && typeof obj.error === 'string') return obj.error;
     if (obj.details && typeof obj.details === 'string') return obj.details;
     
-    // If it's a Axios/Fetch error object
+    // If it's an Axios/Fetch error object
     if (obj.response?.data?.error) return getErrorMessage(obj.response.data.error);
     if (obj.response?.data?.message) return getErrorMessage(obj.response.data.message);
 
     try {
-      const stringified = JSON.stringify(error);
+      // Safe stringify for circular structures
+      const seen = new WeakSet();
+      const stringified = JSON.stringify(error, (key, value) => {
+        if (typeof value === 'object' && value !== null) {
+          if (seen.has(value)) return '[Circular]';
+          seen.add(value);
+        }
+        return value;
+      });
       if (stringified !== '{}') return stringified;
     } catch {
       // ignore serialization errors
@@ -270,16 +279,16 @@ app.get('/api/nasa/proxy-image', async (req, res) => {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://mars.nasa.gov/' }
     });
 
-    // If ~orig.jpg fails (e.g. S3 403/404 when orig is .tif), fall back to ~large.jpg or ~medium.jpg
-    if (!resp.ok && imageUrl.includes('~orig.jpg')) {
-      const largeUrl = imageUrl.replace('~orig.jpg', '~large.jpg');
-      let fb = await fetch(largeUrl, {
+    // If ~large.jpg fails, fall back to ~medium.jpg or ~thumb.jpg
+    if (!resp.ok && imageUrl.includes('~large.jpg')) {
+      const medUrl = imageUrl.replace('~large.jpg', '~medium.jpg');
+      let fb = await fetch(medUrl, {
         redirect: 'follow',
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://mars.nasa.gov/' }
       });
       if (!fb.ok) {
-        const medUrl = imageUrl.replace('~orig.jpg', '~medium.jpg');
-        fb = await fetch(medUrl, {
+        const thumbUrl = imageUrl.replace('~large.jpg', '~thumb.jpg');
+        fb = await fetch(thumbUrl, {
           redirect: 'follow',
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://mars.nasa.gov/' }
         });
@@ -467,7 +476,7 @@ app.get('/api/nasa/regions/:regionId/gallery', async (req, res, next) => {
           return {
             id: itemData.nasa_id || `NASA_${config.name}`,
             title: itemData.title || `${config.name} Observation`,
-            assetUrl: previewLink ? previewLink.replace('~thumb.jpg', '~orig.jpg') : previewLink,
+            assetUrl: previewLink ? previewLink.replace('~thumb.jpg', '~large.jpg') : previewLink,
             thumbnailUrl: previewLink || '',
             observationDate: itemData.date_created ? itemData.date_created.split('T')[0] : 'Not available',
             description: itemData.description || `${config.name} scientific terrain observation.`,
@@ -579,37 +588,234 @@ app.post('/api/ai4mars/segment', async (req, res, next) => {
   }
 });
 
-// Sources Health Route
-app.get('/api/sources/health', async (_req, res) => {
-  const sources = [
+// NASA API Key configuration (secure server-side, never exposed to client)
+const nasaApiKey = process.env.NASA_API_KEY || 'DEMO_KEY';
+
+// Real Live Planetary Data Sources Status (USGS STAC, PDS, NASA API, Images API)
+app.get(['/api/nasa/sources-status', '/api/sources/health'], async (_req, res) => {
+  const sourcesToCheck = [
     {
-      sourceName: 'NASA Mars 2020 Raw Feed (JPL)',
-      endpointUrl: 'https://mars.nasa.gov/rss/api/?feed=raw_images&category=mars2020',
-      status: 'connected',
-      latencyMs: 145,
-      lastSuccessfulUpdate: new Date().toISOString()
+      sourceName: 'USGS Astrogeology STAC API (HiRISE DTMs)',
+      endpointUrl: 'https://stac.astrogeology.usgs.gov/api/collections',
+      category: 'STAC_API'
     },
     {
-      sourceName: 'NASA Planetary Data System (PDS Geosciences)',
-      endpointUrl: 'https://pds-geosciences.wustl.edu/',
-      status: 'connected',
-      latencyMs: 230,
-      lastSuccessfulUpdate: new Date().toISOString()
+      sourceName: 'NASA Planetary Data System (PDS Cartography / HiRISE)',
+      endpointUrl: 'https://hirise-pds.lpl.arizona.edu/PDS/RDR/PSP/ORB_001400_001499/PSP_001414_1780/',
+      category: 'PDS_ARCHIVE'
     },
     {
-      sourceName: 'HiRISE PDS Data Node',
-      endpointUrl: 'https://hirise-pds.lpl.arizona.edu/',
-      status: 'connected',
-      latencyMs: 310,
-      lastSuccessfulUpdate: new Date().toISOString()
+      sourceName: 'NASA Open API (api.nasa.gov)',
+      endpointUrl: `https://api.nasa.gov/planetary/apod?api_key=${nasaApiKey}`,
+      category: 'NASA_API'
+    },
+    {
+      sourceName: 'NASA Image & Video Library API',
+      endpointUrl: 'https://images-api.nasa.gov/search?q=mars&media_type=image',
+      category: 'IMAGE_LIBRARY'
     }
   ];
 
+  const results = await Promise.all(
+    sourcesToCheck.map(async (src) => {
+      const t0 = Date.now();
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 6000);
+        const resp = await fetch(src.endpointUrl, {
+          method: 'GET',
+          signal: controller.signal,
+          headers: { 'User-Agent': 'MarsNav-PlanetaryWorkstation/1.0' }
+        });
+        clearTimeout(timeout);
+        const latencyMs = Date.now() - t0;
+        return {
+          sourceName: src.sourceName,
+          endpointUrl: src.endpointUrl.split('?')[0],
+          status: resp.ok ? 'connected' : (resp.status >= 500 ? 'disconnected' : 'degraded'),
+          httpStatus: resp.status,
+          latencyMs,
+          category: src.category,
+          lastSuccessfulUpdate: new Date().toISOString(),
+          error: resp.ok ? null : `HTTP ${resp.status} ${resp.statusText}`
+        };
+      } catch (err: any) {
+        return {
+          sourceName: src.sourceName,
+          endpointUrl: src.endpointUrl.split('?')[0],
+          status: 'disconnected',
+          httpStatus: null,
+          latencyMs: Date.now() - t0,
+          category: src.category,
+          lastSuccessfulUpdate: null,
+          error: err.name === 'AbortError' ? 'Connection timed out (>6000ms)' : (err.message || 'Network unreachable')
+        };
+      }
+    })
+  );
+
+  const allConnected = results.every(s => s.status === 'connected');
+  const someConnected = results.some(s => s.status === 'connected');
+
   res.json({
-    sources,
-    overallStatus: 'connected',
+    sources: results,
+    overallStatus: allConnected ? 'connected' : (someConnected ? 'degraded' : 'disconnected'),
+    nasaApiKeyConfigured: !!process.env.NASA_API_KEY && process.env.NASA_API_KEY !== 'DEMO_KEY',
     timestamp: new Date().toISOString()
   });
+});
+
+// STAC Collections Discovery
+app.get('/api/stac/collections', async (req, res, next) => {
+  try {
+    const forceRefresh = req.query.refresh === 'true';
+    const collections = await getStacCollections(forceRefresh);
+    res.json({
+      success: true,
+      count: collections.length,
+      collections
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// STAC Item Search with spatial bbox, pagination & keyword filtering
+app.get('/api/stac/search', async (req, res, next) => {
+  try {
+    const collection = (req.query.collection as string) || 'mro_hirise_socet_dtms';
+    const limit = parseInt((req.query.limit as string) || '20', 10);
+    const query = req.query.query as string;
+    const page = parseInt((req.query.page as string) || '1', 10);
+
+    let bbox: [number, number, number, number] | undefined = undefined;
+    if (req.query.bbox) {
+      const parts = (req.query.bbox as string).split(',').map(n => parseFloat(n.trim()));
+      if (parts.length === 4 && parts.every(n => !isNaN(n))) {
+        bbox = parts as [number, number, number, number];
+      }
+    }
+
+    const result = await searchStacItems({ collection, bbox, limit, query, page });
+    res.json({
+      success: true,
+      ...result,
+      page,
+      limit
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Real DTM Raster Processing & Terrain Analytics
+app.post('/api/stac/dtm/process', async (req, res, next) => {
+  try {
+    const { dtmUrl, itemId, title, stacCollection, targetGridSize } = req.body;
+    if (!dtmUrl) {
+      return res.status(400).json({ success: false, error: { message: 'dtmUrl is required' } });
+    }
+
+    const processed = await processDtmRaster({
+      dtmUrl,
+      itemId,
+      title,
+      stacCollection,
+      targetGridSize: targetGridSize ? parseInt(String(targetGridSize), 10) : 48
+    });
+
+    res.json({
+      success: true,
+      data: processed
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// NASA HiRISE Products proxy / repository
+app.get('/api/nasa/hirise/products', async (req, res, next) => {
+  try {
+    const query = (req.query.q as string || '').toLowerCase();
+    const mockProducts = [
+      {
+        id: 'ESP_048842_1985',
+        title: 'MRO HiRISE Jezero Crater Western Delta DTM',
+        mission: 'Mars Reconnaissance Orbiter (MRO)',
+        instrument: 'HiRISE Stereo Camera (0.25 m/px)',
+        product: 'PSP_001414_1780_DTM_JEZERO_FAN',
+        resolutionMeters: 0.25,
+        elevationRange: [-2580, -2410],
+        datum: 'Mars Aeroid / MOLA Topographic Datum',
+        crs: 'Planetocentric East-positive (18.38°N, 77.42°E)',
+        pdsStatus: 'VERIFIED ARCHIVE',
+        description: 'High-resolution Digital Terrain Model of the delta scarp beds and fluvial channels explored by Perseverance.',
+        dtmUrl: 'https://astrogeo-ard.s3-us-west-2.amazonaws.com/mars/mro/hirise/controlled/dtm/ESP_048842_1985_ESP_048908_1985/DTEEC_048842_1985_048908_1985_U01.tif',
+        thumbnailUrl: 'https://hirise-pds.lpl.arizona.edu/PDS/EXTRAS/RDR/PSP/ORB_001400_001499/PSP_001414_1780/PSP_001414_1780_RED.NOMAP.browse.jpg'
+      },
+      {
+        id: 'ESP_069151_1985',
+        title: 'MRO HiRISE Belva Crater Slump Escarpment',
+        mission: 'Mars Reconnaissance Orbiter (MRO)',
+        instrument: 'HiRISE High-Resolution Stereo (0.25 m/px)',
+        product: 'ESP_069151_1985_BELVA_CRATER',
+        resolutionMeters: 0.25,
+        elevationRange: [-2690, -2320],
+        datum: 'Mars Aeroid / MOLA Topographic Datum',
+        crs: 'Planetocentric East-positive (18.49°N, 77.34°E)',
+        pdsStatus: 'RETRIEVED PDS',
+        description: 'Steep impact crater wall with slumped block escarpments and active regolith creep slopes.',
+        dtmUrl: 'https://astrogeo-ard.s3-us-west-2.amazonaws.com/mars/mro/hirise/controlled/dtm/ESP_069151_1985_ESP_069296_1985/DTEEC_069151_1985_069296_1985_U01.tif',
+        thumbnailUrl: 'https://hirise-pds.lpl.arizona.edu/PDS/EXTRAS/RDR/ESP/ORB_069100_069199/ESP_069151_1985/ESP_069151_1985_RED.NOMAP.browse.jpg'
+      }
+    ];
+
+    const filtered = query ? mockProducts.filter(p => p.title.toLowerCase().includes(query) || p.description.toLowerCase().includes(query) || p.id.toLowerCase().includes(query)) : mockProducts;
+
+    res.json({
+      success: true,
+      products: filtered,
+      retrievedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// NASA Open API proxy (APOD) with secure server-side key
+app.get('/api/nasa/planetary/apod', async (_req, res, next) => {
+  try {
+    const targetUrl = `https://api.nasa.gov/planetary/apod?api_key=${encodeURIComponent(nasaApiKey)}`;
+    const resp = await fetch(targetUrl);
+    if (!resp.ok) {
+      return res.status(resp.status).json({ success: false, error: { message: `NASA API returned ${resp.status}` } });
+    }
+    const data = await resp.json();
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// NASA Mars Rover Photos proxy with secure server-side key
+app.get('/api/nasa/mars-photos', async (req, res, next) => {
+  try {
+    const sol = req.query.sol || '428';
+    const camera = req.query.camera;
+    const rover = (req.query.rover as string) || 'perseverance';
+    let targetUrl = `https://api.nasa.gov/mars-photos/api/v1/rovers/${encodeURIComponent(rover)}/photos?sol=${encodeURIComponent(String(sol))}&api_key=${encodeURIComponent(nasaApiKey)}`;
+    if (camera && camera !== 'ALL') {
+      targetUrl += `&camera=${encodeURIComponent(String(camera))}`;
+    }
+    const resp = await fetch(targetUrl);
+    if (!resp.ok) {
+      return res.status(resp.status).json({ success: false, error: { message: `NASA API returned ${resp.status}` } });
+    }
+    const data = await resp.json();
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Centralized Error Handler

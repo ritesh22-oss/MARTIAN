@@ -137,7 +137,7 @@ export default function OverviewWorkspace() {
   ];
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1800px] mx-auto text-xs font-sans w-full">
+    <div className="p-6 space-y-6 max-w-[1800px] mx-auto text-xs font-sans w-full">
       {/* 1. Header & Active Mission Controls */}
       <div className="overview-hero-card bg-[#0A0E1C] border border-slate-800/80 p-5 sm:p-6 lg:p-7 rounded-2xl shadow-xl">
         <div className="overview-hero-grid">
@@ -420,6 +420,8 @@ export default function OverviewWorkspace() {
           <div className="space-y-2.5">
             {checkpoints.map((cp: any) => {
               const isCompleted = cp.status === 'Completed';
+              const isInProgress = cp.status === 'In Progress';
+              
               return (
                 <div
                   key={cp.id}
@@ -427,6 +429,8 @@ export default function OverviewWorkspace() {
                   className={`w-full p-3.5 rounded-xl transition-all duration-200 border cursor-pointer ${
                     isCompleted 
                       ? 'bg-emerald-500/[0.04] border-emerald-500/30 hover:bg-emerald-500/[0.08]' 
+                      : isInProgress
+                      ? 'bg-cyan-500/[0.06] border-cyan-500/40 animate-pulse'
                       : 'bg-[#060912] border-white/10 hover:border-cyan-500/40 hover:bg-slate-900/60'
                   }`}
                 >
@@ -435,24 +439,40 @@ export default function OverviewWorkspace() {
                       <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
                         isCompleted 
                           ? 'bg-emerald-500 border-emerald-400 text-white shadow-[0_0_8px_rgba(16,185,129,0.5)]' 
-                          : 'border-amber-500/50 bg-amber-500/10 text-amber-400'
+                          : isInProgress
+                          ? 'bg-cyan-600 border-cyan-400 text-white'
+                          : 'border-slate-600 bg-slate-800/50 text-slate-500'
                       }`}>
-                        {isCompleted ? <Check className="w-3.5 h-3.5 stroke-[3px]" /> : <Clock className="w-3 h-3" />}
+                        {isCompleted ? (
+                          <Check className="w-3.5 h-3.5 stroke-[3px]" />
+                        ) : isInProgress ? (
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Clock className="w-3 h-3" />
+                        )}
                       </div>
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <span className={`text-[12px] font-bold leading-tight ${isCompleted ? 'text-slate-200' : 'text-amber-200'}`}>
+                        <span className={`text-[12px] font-bold leading-tight ${
+                          isCompleted ? 'text-slate-200' : isInProgress ? 'text-cyan-200' : 'text-slate-400'
+                        }`}>
                           {cp.label}
                         </span>
                         <span className={`text-[10px] px-2 py-0.5 rounded font-mono shrink-0 border ${
-                          isCompleted ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                          isCompleted 
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
+                            : isInProgress
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                            : 'bg-slate-800/50 text-slate-500 border-slate-700'
                         }`}>
-                          {cp.status}
+                          {cp.status.toUpperCase()}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-1 font-mono leading-relaxed">
+                      <p className={`text-[11px] mt-1 font-mono leading-relaxed ${
+                        isInProgress ? 'text-cyan-400/80' : 'text-slate-400'
+                      }`}>
                         {cp.reason}
                       </p>
                     </div>

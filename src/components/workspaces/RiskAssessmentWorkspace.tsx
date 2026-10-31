@@ -254,6 +254,58 @@ function generateElevationGrid(dataset: NasaTerrainDataset): TerrainGridCell[] {
   return cells;
 }
 
+// Build real terrain grid from processed USGS / NASA DTM raster
+function buildTerrainGridFromDtm(dtm: any, maxSlopeLimitDeg: number = 14.0): TerrainGridCell[] {
+  const rows = dtm.gridHeight;
+  const cols = dtm.gridWidth;
+  const cells: TerrainGridCell[] = [];
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const elevationM = dtm.elevationGrid[y]?.[x] ?? dtm.avgElevation;
+      const slopeDeg = dtm.slopeGrid[y]?.[x] ?? 0;
+      const roughness = dtm.roughnessGrid[y]?.[x] ?? 0.15;
+
+      // Wheel slip estimate based on empirical terramechanics model
+      const slopeSlip = Math.min(0.9, Math.pow(slopeDeg / 22, 1.8));
+      const roughSlip = roughness * 0.25;
+      const wheelSlip = parseFloat(Math.min(1.0, Math.max(0.05, slopeSlip + roughSlip)).toFixed(2));
+
+      // Composite cost: C = 0.5 * (slope/14) + 0.3 * roughness + 0.2 * slip
+      const normSlope = Math.min(slopeDeg / maxSlopeLimitDeg, 2.0);
+      const costVal = parseFloat((0.5 * normSlope + 0.3 * roughness + 0.2 * wheelSlip).toFixed(3));
+
+      let riskTier: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL' | 'IMPASSABLE' = 'LOW';
+      if (slopeDeg > maxSlopeLimitDeg) {
+        riskTier = 'IMPASSABLE';
+      } else if (costVal > 0.65) {
+        riskTier = 'CRITICAL';
+      } else if (costVal > 0.45) {
+        riskTier = 'HIGH';
+      } else if (costVal > 0.25) {
+        riskTier = 'MODERATE';
+      } else {
+        riskTier = 'LOW';
+      }
+
+      cells.push({
+        x,
+        y,
+        elevationM: parseFloat(elevationM.toFixed(1)),
+        slopeDeg: parseFloat(slopeDeg.toFixed(1)),
+        roughness: parseFloat(roughness.toFixed(2)),
+        wheelSlip,
+        cost: costVal,
+        riskTier,
+        isHazard: slopeDeg > maxSlopeLimitDeg || costVal > 0.65,
+        featureName: dtm.title
+      });
+    }
+  }
+
+  return cells;
+}
+
 // --- ROUTE SEGMENT DATA MODEL ---
 interface RouteRiskSegment {
   id: string;
@@ -305,17 +357,55 @@ interface SyncedCellSource {
 }
 
 export default function RiskAssessmentWorkspace() {
-  const { settings, updateSettings, sharedSession, activeMission, updateSharedSession } = useWorkspace();
+  const {
+    settings,
+    updateSettings,
+    sharedSession,
+    activeMission,
+    updateSharedSession,
+    selectedDtmData,
+    isProcessingDtm,
+    dtmProcessingMessage,
+    selectAndLoadDtm,
+    setActiveWorkspace
+  } = useWorkspace();
   const { analysis, setSelectedRouteIndex } = useTerrainAnalysis();
 
-  // Active dataset state
-  const [selectedDatasetId, setSelectedDatasetId] = useState<string>('hirise-jezero');
-  const activeDataset = useMemo(() => {
-    return NASA_DATASETS.find(d => d.id === selectedDatasetId) || NASA_DATASETS[0];
-  }, [selectedDatasetId]);
+  // Active dataset state: if real USGS DTM is loaded, default to real DTM
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string>(() => {
+    return selectedDtmData ? 'real-usgs-dtm' : 'hirise-jezero';
+  });
 
-  // Elevation grid state generated from NASA dataset
-  const [terrainGrid, setTerrainGrid] = useState<TerrainGridCell[]>(() => generateElevationGrid(NASA_DATASETS[0]));
+  const isRealDtmMode = selectedDatasetId === 'real-usgs-dtm' && Boolean(selectedDtmData);
+
+  const activeDataset: NasaTerrainDataset = useMemo(() => {
+    if (isRealDtmMode && selectedDtmData) {
+      return {
+        id: 'real-usgs-dtm',
+        name: selectedDtmData.title,
+        mission: 'Mars Reconnaissance Orbiter (MRO) / HiRISE',
+        instrument: `HiRISE Stereo Camera (${selectedDtmData.resolutionMeters} m/px)`,
+        product: selectedDtmData.id,
+        resolutionMeters: selectedDtmData.resolutionMeters,
+        elevationRange: [Math.round(selectedDtmData.minElevation), Math.round(selectedDtmData.maxElevation)],
+        datum: selectedDtmData.datum,
+        crs: selectedDtmData.coordinateReferenceSystem || 'Planetocentric East-positive',
+        pdsStatus: 'VERIFIED ARCHIVE',
+        description: selectedDtmData.description || 'Real USGS Astrogeology STAC Cloud-Optimized GeoTIFF Digital Terrain Model.',
+        gridDimensions: [selectedDtmData.gridWidth, selectedDtmData.gridHeight],
+        baseElevation: selectedDtmData.avgElevation
+      };
+    }
+    return NASA_DATASETS.find(d => d.id === selectedDatasetId) || NASA_DATASETS[0];
+  }, [selectedDatasetId, isRealDtmMode, selectedDtmData]);
+
+  // Elevation grid state generated from real DTM or NASA dataset
+  const [terrainGrid, setTerrainGrid] = useState<TerrainGridCell[]>(() => {
+    if (selectedDtmData) {
+      return buildTerrainGridFromDtm(selectedDtmData, settings.maxSlopeLimitDeg);
+    }
+    return generateElevationGrid(NASA_DATASETS[0]);
+  });
 
   // Heatmap View Mode State
   const [heatmapOverlay, setHeatmapOverlay] = useState<'cost' | 'slope' | 'roughness' | 'slip' | 'elevation'>('cost');
@@ -350,12 +440,28 @@ export default function RiskAssessmentWorkspace() {
   const [customDemInput, setCustomDemInput] = useState<string>('');
   const [demImportError, setDemImportError] = useState<string | null>(null);
 
-  // Whenever dataset changes, recalculate elevation grid
+  // Whenever dataset or selectedDtmData changes, recalculate elevation grid
   useEffect(() => {
-    const newGrid = generateElevationGrid(activeDataset);
-    setTerrainGrid(newGrid);
-    setSelectedCell(newGrid[12 * 24 + 12]); // center cell
-  }, [activeDataset]);
+    if (selectedDatasetId === 'real-usgs-dtm' && selectedDtmData) {
+      const newGrid = buildTerrainGridFromDtm(selectedDtmData, settings.maxSlopeLimitDeg);
+      setTerrainGrid(newGrid);
+      const midIdx = Math.floor(newGrid.length / 2);
+      setSelectedCell(newGrid[midIdx] || newGrid[0]);
+    } else {
+      const newGrid = generateElevationGrid(activeDataset);
+      setTerrainGrid(newGrid);
+      const [cols, rows] = activeDataset.gridDimensions;
+      const midIdx = Math.floor(rows / 2) * cols + Math.floor(cols / 2);
+      setSelectedCell(newGrid[midIdx] || newGrid[0]);
+    }
+  }, [activeDataset, selectedDatasetId, selectedDtmData, settings.maxSlopeLimitDeg]);
+
+  // If selectedDtmData updates, ensure selection is set to real-usgs-dtm
+  useEffect(() => {
+    if (selectedDtmData && selectedDatasetId !== 'real-usgs-dtm') {
+      setSelectedDatasetId('real-usgs-dtm');
+    }
+  }, [selectedDtmData?.id]);
 
   // Existing formula computation
   const normalizedSlope = Math.min(selectedSlope / settings.maxSlopeLimitDeg, 2.0);
@@ -694,7 +800,8 @@ export default function RiskAssessmentWorkspace() {
 
   const handleSelectWaypoint = (pt: SyncedRouteGridPoint) => {
     setSelectedRouteWaypointIndex(pt.index);
-    const targetCell = terrainGrid[pt.gridY * 24 + pt.gridX];
+    const cols = activeDataset.gridDimensions[0];
+    const targetCell = terrainGrid[pt.gridY * cols + pt.gridX];
     if (targetCell) {
       setSelectedCell(targetCell);
     }
@@ -795,21 +902,40 @@ export default function RiskAssessmentWorkspace() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
           <div className="flex items-center space-x-2 text-xs font-bold text-white uppercase tracking-wider font-sans">
             <Database className="w-4 h-4 text-cyan-400" />
-            <span>Active NASA Planetary Elevation Dataset</span>
+            <span>Active Planetary Elevation Dataset</span>
+            {isRealDtmMode && (
+              <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono font-bold flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                REAL USGS STAC COG
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[10px] text-slate-400">Switch Dataset:</span>
             <select
               value={selectedDatasetId}
               onChange={e => setSelectedDatasetId(e.target.value)}
-              className="bg-black/60 border border-white/15 rounded-xl px-3 py-1.5 text-white text-xs font-mono focus:border-cyan-500 focus:outline-none cursor-pointer"
+              className="bg-black/60 border border-white/15 rounded-xl px-3 py-1.5 text-white text-xs font-mono focus:border-cyan-500 focus:outline-none cursor-pointer max-w-[260px] truncate"
             >
+              {selectedDtmData && (
+                <option value="real-usgs-dtm" className="bg-slate-900 text-emerald-300 font-bold">
+                  ★ {selectedDtmData.title.slice(0, 36)}... (REAL DTM)
+                </option>
+              )}
               {NASA_DATASETS.map(d => (
                 <option key={d.id} value={d.id} className="bg-slate-900 text-white">
                   {d.name} ({d.resolutionMeters} m/px)
                 </option>
               ))}
             </select>
+            <button
+              onClick={() => setActiveWorkspace('dataset-catalogue')}
+              className="px-3 py-1.5 rounded-xl bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-300 text-xs flex items-center gap-1.5 transition cursor-pointer"
+              title="Search and load real DTMs from USGS Astrogeology STAC Catalogue"
+            >
+              <Database className="w-3.5 h-3.5 text-cyan-400" />
+              <span>STAC Catalogue</span>
+            </button>
             <button
               onClick={() => setDemImportOpen(true)}
               className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-slate-300 text-xs flex items-center gap-1.5 transition cursor-pointer"
@@ -820,6 +946,26 @@ export default function RiskAssessmentWorkspace() {
             </button>
           </div>
         </div>
+
+        {/* Real DTM Live Status Banner if active */}
+        {isRealDtmMode && selectedDtmData && (
+          <div className="p-3 bg-gradient-to-r from-emerald-950/40 via-cyan-950/30 to-black/50 border border-emerald-500/40 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+              <div>
+                <span className="font-bold text-white">GENUINE USGS ASTROGEOLOGY TERRAIN RASTER LOADED</span>
+                <p className="text-[10px] text-slate-300 font-mono mt-0.5">
+                  Streamed via HTTP Range overview pyramids from AWS S3 COG · MOLA Datum ({selectedDtmData.datum})
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 text-[10px] font-mono">
+              <span className="text-slate-400">Horn Slope: <strong className="text-cyan-300">{selectedDtmData.avgSlope.toFixed(1)}° avg</strong> (max {selectedDtmData.maxSlope.toFixed(1)}°)</span>
+              <span className="text-slate-400">Grid: <strong className="text-emerald-300">{selectedDtmData.gridWidth}×{selectedDtmData.gridHeight}</strong></span>
+              <span className="text-slate-400">Res: <strong className="text-white">{selectedDtmData.resolutionMeters} m/px</strong></span>
+            </div>
+          </div>
+        )}
 
         {/* Dataset Metadata Dossier */}
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 text-[11px]">
@@ -833,7 +979,7 @@ export default function RiskAssessmentWorkspace() {
           </div>
           <div className="p-3 rounded-2xl bg-black/40 border border-white/5">
             <div className="text-[10px] text-slate-400 uppercase">VERTICAL DATUM</div>
-            <div className="font-bold text-amber-300 mt-0.5 truncate">Mars Aeroid (MOLA)</div>
+            <div className="font-bold text-amber-300 mt-0.5 truncate">{activeDataset.datum}</div>
           </div>
           <div className="p-3 rounded-2xl bg-black/40 border border-white/5">
             <div className="text-[10px] text-slate-400 uppercase">ELEVATION RANGE</div>
@@ -841,13 +987,13 @@ export default function RiskAssessmentWorkspace() {
           </div>
           <div className="p-3 rounded-2xl bg-black/40 border border-white/5">
             <div className="text-[10px] text-slate-400 uppercase">PRODUCT IDENTIFIER</div>
-            <div className="font-bold text-slate-300 mt-0.5 truncate">{activeDataset.product}</div>
+            <div className="font-bold text-slate-300 mt-0.5 truncate" title={activeDataset.product}>{activeDataset.product}</div>
           </div>
           <div className="p-3 rounded-2xl bg-black/40 border border-white/5">
             <div className="text-[10px] text-slate-400 uppercase">PDS ARCHIVE STATUS</div>
             <div className="font-bold text-emerald-400 mt-0.5 flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span>{activeDataset.pdsStatus}</span>
+              <span>{isRealDtmMode ? 'LIVE USGS COG' : activeDataset.pdsStatus}</span>
             </div>
           </div>
         </div>
@@ -1018,8 +1164,11 @@ export default function RiskAssessmentWorkspace() {
               className="relative p-2 bg-[#040713] rounded-xl border border-white/10 w-fit transition-transform"
               style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'center' }}
             >
-              {/* 24x24 Base Terrain Risk Heatmap Grid */}
-              <div className="grid grid-cols-24 gap-1">
+              {/* Base Terrain Risk Heatmap Grid (Dynamically sized to DTM raster dimensions) */}
+              <div
+                className="grid gap-1"
+                style={{ gridTemplateColumns: `repeat(${activeDataset.gridDimensions[0]}, minmax(0, 1fr))` }}
+              >
                 {terrainGrid.map((cell, idx) => {
                   const isSelected = selectedCell?.x === cell.x && selectedCell?.y === cell.y;
                   const isSyncedActive = syncedSource?.x === cell.x && syncedSource?.y === cell.y;
@@ -1040,7 +1189,7 @@ export default function RiskAssessmentWorkspace() {
                     <div
                       key={idx}
                       onClick={() => handleCellClick(cell)}
-                      className={`w-4 h-4 sm:w-5 sm:h-5 rounded-sm flex items-center justify-center text-[7px] font-bold cursor-pointer transition-all duration-150 relative ${getCellColor(cell)} ${
+                      className={`w-3.5 h-3.5 sm:w-4.5 sm:h-4.5 rounded-sm flex items-center justify-center text-[7px] font-bold cursor-pointer transition-all duration-150 relative ${getCellColor(cell)} ${
                         isSelected
                           ? 'ring-2 ring-cyan-300 scale-125 z-40 shadow-[0_0_12px_rgba(6,182,212,1)]'
                           : isSelectedWaypoint
@@ -1086,7 +1235,7 @@ export default function RiskAssessmentWorkspace() {
                 <svg
                   key={syncAnimationKey}
                   className="absolute inset-2 w-[calc(100%-16px)] h-[calc(100%-16px)] pointer-events-none z-30"
-                  viewBox="0 0 24 24"
+                  viewBox={`0 0 ${activeDataset.gridDimensions[0]} ${activeDataset.gridDimensions[1]}`}
                   preserveAspectRatio="none"
                 >
                   <defs>

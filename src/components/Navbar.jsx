@@ -59,7 +59,7 @@ export default function Navbar({ activeSection, setActiveSection, backendStatus,
                   MARSNAV
                 </span>
                 <span className="text-[10px] uppercase tracking-widest px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-300 font-mono">
-                  v2.4
+                  v1.0
                 </span>
               </div>
               <p className="text-[10px] text-slate-400 font-mono tracking-wider">

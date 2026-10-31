@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { apiGet, apiPost } from '../utils/apiClient';
 import { MARS_REFERENCE_DATUM, NASA_DATA_SOURCES, JEZERO_ENVIRONMENTAL_CONTEXT } from '../utils/marsScienceData';
 import type { MarsRawImage } from '../services/nasaDataService';
+import type { ProcessedDtmData } from '../services/stacProcessor';
 import {
   createNewMissionRecord,
   evaluateMissionCheckpoints,
@@ -155,12 +156,23 @@ export interface WorkspaceContextType {
   recentErrors: string[];
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
+  rightInspectorOpen: boolean;
+  setRightInspectorOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+  toggleRightInspector: () => void;
   selectedObservation: MarsRawImage | null;
   setSelectedObservation: (obs: MarsRawImage | null) => void;
   activeTerrainSource: 'hirise-jezero' | 'hirise-belva' | 'custom' | 'procedural';
   setActiveTerrainSource: (source: 'hirise-jezero' | 'hirise-belva' | 'custom' | 'procedural') => void;
   sharedSession: SharedTerrainSession;
   updateSharedSession: (partial: Partial<SharedTerrainSession>) => void;
+
+  // Real NASA/USGS DTM State
+  selectedDtmData: ProcessedDtmData | null;
+  setSelectedDtmData: (dtm: ProcessedDtmData | null) => void;
+  isProcessingDtm: boolean;
+  dtmProcessingMessage: string;
+  dtmProcessError: string | null;
+  selectAndLoadDtm: (dtmItem: any, targetGridSize?: number) => Promise<ProcessedDtmData>;
 
   // Missions State & Management
   missions: any[];
@@ -247,6 +259,103 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     });
   };
   const [commandPaletteOpen, setCommandPaletteOpen] = useState<boolean>(false);
+  const [rightInspectorOpen, setRightInspectorOpenState] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('marsnav_right_inspector_open');
+      return stored !== null ? stored === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const setRightInspectorOpen = (val: boolean | ((prev: boolean) => boolean)) => {
+    setRightInspectorOpenState(prev => {
+      const next = typeof val === 'function' ? val(prev) : val;
+      try {
+        localStorage.setItem('marsnav_right_inspector_open', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const toggleRightInspector = () => {
+    setRightInspectorOpen(prev => !prev);
+  };
+
+  // Real NASA / USGS DTM state
+  const [selectedDtmData, setSelectedDtmData] = useState<ProcessedDtmData | null>(() => {
+    try {
+      const stored = localStorage.getItem('marsnav_selected_dtm_data');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isProcessingDtm, setIsProcessingDtm] = useState<boolean>(false);
+  const [dtmProcessingMessage, setDtmProcessingMessage] = useState<string>('');
+  const [dtmProcessError, setDtmProcessError] = useState<string | null>(null);
+
+  const selectAndLoadDtm = async (dtmItem: any, targetGridSize = 36): Promise<ProcessedDtmData> => {
+    setIsProcessingDtm(true);
+    setDtmProcessingMessage(`Connecting to USGS STAC for ${dtmItem.id || 'DTM'}...`);
+    setDtmProcessError(null);
+
+    const dtmUrl = dtmItem.dtmUrl || dtmItem.assets?.dtm?.href;
+    if (!dtmUrl) {
+      setIsProcessingDtm(false);
+      setDtmProcessError('No GeoTIFF DTM asset available in this STAC record.');
+      throw new Error('No GeoTIFF asset available');
+    }
+
+    try {
+      setDtmProcessingMessage(`Streaming Cloud-Optimized GeoTIFF raster from USGS...`);
+      const res = await fetch('/api/stac/dtm/process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dtmUrl,
+          itemId: dtmItem.id,
+          title: dtmItem.properties?.title || dtmItem.title,
+          stacCollection: dtmItem.collection,
+          targetGridSize
+        })
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success && json.data) {
+        setSelectedDtmData(json.data);
+        setActiveDataset(json.data.title);
+        try {
+          localStorage.setItem('marsnav_selected_dtm_data', JSON.stringify(json.data));
+        } catch {}
+        setIsProcessingDtm(false);
+        setDtmProcessingMessage('DTM loaded successfully.');
+        return json.data;
+      } else {
+        throw new Error(json?.error?.message || 'Failed to process DTM raster');
+      }
+    } catch (err: any) {
+      setIsProcessingDtm(false);
+      setDtmProcessError(err.message || 'Error processing DTM');
+      throw err;
+    }
+  };
+
+  // Auto-seed real Jezero Crater DTM if none loaded
+  useEffect(() => {
+    if (!selectedDtmData) {
+      const jezeroDtm = {
+        id: 'DTEEC_048842_1985_048908_1985_U01',
+        title: 'MRO HiRISE Jezero Crater Delta DTM (PSP_001414_1780 / ESP_048842)',
+        collection: 'mro_hirise_socet_dtms',
+        dtmUrl: 'https://astrogeo-ard.s3-us-west-2.amazonaws.com/mars/mro/hirise/controlled/dtm/ESP_048842_1985_ESP_048908_1985/DTEEC_048842_1985_048908_1985_U01.tif'
+      };
+      selectAndLoadDtm(jezeroDtm, 36).catch(e => {
+        console.warn('[WORKSPACE] Auto-load baseline Jezero DTM failed:', e);
+      });
+    }
+  }, []);
+
   const [selectedObservation, setSelectedObservation] = useState<MarsRawImage | null>(null);
   const [activeTerrainSource, setActiveTerrainSource] = useState<'hirise-jezero' | 'hirise-belva' | 'custom' | 'procedural'>('hirise-jezero');
   const [settings, setSettings] = useState<WorkspaceSettings>(defaultSettings);
@@ -520,23 +629,61 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, []);
 
-  // Keyboard shortcut Ctrl+K / Cmd+K to open command palette
+  // Global Keyboard Navigation & Quick Actions
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      // 1. Command Palette Shortcut: Ctrl+K / Cmd+K
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
         setCommandPaletteOpen(prev => !prev);
+        return;
       }
-      if (e.key === 'Escape') {
+
+      // 2. Escape closes command palette if active
+      if (e.key === 'Escape' && commandPaletteOpen) {
+        e.preventDefault();
         setCommandPaletteOpen(false);
+        return;
+      }
+
+      // Input Guard: Do NOT fire single-key shortcuts when typing in inputs/textareas/contenteditable
+      const target = e.target as HTMLElement | null;
+      const isInput = target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable ||
+        Boolean(target.closest && target.closest('input, textarea, select, [contenteditable="true"]'))
+      );
+
+      if (isInput) return;
+
+      // 3. Single-Key Global Navigation & Panel Toggles
+      if (e.key === '1') {
+        e.preventDefault();
+        setActiveWorkspace('overview');
+      } else if (e.key === '2') {
+        e.preventDefault();
+        setActiveWorkspace('explorer-3d');
+      } else if (e.key === '3') {
+        e.preventDefault();
+        setActiveWorkspace('dataset-catalogue');
+      } else if (e.key === 'i' || e.key === 'I') {
+        e.preventDefault();
+        toggleRightInspector();
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [commandPaletteOpen]);
 
   const updateSettings = (partial: Partial<WorkspaceSettings>) => {
     setSettings(prev => ({ ...prev, ...partial }));
+    
+    if (partial.maxSlopeLimitDeg !== undefined && activeMission) {
+      updateActiveMission({ maxSlopeLimit: partial.maxSlopeLimitDeg });
+    }
   };
 
   const addAnalysisRecord = (record: AnalysisRecord) => {
@@ -565,12 +712,23 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         recentErrors,
         commandPaletteOpen,
         setCommandPaletteOpen,
+        rightInspectorOpen,
+        setRightInspectorOpen,
+        toggleRightInspector,
         selectedObservation,
         setSelectedObservation,
         activeTerrainSource,
         setActiveTerrainSource,
         sharedSession,
         updateSharedSession,
+
+        // Real NASA / USGS DTM state
+        selectedDtmData,
+        setSelectedDtmData,
+        isProcessingDtm,
+        dtmProcessingMessage,
+        dtmProcessError,
+        selectAndLoadDtm,
         
         // Missions State & Management
         missions,

@@ -374,16 +374,16 @@ app.get('/api/nasa/proxy-image', async (req, res) => {
       }
     });
 
-    // If ~orig.jpg fails (e.g. S3 403/404 when orig is .tif), fall back to ~large.jpg or ~medium.jpg
-    if (!resp.ok && imageUrl.includes('~orig.jpg')) {
-      const largeUrl = imageUrl.replace('~orig.jpg', '~large.jpg');
-      let fb = await fetch(largeUrl, {
+    // If ~large.jpg fails, fall back to ~medium.jpg or ~thumb.jpg
+    if (!resp.ok && imageUrl.includes('~large.jpg')) {
+      const medUrl = imageUrl.replace('~large.jpg', '~medium.jpg');
+      let fb = await fetch(medUrl, {
         redirect: 'follow',
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://mars.nasa.gov/' }
       });
       if (!fb.ok) {
-        const medUrl = imageUrl.replace('~orig.jpg', '~medium.jpg');
-        fb = await fetch(medUrl, {
+        const thumbUrl = imageUrl.replace('~large.jpg', '~thumb.jpg');
+        fb = await fetch(thumbUrl, {
           redirect: 'follow',
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://mars.nasa.gov/' }
         });
@@ -569,7 +569,7 @@ app.get('/api/nasa/regions/:regionId/gallery', async (req, res) => {
         if (!matchesRegion) return false;
 
         const hasExcluded = EXCLUDED_PATTERNS.some(pat =>
-          title.includes(pat) || description.includes(pat) || keywords.some(k => k.includes(pat))
+          title.includes(pat) || description.includes(pat) || keywords.some((k: string) => k.includes(pat))
         );
         if (hasExcluded) return false;
 
@@ -620,7 +620,7 @@ app.get('/api/nasa/regions/:regionId/gallery', async (req, res) => {
           return {
             id: itemData.nasa_id || `NASA_${config.name}`,
             title: itemData.title || `${config.name} Imagery`,
-            assetUrl: previewLink ? previewLink.replace('~thumb.jpg', '~orig.jpg') : previewLink,
+            assetUrl: previewLink ? previewLink.replace('~thumb.jpg', '~large.jpg') : previewLink,
             thumbnailUrl: previewLink || '',
             observationDate: itemData.date_created ? itemData.date_created.split('T')[0] : 'Not available',
             description: itemData.description || `${config.name} scientific terrain observation.`,

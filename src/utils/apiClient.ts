@@ -90,7 +90,9 @@ export async function request<T>(url: string, options: RequestInit = {}): Promis
       url: diagnosticUrl
     };
   } catch (err: any) {
-    console.error(`[NETWORK ERROR] ${url}`, err);
+    if (err.name !== 'AbortError') {
+      console.error(`[NETWORK ERROR] ${url}`, err);
+    }
     return {
       data: null,
       error: `Network Error: ${err.message}. Ensure the backend is reachable.`,

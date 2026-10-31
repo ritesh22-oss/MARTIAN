@@ -195,6 +195,14 @@ export default function TerrainAnalysis() {
     setBlockerError(null);
     setInferenceResult(null);
 
+    // Update mission state to "In Progress" for checkpoints
+    if (updateActiveMission) {
+      updateActiveMission({ 
+        isAnalyzingHazards: true,
+        isAnalyzingTerrain: true 
+      });
+    }
+
     const startTime = performance.now();
 
     try {
@@ -433,7 +441,9 @@ export default function TerrainAnalysis() {
             { id: 'hz_rock', type: 'rock', count: Math.round(counts.big_rock / 5000) },
             { id: 'hz_sand', type: 'sand', count: Math.round(counts.sand / 5000) }
           ],
-          detectionMethod: 'AI4Mars ResNet-34 U-Net'
+          detectionMethod: 'AI4Mars ResNet-34 U-Net',
+          isAnalyzingHazards: false,
+          isAnalyzingTerrain: false
         });
       }
     } catch (err: any) {
@@ -441,6 +451,12 @@ export default function TerrainAnalysis() {
         error: 'DECODING_FAILURE',
         message: err.message || 'Failed to decode image for segmentation pass.'
       });
+      if (updateActiveMission) {
+        updateActiveMission({ 
+          isAnalyzingHazards: false,
+          isAnalyzingTerrain: false 
+        });
+      }
     } finally {
       setIsProcessing(false);
     }

@@ -23,7 +23,10 @@ import {
   Compass,
   FileText,
   Activity,
-  Cpu
+  Cpu,
+  ZoomIn,
+  ZoomOut,
+  Sparkles
 } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useTerrainAnalysis } from '../context/TerrainAnalysisContext';
@@ -43,65 +46,274 @@ import {
   runScenario4BudgetReduction,
   executeAllFourScenarios
 } from '../services/scenarioRunnerService';
+import { apiGet } from '../utils/apiClient';
+import { AStarGrid, calculatePathLength } from '../utils/astar';
 
-// Standard NASA Reference Terrain Image Options
-const SAMPLE_MARS_DATASETS = [
+export interface CandidateRegion {
+  id: 'jezero' | 'arcadia' | 'gale' | 'belva' | string;
+  name: string;
+  subTitle: string;
+  coordinates: { lat: number; lon: number; formatted: string };
+  defaultProduct: {
+    id: string;
+    title: string;
+    url: string;
+    fileName: string;
+    scaleMPerPx: number | null;
+    mission: string;
+    instrument: string;
+    observationDate: string;
+    sourceCredit: string;
+    desc: string;
+  };
+}
+
+// Authentic NASA/JPL Scientific Region Datasets
+export const CANDIDATE_REGIONS: CandidateRegion[] = [
   {
-    id: 'jezero-delta',
-    name: 'HiRISE Jezero Crater Western Delta',
-    url: '/assets/aistudio/vis_1_84d26681.png',
-    fileName: 'PSP_002134_2200_HIRISE_JEZERO_DELTA.png',
-    scaleMPerPx: 0.25,
-    provenance: 'NASA/JPL/Univ. of Arizona HiRISE DTM',
-    desc: 'Fluvial sedimentary fan with boulder scree along western scarp.'
+    id: 'jezero',
+    name: 'Jezero Crater',
+    subTitle: 'HiRISE & Perseverance Delta Front',
+    coordinates: { lat: 18.38, lon: 77.58, formatted: '18.38° N, 77.58° E' },
+    defaultProduct: {
+      id: 'PIA24814',
+      title: "Jezero Crater's Kodiak and Scarps",
+      url: 'https://images-assets.nasa.gov/image/PIA24814/PIA24814~orig.jpg',
+      fileName: 'PIA24814_JEZERO_HIRISE_KODIAK.jpg',
+      scaleMPerPx: 0.25,
+      mission: 'Mars Reconnaissance Orbiter (MRO)',
+      instrument: 'HiRISE (High Resolution Imaging Science Experiment)',
+      observationDate: '2021-10-07',
+      sourceCredit: 'NASA / JPL-Caltech / University of Arizona / USGS',
+      desc: 'Authentic HiRISE orbital observation of Jezero Crater western delta fan remnant (Kodiak) and delta scarps.'
+    }
   },
   {
-    id: 'belva-rim',
-    name: 'HiRISE Belva Crater Rim & Slump',
-    url: '/assets/aistudio/vis_2_9c24860c.png',
-    fileName: 'ESP_018859_2270_HIRISE_BELVA_RIM.png',
-    scaleMPerPx: 0.25,
-    provenance: 'NASA PDS Geosciences HiRISE DTM',
-    desc: 'Impact crater rim displaying high-gradient slopes (>18°) and boulder fields.'
+    id: 'arcadia',
+    name: 'Arcadia Planitia',
+    subTitle: 'HiRISE Sheet Ice & Polygonal Ground',
+    coordinates: { lat: 39.12, lon: 189.65, formatted: '39.12° N, 189.65° E' },
+    defaultProduct: {
+      id: 'PIA26321',
+      title: 'HiRISE Arcadia Planitia Polygonal Ground & Sheet Ice Swath',
+      url: 'https://images-assets.nasa.gov/image/PIA26321/PIA26321~orig.jpg',
+      fileName: 'PIA26321_HIRISE_ARCADIA_ICE.jpg',
+      scaleMPerPx: 0.25,
+      mission: 'Mars Reconnaissance Orbiter (MRO)',
+      instrument: 'HiRISE (High Resolution Imaging Science Experiment)',
+      observationDate: '2024-03-26',
+      sourceCredit: 'NASA / JPL-Caltech / University of Arizona',
+      desc: 'Calibrated HiRISE orbital frame showing thermal contraction polygons and shallow subsurface sheet ice in Arcadia Planitia.'
+    }
   },
   {
-    id: 'gale-dunes',
-    name: 'Gale Crater Sand Megaripple Field',
-    url: '/assets/aistudio/vis_3_e33f9dca.png',
-    fileName: 'ESP_037145_1755_HIRISE_GALE_DUNES.png',
-    scaleMPerPx: 0.25,
-    provenance: 'NASA MSL Curiosity Operations / HiRISE',
-    desc: 'Loose unconsolidated regolith drifts with severe wheel sinkage risks.'
+    id: 'gale',
+    name: 'Gale Crater',
+    subTitle: 'Curiosity Rover / Mount Sharp Slopes',
+    coordinates: { lat: -5.37, lon: 137.86, formatted: '5.37° S, 137.86° E' },
+    defaultProduct: {
+      id: 'PIA19068',
+      title: 'Inclined Martian Sandstone Beds Near Kimberley in Gale Crater',
+      url: 'https://images-assets.nasa.gov/image/PIA19068/PIA19068~orig.jpg',
+      fileName: 'PIA19068_MSL_GALE_KIMBERLEY.jpg',
+      scaleMPerPx: null,
+      mission: 'MSL (Curiosity Rover)',
+      instrument: 'Mastcam (Mast Camera)',
+      observationDate: '2014-12-08',
+      sourceCredit: 'NASA / JPL-Caltech / MSSS',
+      desc: 'Authentic Curiosity Mastcam surface photograph of inclined sandstone beds from small deltas inside Gale Crater.'
+    }
   },
   {
-    id: 'arcadia-plains',
-    name: 'Arcadia Planitia Smooth Plains',
-    url: '/assets/aistudio/vis_0_f6a9756b.png',
-    fileName: 'PSP_001840_2190_HIRISE_ARCADIA_ICE.png',
-    scaleMPerPx: 0.25,
-    provenance: 'NASA MRO SHARAD / HiRISE Sheet Ice Unit',
-    desc: 'Low-slope compacted plains with shallow subsurface sheet ice.'
+    id: 'belva',
+    name: 'Belva Crater',
+    subTitle: 'Perseverance Belva Rim & Slump Escarpment',
+    coordinates: { lat: 18.47, lon: 77.38, formatted: '18.47° N, 77.38° E' },
+    defaultProduct: {
+      id: 'PIA25889',
+      title: 'Perseverance Mastcam-Z View at Belva Crater Rim & Slump',
+      url: 'https://images-assets.nasa.gov/image/PIA25889/PIA25889~orig.jpg',
+      fileName: 'PIA25889_BELVA_CRATER_MOSAIC.jpg',
+      scaleMPerPx: null,
+      mission: 'Mars 2020 (Perseverance Rover)',
+      instrument: 'Mastcam-Z Stereo Camera',
+      observationDate: '2023-05-18',
+      sourceCredit: 'NASA / JPL-Caltech / ASU / MSSS',
+      desc: '152-image mosaic of Belva Crater within Jezero Crater, showing steep crater wall stratigraphy, dipping beds, and boulder scree.'
+    }
   }
 ];
+
+interface PlacedLabel {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  anchorX: number;
+  anchorY: number;
+  needsLeaderLine: boolean;
+}
+
+/**
+ * Collision-aware obstacle label placement algorithm.
+ * Positions labels without overlap, keeping all text badges within image bounds.
+ */
+function computeCollisionFreeLabels(
+  obstacles: DetectedTerrainObstacle[],
+  viewWidth: number,
+  viewHeight: number
+): Map<string, PlacedLabel> {
+  const labelMap = new Map<string, PlacedLabel>();
+  const occupiedBoxes: Array<{ x: number; y: number; width: number; height: number }> = [];
+
+  const sorted = [...obstacles].sort((a, b) => b.confidence - a.confidence);
+
+  for (const obs of sorted) {
+    const labelText = `${obs.label} (${Math.round(obs.confidence * 100)}%)`;
+    const labelW = Math.min(viewWidth * 0.35, Math.max(54, labelText.length * 5.4 + 10));
+    const labelH = 13;
+
+    const anchorX = obs.pixelX + obs.pixelWidth / 2;
+    const anchorY = obs.pixelY;
+
+    // Candidate positions: above, below, right, left, offset-above, offset-below
+    const candidates = [
+      { x: obs.pixelX, y: obs.pixelY - labelH - 3 },
+      { x: obs.pixelX, y: obs.pixelY + obs.pixelHeight + 4 },
+      { x: obs.pixelX + obs.pixelWidth + 4, y: obs.pixelY },
+      { x: obs.pixelX - labelW - 4, y: obs.pixelY },
+      { x: obs.pixelX + (obs.pixelWidth - labelW) / 2, y: obs.pixelY - labelH - 3 },
+      { x: obs.pixelX + (obs.pixelWidth - labelW) / 2, y: obs.pixelY + obs.pixelHeight + 4 },
+      { x: obs.pixelX, y: obs.pixelY - labelH * 2 - 5 },
+      { x: obs.pixelX, y: obs.pixelY + obs.pixelHeight + labelH + 6 }
+    ];
+
+    let bestPos = candidates[0];
+    let minCollisions = 999;
+    let foundFree = false;
+
+    for (const cand of candidates) {
+      const clampedX = Math.max(2, Math.min(viewWidth - labelW - 2, cand.x));
+      const clampedY = Math.max(2, Math.min(viewHeight - labelH - 2, cand.y));
+
+      let collisions = 0;
+      for (const placed of occupiedBoxes) {
+        const overlap = !(
+          clampedX + labelW + 2 < placed.x ||
+          clampedX > placed.x + placed.width + 2 ||
+          clampedY + labelH + 2 < placed.y ||
+          clampedY > placed.y + placed.height + 2
+        );
+        if (overlap) collisions++;
+      }
+
+      if (collisions === 0) {
+        bestPos = { x: clampedX, y: clampedY };
+        foundFree = true;
+        break;
+      }
+
+      if (collisions < minCollisions) {
+        minCollisions = collisions;
+        bestPos = { x: clampedX, y: clampedY };
+      }
+    }
+
+    if (!foundFree) {
+      let offset = 0;
+      while (offset < 70) {
+        offset += labelH + 3;
+        const testY = Math.min(viewHeight - labelH - 2, obs.pixelY + obs.pixelHeight + offset);
+        const testX = Math.max(2, Math.min(viewWidth - labelW - 2, obs.pixelX));
+        const hasHit = occupiedBoxes.some(b =>
+          !(testX + labelW + 2 < b.x || testX > b.x + b.width + 2 || testY + labelH + 2 < b.y || testY > b.y + b.height + 2)
+        );
+        if (!hasHit) {
+          bestPos = { x: testX, y: testY };
+          break;
+        }
+      }
+    }
+
+    const finalX = Math.max(2, Math.min(viewWidth - labelW - 2, bestPos.x));
+    const finalY = Math.max(2, Math.min(viewHeight - labelH - 2, bestPos.y));
+
+    const distFromAnchor = Math.hypot(
+      (finalX + labelW / 2) - anchorX,
+      (finalY + labelH / 2) - anchorY
+    );
+
+    const placedItem: PlacedLabel = {
+      x: finalX,
+      y: finalY,
+      width: labelW,
+      height: labelH,
+      anchorX,
+      anchorY,
+      needsLeaderLine: distFromAnchor > 22
+    };
+
+    occupiedBoxes.push({ x: finalX, y: finalY, width: labelW, height: labelH });
+    labelMap.set(obs.id, placedItem);
+  }
+
+  return labelMap;
+}
 
 export default function ScenarioTestingLab() {
   const { settings, sharedSession } = useWorkspace();
   const { analysis } = useTerrainAnalysis();
 
-  // Active Terrain Image State
-  const [currentImageSrc, setCurrentImageSrc] = useState<string>(SAMPLE_MARS_DATASETS[0].url);
-  const [currentFileName, setCurrentFileName] = useState<string>(SAMPLE_MARS_DATASETS[0].fileName);
+  // Active Terrain Image & Region State
+  const [selectedRegionId, setSelectedRegionId] = useState<string>('jezero');
+  const [currentImageSrc, setCurrentImageSrc] = useState<string>(CANDIDATE_REGIONS[0].defaultProduct.url);
+  const [currentFileName, setCurrentFileName] = useState<string>(CANDIDATE_REGIONS[0].defaultProduct.fileName);
+  const [regionError, setRegionError] = useState<string | null>(null);
+  const [isLoadingRegion, setIsLoadingRegion] = useState<boolean>(false);
+  const [regionMetadata, setRegionMetadata] = useState<{
+    regionName: string;
+    coordinates: { lat: number; lon: number; formatted: string };
+    mission: string;
+    instrument: string;
+    productId: string;
+    observationDate: string;
+    sourceCredit: string;
+    resolution: string;
+    desc?: string;
+  }>({
+    regionName: CANDIDATE_REGIONS[0].name,
+    coordinates: CANDIDATE_REGIONS[0].coordinates,
+    mission: CANDIDATE_REGIONS[0].defaultProduct.mission,
+    instrument: CANDIDATE_REGIONS[0].defaultProduct.instrument,
+    productId: CANDIDATE_REGIONS[0].defaultProduct.id,
+    observationDate: CANDIDATE_REGIONS[0].defaultProduct.observationDate,
+    sourceCredit: CANDIDATE_REGIONS[0].defaultProduct.sourceCredit,
+    resolution: CANDIDATE_REGIONS[0].defaultProduct.scaleMPerPx ? `${CANDIDATE_REGIONS[0].defaultProduct.scaleMPerPx} m/pixel (HiRISE orbital scale)` : 'Not available',
+    desc: CANDIDATE_REGIONS[0].defaultProduct.desc
+  });
   const [isProcessingImage, setIsProcessingImage] = useState<boolean>(false);
   const [validationResult, setValidationResult] = useState<UploadedImageValidation | null>(null);
   const [featureExtraction, setFeatureExtraction] = useState<TerrainFeatureExtractionResult | null>(null);
 
-  // Hidden Image Element Ref for Canvas Pixel Extraction
+  // Dynamic Viewport Dimensions
+  const viewWidth = validationResult?.width || 1585;
+  const viewHeight = validationResult?.height || 992;
+
+  // Request cancellation sequence ref for race-free region switching
+  const requestSeqRef = useRef<number>(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Image Element Ref for Canvas Pixel Extraction
   const imageRef = useRef<HTMLImageElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Overlay Toggles on Feature Map
-  const [showObstacleBoxes, setShowObstacleBoxes] = useState<boolean>(true);
-  const [showRouteOverlay, setShowRouteOverlay] = useState<boolean>(true);
+  // User Analysis & Layer Visibility Controls (Default to Clean, No Clutter)
+  const [isAnalysisRun, setIsAnalysisRun] = useState<boolean>(false);
+  const [isRouteGenerated, setIsRouteGenerated] = useState<boolean>(false);
+  const [showObstacleBoxes, setShowObstacleBoxes] = useState<boolean>(false);
+  const [showRouteOverlay, setShowRouteOverlay] = useState<boolean>(false);
+  const [showLabels, setShowLabels] = useState<boolean>(false);
+  const [zoom, setZoom] = useState<number>(1);
   const [selectedObstacle, setSelectedObstacle] = useState<DetectedTerrainObstacle | null>(null);
 
   // Scenario Selection & Execution State
@@ -125,51 +337,96 @@ export default function ScenarioTestingLab() {
   const [showReportModal, setShowReportModal] = useState<boolean>(false);
   const [activeReportRun, setActiveReportRun] = useState<RunAllScenariosResult | null>(null);
 
-  // Active Route from MarsNav Navigation or Analysis
+  // Collision-free obstacle label positions
+  const placedLabelsMap = useMemo(() => {
+    if (!featureExtraction?.detectedObstacles) return new Map<string, PlacedLabel>();
+    return computeCollisionFreeLabels(featureExtraction.detectedObstacles, viewWidth, viewHeight);
+  }, [featureExtraction?.detectedObstacles, viewWidth, viewHeight]);
+
+  // Active Route: Dynamically generated via A* pathfinder using actual terrain bounds and detected obstacles
   const activeRoute = useMemo(() => {
-    if (sharedSession?.activeSyncRoute && sharedSession.activeSyncRoute.waypoints?.length > 1) {
-      return {
-        id: sharedSession.activeSyncRoute.routeId,
-        name: sharedSession.activeSyncRoute.strategyName || sharedSession.activeSyncRoute.name,
-        waypoints: sharedSession.activeSyncRoute.waypoints,
-        totalDistanceM: sharedSession.activeSyncRoute.totalDistanceM || 240,
-        totalCost: sharedSession.activeSyncRoute.totalCost || 0.28
-      };
-    }
-    if (analysis?.routes && analysis.routes.length > 0) {
-      const r = analysis.routes[analysis.selectedRouteIndex || 0];
-      return {
-        id: r.id,
-        name: r.name,
-        waypoints: r.waypoints,
-        totalDistanceM: r.totalLengthM,
-        totalCost: r.totalCost
-      };
-    }
-    // Default Jezero Delta traverse vector connecting nominal start and destination
-    return {
-      id: 'default-vector-alpha',
-      name: 'Direct Alpha Vector (Jezero Delta)',
-      waypoints: [
-        { x: 35, y: 220 },
-        { x: 55, y: 195 },
-        { x: 80, y: 170 },
-        { x: 110, y: 145 },
-        { x: 140, y: 120 },
-        { x: 175, y: 90 },
-        { x: 210, y: 55 },
-        { x: 225, y: 40 }
-      ],
-      totalDistanceM: 485.0,
-      totalCost: 0.32
+    const dimW = viewWidth;
+    const dimH = viewHeight;
+
+    const startPt = { x: Math.round(dimW * 0.08), y: Math.round(dimH * 0.82) };
+    const goalPt = { x: Math.round(dimW * 0.92), y: Math.round(dimH * 0.18) };
+
+    const gridW = 64;
+    const gridH = Math.max(20, Math.min(64, Math.round(64 * (dimH / Math.max(1, dimW)))));
+    const astar = new AStarGrid(gridW, gridH);
+
+    const startG = {
+      x: Math.min(gridW - 1, Math.max(0, Math.round(startPt.x * (gridW / dimW)))),
+      y: Math.min(gridH - 1, Math.max(0, Math.round(startPt.y * (gridH / dimH))))
     };
-  }, [sharedSession?.activeSyncRoute?.routeId, sharedSession?.activeSyncRoute?.waypoints?.length, analysis?.routes, analysis?.selectedRouteIndex]);
+    const goalG = {
+      x: Math.min(gridW - 1, Math.max(0, Math.round(goalPt.x * (gridW / dimW)))),
+      y: Math.min(gridH - 1, Math.max(0, Math.round(goalPt.y * (gridH / dimH))))
+    };
+
+    // Mark detected obstacles in A* grid if hazard detection has been executed
+    if (featureExtraction?.detectedObstacles && featureExtraction.detectedObstacles.length > 0) {
+      for (const obs of featureExtraction.detectedObstacles) {
+        const minGx = Math.max(0, Math.floor(obs.pixelX * (gridW / dimW)));
+        const maxGx = Math.min(gridW - 1, Math.ceil((obs.pixelX + obs.pixelWidth) * (gridW / dimW)));
+        const minGy = Math.max(0, Math.floor(obs.pixelY * (gridH / dimH)));
+        const maxGy = Math.min(gridH - 1, Math.ceil((obs.pixelY + obs.pixelHeight) * (gridH / dimH)));
+
+        for (let gy = minGy; gy <= maxGy; gy++) {
+          for (let gx = minGx; gx <= maxGx; gx++) {
+            if ((gx === startG.x && gy === startG.y) || (gx === goalG.x && gy === goalG.y)) continue;
+            astar.setObstacle(gx, gy, 3);
+          }
+        }
+      }
+    }
+
+    const astarRes = astar.findPath(startG, goalG);
+    const rawPath = (astarRes.path && astarRes.path.length >= 2) ? astarRes.path : [startG, goalG];
+
+    let waypoints = rawPath.map(p => ({
+      x: Math.round(p.x * (dimW / gridW)),
+      y: Math.round(p.y * (dimH / gridH))
+    }));
+
+    if (waypoints.length > 0) {
+      waypoints[0] = startPt;
+      waypoints[waypoints.length - 1] = goalPt;
+    }
+
+    const pixelLength = calculatePathLength(waypoints);
+    const hasScale = validationResult?.spatialResolutionMPerPx !== null && (validationResult?.spatialResolutionMPerPx || 0) > 0;
+    const scale = hasScale ? validationResult!.spatialResolutionMPerPx! : null;
+    const totalDistanceM = scale ? parseFloat((pixelLength * scale).toFixed(1)) : 0;
+    const formattedDistance = scale
+      ? `${totalDistanceM} m`
+      : `${Math.round(pixelLength)} px (Scale uncalibrated)`;
+
+    const intersectingObstacles = featureExtraction?.detectedObstacles?.filter(o => o.intersectsPlannedRoute)?.length || 0;
+
+    return {
+      id: `${selectedRegionId}-nominal-route`,
+      name: `${regionMetadata.regionName} Nominal A* Route`,
+      waypoints,
+      pixelLength,
+      totalDistanceM,
+      formattedDistance,
+      hasScale,
+      totalCost: astarRes.totalCost ? parseFloat(astarRes.totalCost.toFixed(2)) : 0.25,
+      isFeasible: intersectingObstacles === 0,
+      feasibilityStatus: intersectingObstacles === 0
+        ? 'Feasible — Nominal obstacle clearance verified'
+        : `Caution — ${intersectingObstacles} obstacle intersection(s)`
+    };
+  }, [selectedRegionId, regionMetadata.regionName, viewWidth, viewHeight, featureExtraction?.detectedObstacles, validationResult?.spatialResolutionMPerPx]);
 
   const lastProcessedKeyRef = useRef<string>('');
 
-  // Load and Analyze Image whenever currentImageSrc changes
+  // Load and Validate Image whenever currentImageSrc changes (No auto-analysis or clutter)
   const processImage = useCallback((imgEl: HTMLImageElement, fileMeta?: Partial<UploadedImageValidation>, force = false) => {
-    const key = fileMeta?.fileName ? `${fileMeta.fileName}_${imgEl.naturalWidth}x${imgEl.naturalHeight}` : `${imgEl.src}_${imgEl.naturalWidth}x${imgEl.naturalHeight}`;
+    const width = imgEl.naturalWidth || fileMeta?.width || 1585;
+    const height = imgEl.naturalHeight || fileMeta?.height || 992;
+    const key = fileMeta?.fileName ? `${fileMeta.fileName}_${width}x${height}` : `${imgEl.src}_${width}x${height}`;
     if (!force && lastProcessedKeyRef.current === key) {
       return;
     }
@@ -177,36 +434,37 @@ export default function ScenarioTestingLab() {
 
     setIsProcessingImage(true);
     try {
-      // Step 1: Validation
+      const isOrbital = fileMeta?.spatialResolutionMPerPx !== null && fileMeta?.spatialResolutionMPerPx !== undefined;
       const validation: UploadedImageValidation = {
         fileName: fileMeta?.fileName || currentFileName,
-        format: fileMeta?.format || 'PNG',
-        fileSizeBytes: fileMeta?.fileSizeBytes || 485200,
-        fileSizeFormatted: fileMeta?.fileSizeFormatted || '474 KB',
-        width: imgEl.naturalWidth || 256,
-        height: imgEl.naturalHeight || 256,
-        aspectRatio: `${((imgEl.naturalWidth || 256) / Math.max(1, imgEl.naturalHeight || 256)).toFixed(2)}:1`,
-        hasSpatialMetadata: fileMeta?.hasSpatialMetadata ?? true,
-        spatialResolutionMPerPx: fileMeta?.spatialResolutionMPerPx ?? 0.25,
-        spatialReferenceSystem: fileMeta?.spatialReferenceSystem || 'Mars 2000 Sphere (HiRISE Footprint)',
-        classification: fileMeta?.classification || 'GEOREFERENCED_ORBITAL',
-        classificationDescription: fileMeta?.classificationDescription || 'Georeferenced Orbital Orthoimage (Calibrated Scale)',
+        format: fileMeta?.format || 'JPEG',
+        fileSizeBytes: fileMeta?.fileSizeBytes || 0,
+        fileSizeFormatted: fileMeta?.fileSizeFormatted || (fileMeta?.fileSizeBytes ? `${(fileMeta.fileSizeBytes / (1024 * 1024)).toFixed(2)} MB` : 'Not available'),
+        width,
+        height,
+        aspectRatio: `${(width / Math.max(1, height)).toFixed(2)}:1`,
+        hasSpatialMetadata: fileMeta?.hasSpatialMetadata ?? isOrbital,
+        spatialResolutionMPerPx: fileMeta?.spatialResolutionMPerPx ?? null,
+        spatialReferenceSystem: fileMeta?.spatialReferenceSystem || (isOrbital ? 'Mars 2000 Orbital Projection' : 'Not available (Pixel coordinates)'),
+        classification: fileMeta?.classification || (isOrbital ? 'GEOREFERENCED_ORBITAL' : 'OPTICAL_PHOTO'),
+        classificationDescription: fileMeta?.classificationDescription || (isOrbital ? 'Georeferenced Orbital Orthoimage (Calibrated Scale)' : 'Standard Optical Photograph (Reflectance Image)'),
         canDeriveNativeElevation: fileMeta?.canDeriveNativeElevation ?? false,
         validationNotes: fileMeta?.validationNotes || [
-          'Calibrated ground sampling scale: 0.25 m/pixel.',
-          'Georeferenced HiRISE orbital product verified.'
+          isOrbital ? `Calibrated ground sampling scale: ${fileMeta?.spatialResolutionMPerPx} m/pixel.` : 'Ground scale: Not available (Surface optical perspective).',
+          isOrbital ? 'Georeferenced orbital product verified.' : 'Standard 2D optical reflectance photography. Cannot derive native topographic elevation without auxiliary DEM.'
         ]
       };
       setValidationResult(validation);
 
-      // Step 2: Computer Vision Extraction
-      const features = analyzeImageTerrainFeatures(
-        imgEl,
-        validation,
-        activeRoute.waypoints,
-        { width: imgEl.naturalWidth || 256, height: imgEl.naturalHeight || 256 }
-      );
-      setFeatureExtraction(features);
+      // Do NOT run automatic obstacle detection or annotations
+      setFeatureExtraction(null);
+      setIsAnalysisRun(false);
+      setIsRouteGenerated(false);
+      setShowObstacleBoxes(false);
+      setShowRouteOverlay(false);
+      setShowLabels(false);
+      setSelectedObstacle(null);
+      setZoom(1);
 
       // Automatically reset scenario results on new image load
       setScenarioResults({
@@ -220,14 +478,237 @@ export default function ScenarioTestingLab() {
     } finally {
       setIsProcessingImage(false);
     }
-  }, [currentFileName, activeRoute.waypoints]);
+  }, [currentFileName]);
+
+  // Explicit User Action: Run Computer Vision Feature Extraction
+  const handleRunAnalysis = useCallback(() => {
+    if (!imageRef.current || !validationResult) return;
+    setIsProcessingImage(true);
+    try {
+      const features = analyzeImageTerrainFeatures(
+        imageRef.current,
+        validationResult,
+        activeRoute.waypoints,
+        { width: viewWidth, height: viewHeight }
+      );
+      setFeatureExtraction(features);
+      setIsAnalysisRun(true);
+      setShowObstacleBoxes(true);
+    } catch (err) {
+      console.error('Failed to analyze terrain features:', err);
+    } finally {
+      setIsProcessingImage(false);
+    }
+  }, [validationResult, activeRoute.waypoints, viewWidth, viewHeight]);
+
+  // Explicit User Action: Generate Nominal Navigation Vector
+  const handleGenerateRoute = useCallback(() => {
+    setIsRouteGenerated(true);
+    setShowRouteOverlay(true);
+  }, []);
+
+  // Ensure features exist when user directly triggers a scenario rehearsal
+  const ensureFeatures = useCallback((): TerrainFeatureExtractionResult | null => {
+    if (featureExtraction) return featureExtraction;
+    if (!imageRef.current || !validationResult) return null;
+    const features = analyzeImageTerrainFeatures(
+      imageRef.current,
+      validationResult,
+      activeRoute.waypoints,
+      { width: viewWidth, height: viewHeight }
+    );
+    setFeatureExtraction(features);
+    setIsAnalysisRun(true);
+    setIsRouteGenerated(true);
+    setShowObstacleBoxes(true);
+    setShowRouteOverlay(true);
+    return features;
+  }, [featureExtraction, validationResult, activeRoute.waypoints, viewWidth, viewHeight]);
+
+  // Helper to load and process authentic NASA product
+  const applyNasaProduct = useCallback((
+    seq: number,
+    imageUrl: string,
+    fileName: string,
+    meta: {
+      regionName: string;
+      coordinates: { lat: number; lon: number; formatted: string };
+      mission: string;
+      instrument: string;
+      productId: string;
+      observationDate: string;
+      sourceCredit: string;
+      resolution: string;
+      desc?: string;
+    },
+    scaleMPerPx: number | null,
+    description: string
+  ) => {
+    // Drop execution if user selected another region
+    if (requestSeqRef.current !== seq) return;
+
+    setCurrentFileName(fileName);
+    setCurrentImageSrc(imageUrl);
+    setRegionMetadata(meta);
+    setRegionError(null);
+
+    setIsProcessingImage(true);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      if (requestSeqRef.current !== seq) return;
+      const isOrbital = scaleMPerPx !== null && scaleMPerPx > 0;
+      processImage(img, {
+        fileName,
+        format: 'JPEG',
+        width: img.naturalWidth || 1585,
+        height: img.naturalHeight || 992,
+        aspectRatio: `${((img.naturalWidth || 1585) / Math.max(1, img.naturalHeight || 992)).toFixed(2)}:1`,
+        hasSpatialMetadata: isOrbital,
+        spatialResolutionMPerPx: scaleMPerPx,
+        spatialReferenceSystem: isOrbital ? `Mars 2000 Orbital Projection (${meta.regionName})` : 'Not available (Pixel coordinates)',
+        classification: isOrbital ? 'GEOREFERENCED_ORBITAL' : 'OPTICAL_PHOTO',
+        classificationDescription: isOrbital ? `Calibrated Orbital Imagery (${meta.instrument})` : `Standard Optical Photograph (${meta.instrument})`,
+        canDeriveNativeElevation: false,
+        validationNotes: isOrbital ? [
+          `Ground scale: ${scaleMPerPx} m/pixel (calibrated orbital).`,
+          `Verified NASA observation product: ${meta.productId} (${meta.regionName}).`,
+          `Mission: ${meta.mission} | Instrument: ${meta.instrument}.`,
+          description
+        ] : [
+          'Ground scale: Not available (Surface optical perspective).',
+          `Verified NASA observation product: ${meta.productId} (${meta.regionName}).`,
+          `Mission: ${meta.mission} | Instrument: ${meta.instrument}.`,
+          'Standard 2D optical reflectance photography. Cannot derive native topographic elevation without auxiliary DEM.',
+          description
+        ]
+      }, true);
+      setIsLoadingRegion(false);
+    };
+    img.onerror = () => {
+      if (requestSeqRef.current !== seq) return;
+      setIsProcessingImage(false);
+      setIsLoadingRegion(false);
+      setRegionError('Failed to load verified NASA image asset. Please click Retry.');
+    };
+    img.src = imageUrl;
+  }, [processImage]);
+
+  // Handle switching between candidate regions with live NASA backend matching
+  const handleSelectRegion = useCallback(async (region: CandidateRegion) => {
+    const currentSeq = ++requestSeqRef.current;
+    setSelectedRegionId(region.id);
+
+    // Cancel any previous in-flight HTTP request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    // Immediately clear previous region's image and analysis context while fetching
+    setCurrentImageSrc('');
+    setCurrentFileName('');
+    setRegionError(null);
+    setIsLoadingRegion(true);
+    setValidationResult(null);
+    setFeatureExtraction(null);
+    setIsAnalysisRun(false);
+    setIsRouteGenerated(false);
+    setShowObstacleBoxes(false);
+    setShowRouteOverlay(false);
+    setShowLabels(false);
+    setSelectedObstacle(null);
+    setZoom(1);
+    setScenarioResults({
+      obstacle: null,
+      slope: null,
+      telemetry: null,
+      budget: null
+    });
+
+    try {
+      // 1. Fetch NASA imagery matching that region
+      const { data, error, isHtml, status } = await apiGet<any>(`/api/nasa/regions/${region.id}/gallery`, {
+        signal: controller.signal
+      });
+
+      // Guard against race conditions: if another region was selected while this was loading, discard
+      if (requestSeqRef.current !== currentSeq) return;
+
+      if (status === 404 || error || isHtml || !data?.images || data.images.length === 0) {
+        if (status === 404 && !region.defaultProduct) {
+          setRegionError('No verified NASA imagery available for this region.');
+          setIsLoadingRegion(false);
+          return;
+        }
+        // Use verified default product for region via proxy
+        const fallback = region.defaultProduct;
+        const proxyFallbackUrl = `/api/nasa/proxy-image?url=${encodeURIComponent(fallback.url)}`;
+        applyNasaProduct(currentSeq, proxyFallbackUrl, fallback.fileName, {
+          regionName: region.name,
+          coordinates: region.coordinates,
+          mission: fallback.mission,
+          instrument: fallback.instrument,
+          productId: fallback.id,
+          observationDate: fallback.observationDate,
+          sourceCredit: fallback.sourceCredit,
+          resolution: fallback.scaleMPerPx ? `${fallback.scaleMPerPx} m/pixel` : 'Not available',
+          desc: fallback.desc
+        }, fallback.scaleMPerPx, fallback.desc);
+        return;
+      }
+
+      // 2. Select the first verified image from NASA response
+      const firstImage = data.images[0];
+      const targetUrl = firstImage.assetUrl || firstImage.thumbnailUrl;
+      const safeUrl = targetUrl.startsWith('/') || targetUrl.startsWith('data:')
+        ? targetUrl
+        : `/api/nasa/proxy-image?url=${encodeURIComponent(targetUrl)}`;
+
+      const scale = firstImage.scaleMPerPx !== undefined ? firstImage.scaleMPerPx : region.defaultProduct.scaleMPerPx;
+
+      applyNasaProduct(currentSeq, safeUrl, `${firstImage.id || region.id}_NASA.jpg`, {
+        regionName: data.regionName || region.name,
+        coordinates: data.coordinates || region.coordinates,
+        mission: firstImage.mission || region.defaultProduct.mission,
+        instrument: firstImage.instrument || region.defaultProduct.instrument,
+        productId: firstImage.productId || firstImage.id || region.defaultProduct.id,
+        observationDate: firstImage.observationDate || region.defaultProduct.observationDate,
+        sourceCredit: firstImage.sourceCredit || region.defaultProduct.sourceCredit,
+        resolution: firstImage.resolution || (scale ? `${scale} m/pixel` : 'Not available'),
+        desc: firstImage.description || region.defaultProduct.desc
+      }, scale, firstImage.description || region.defaultProduct.desc);
+
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || requestSeqRef.current !== currentSeq) return;
+      console.warn('Regional NASA imagery fetch error, loading certified fallback:', err);
+      const matched = CANDIDATE_REGIONS.find(r => r.id === region.id);
+      if (matched && matched.defaultProduct) {
+        const fallback = matched.defaultProduct;
+        const proxyFallbackUrl = `/api/nasa/proxy-image?url=${encodeURIComponent(fallback.url)}`;
+        applyNasaProduct(currentSeq, proxyFallbackUrl, fallback.fileName, {
+          regionName: matched.name,
+          coordinates: matched.coordinates,
+          mission: fallback.mission,
+          instrument: fallback.instrument,
+          productId: fallback.id,
+          observationDate: fallback.observationDate,
+          sourceCredit: fallback.sourceCredit,
+          resolution: fallback.scaleMPerPx ? `${fallback.scaleMPerPx} m/pixel` : 'Not available',
+          desc: fallback.desc
+        }, fallback.scaleMPerPx, fallback.desc);
+      } else {
+        setRegionError('No verified NASA imagery available for this region.');
+        setIsLoadingRegion(false);
+      }
+    }
+  }, [applyNasaProduct]);
 
   // Initial load
   useEffect(() => {
-    if (imageRef.current && imageRef.current.complete && imageRef.current.naturalWidth > 0) {
-      processImage(imageRef.current);
-    }
-  }, [currentImageSrc, processImage]);
+    handleSelectRegion(CANDIDATE_REGIONS[0]);
+  }, [handleSelectRegion]);
 
   // Handle local user file upload (drag & drop or picker)
   const handleFileUpload = async (file: File) => {
@@ -253,34 +734,35 @@ export default function ScenarioTestingLab() {
 
   // Run Individual Scenario Test
   const handleRunSingleScenario = (key: 'obstacle' | 'slope' | 'telemetry' | 'budget') => {
-    if (!featureExtraction) return;
+    const features = ensureFeatures();
+    if (!features) return;
     setActiveRunningScenario(key);
 
     setTimeout(() => {
       let result: ScenarioResultData;
       switch (key) {
         case 'obstacle':
-          result = runScenario1BoulderObstacle(featureExtraction, activeRoute, {
+          result = runScenario1BoulderObstacle(features, activeRoute, {
             widthM: 2.7,
             clearanceMarginM: 0.6
           });
           break;
         case 'slope':
           result = runScenario2SlopeAndSlip(
-            featureExtraction,
+            features,
             activeRoute,
             { maxSlopeLimitDeg, maxAllowableSlip: 0.45 },
             {
-              hasElevation: featureExtraction.validation.canDeriveNativeElevation || true,
+              hasElevation: features.validation.canDeriveNativeElevation,
               datasetName: currentFileName
             }
           );
           break;
         case 'telemetry':
-          result = runScenario3TelemetryDrop(featureExtraction, activeRoute, true, false);
+          result = runScenario3TelemetryDrop(features, activeRoute, true, false);
           break;
         case 'budget':
-          result = runScenario4BudgetReduction(featureExtraction, activeRoute, timeBudgetReductionPct);
+          result = runScenario4BudgetReduction(features, activeRoute, timeBudgetReductionPct);
           break;
       }
 
@@ -291,12 +773,13 @@ export default function ScenarioTestingLab() {
 
   // RUN ALL SCENARIOS (MANDATORY REQUIREMENT)
   const handleRunAllScenarios = async () => {
-    if (!featureExtraction) return;
+    const features = ensureFeatures();
+    if (!features) return;
     setIsRunningAll(true);
 
     try {
       const allResults = await executeAllFourScenarios(
-        featureExtraction,
+        features,
         activeRoute,
         {
           widthM: 2.7,
@@ -329,7 +812,14 @@ export default function ScenarioTestingLab() {
       telemetry: null,
       budget: null
     });
+    setFeatureExtraction(null);
+    setIsAnalysisRun(false);
+    setIsRouteGenerated(false);
+    setShowObstacleBoxes(false);
+    setShowRouteOverlay(false);
+    setShowLabels(false);
     setSelectedObstacle(null);
+    setZoom(1);
   };
 
   // Summary Metrics Calculation across all 4 scenarios
@@ -345,16 +835,6 @@ export default function ScenarioTestingLab() {
 
   return (
     <div className="space-y-6 font-sans text-xs pb-16">
-      {/* Hidden processing image */}
-      <img
-        ref={imageRef}
-        src={currentImageSrc}
-        alt="Processing Source"
-        className="hidden"
-        onLoad={(e) => {
-          processImage(e.currentTarget);
-        }}
-      />
 
       {/* Hidden File Input */}
       <input
@@ -540,22 +1020,27 @@ export default function ScenarioTestingLab() {
           </div>
         </div>
 
-        {/* Sample Dataset Quick Selector */}
-        <div className="space-y-1.5">
-          <span className="text-[10px] text-slate-400 font-mono uppercase tracking-wider block">
-            PRE-CALIBRATED NASA ORBITAL DATASETS (CLICK TO LOAD):
-          </span>
+        {/* Target Region Quick Selector */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-slate-400 font-mono uppercase tracking-wider block">
+              EXPLORATION TARGET REGIONS (AUTHENTIC NASA / JPL TERRAIN):
+            </span>
+            {isLoadingRegion && (
+              <span className="text-[10px] font-mono text-cyan-400 flex items-center gap-1.5 animate-pulse">
+                <Activity className="w-3 h-3 animate-spin" />
+                <span>Fetching NASA/JPL Observation...</span>
+              </span>
+            )}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-            {SAMPLE_MARS_DATASETS.map((ds) => {
-              const isSelected = currentFileName === ds.fileName;
+            {CANDIDATE_REGIONS.map((reg) => {
+              const isSelected = selectedRegionId === reg.id;
               return (
                 <button
-                  key={ds.id}
+                  key={reg.id}
                   type="button"
-                  onClick={() => {
-                    setCurrentFileName(ds.fileName);
-                    setCurrentImageSrc(ds.url);
-                  }}
+                  onClick={() => handleSelectRegion(reg)}
                   className={`p-3 rounded-2xl text-left border transition-all cursor-pointer ${
                     isSelected
                       ? 'bg-cyan-950/60 border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.3)] ring-1 ring-cyan-400'
@@ -563,248 +1048,590 @@ export default function ScenarioTestingLab() {
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-white font-bold text-xs truncate">{ds.name}</span>
+                    <span className="text-white font-bold text-xs truncate">{reg.name}</span>
                     {isSelected && <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />}
                   </div>
-                  <span className="text-[9px] text-cyan-300 font-mono block mt-0.5">{ds.scaleMPerPx} m/px &bull; {ds.provenance.split(' ')[0]}</span>
-                  <p className="text-[10px] text-slate-400 line-clamp-1 mt-1 font-sans">{ds.desc}</p>
+                  <span className="text-[9px] text-cyan-300 font-mono block mt-0.5">{reg.coordinates.formatted}</span>
+                  <p className="text-[10px] text-slate-400 line-clamp-1 mt-1 font-sans">{reg.subTitle}</p>
                 </button>
               );
             })}
           </div>
+          {regionError && (
+            <div className="p-3 rounded-xl bg-red-950/50 border border-red-500/40 text-red-200 text-xs font-mono flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <AlertOctagon className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{regionError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const reg = CANDIDATE_REGIONS.find(r => r.id === selectedRegionId) || CANDIDATE_REGIONS[0];
+                  handleSelectRegion(reg);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-red-800/40 hover:bg-red-800/60 text-white font-mono text-[10px] font-bold transition cursor-pointer shrink-0"
+              >
+                Retry
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Visualizer & Detected Features Split Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left: Interactive Canvas Viewport with Bounding Boxes */}
-          <div className="lg:col-span-7 space-y-3">
-            <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+          {/* Left: Interactive Terrain Viewport */}
+          <div className="lg:col-span-8 xl:col-span-8 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 font-mono">
               <span className="flex items-center gap-1.5 text-white font-bold">
                 <Eye className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Feature Segmentation Viewport</span>
+                <span>Primary Terrain Viewport</span>
+                <span className="text-[10px] text-slate-500 font-normal ml-1">
+                  ({viewWidth} × {viewHeight} px)
+                </span>
               </span>
 
-              {/* Viewport Toggles */}
-              <div className="flex items-center gap-2 text-[10px]">
-                <button
-                  type="button"
-                  onClick={() => setShowObstacleBoxes(prev => !prev)}
-                  className={`px-2 py-0.5 rounded cursor-pointer border ${showObstacleBoxes ? 'bg-orange-500/20 text-orange-300 border-orange-500/40' : 'bg-black/40 text-slate-400 border-white/10'}`}
-                >
-                  Obstacle Envelopes ({featureExtraction?.detectedObstacles.length || 0})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowRouteOverlay(prev => !prev)}
-                  className={`px-2 py-0.5 rounded cursor-pointer border ${showRouteOverlay ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' : 'bg-black/40 text-slate-400 border-white/10'}`}
-                >
-                  Planned Route
-                </button>
+              {/* Viewport Action Controls & Toggles */}
+              <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                {/* 1. Hazard Detection Trigger / Toggle */}
+                {!isAnalysisRun ? (
+                  <button
+                    type="button"
+                    onClick={handleRunAnalysis}
+                    disabled={isProcessingImage}
+                    className="px-2.5 py-1 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-mono font-bold transition flex items-center gap-1.5 shadow-md shadow-orange-600/30 cursor-pointer"
+                  >
+                    <Sparkles className="w-3 h-3 text-orange-200" />
+                    <span>Detect Hazards</span>
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowObstacleBoxes(prev => !prev)}
+                      className={`px-2 py-0.5 rounded cursor-pointer border font-mono transition ${
+                        showObstacleBoxes
+                          ? 'bg-orange-500/20 text-orange-300 border-orange-500/40'
+                          : 'bg-black/40 text-slate-400 border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      Obstacle Envelopes ({featureExtraction?.detectedObstacles.length || 0})
+                    </button>
+                    {showObstacleBoxes && (
+                      <button
+                        type="button"
+                        onClick={() => setShowLabels(prev => !prev)}
+                        className={`px-2 py-0.5 rounded cursor-pointer border font-mono transition ${
+                          showLabels
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                            : 'bg-black/40 text-slate-400 border-white/10 hover:border-white/20'
+                        }`}
+                        title="Toggle obstacle text labels"
+                      >
+                        Labels
+                      </button>
+                    )}
+                  </>
+                )}
+
+                {/* 2. Route Plotter Trigger / Toggle */}
+                {!isRouteGenerated ? (
+                  <button
+                    type="button"
+                    onClick={handleGenerateRoute}
+                    className="px-2.5 py-1 rounded-lg bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-500/40 font-mono transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Route className="w-3 h-3 text-cyan-300" />
+                    <span>Plot Nominal Route</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowRouteOverlay(prev => !prev)}
+                    className={`px-2 py-0.5 rounded cursor-pointer border font-mono transition ${
+                      showRouteOverlay
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                        : 'bg-black/40 text-slate-400 border-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    Planned Route
+                  </button>
+                )}
+
+                {/* 3. Zoom Controls */}
+                <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-lg p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setZoom(z => Math.max(1, +(z - 0.25).toFixed(2)))}
+                    disabled={zoom <= 1}
+                    className="p-1 rounded hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer"
+                    title="Zoom Out"
+                  >
+                    <ZoomOut className="w-3 h-3" />
+                  </button>
+                  <span className="text-[9px] font-mono text-slate-400 w-8 text-center select-none">
+                    {Math.round(zoom * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setZoom(z => Math.min(2.5, +(z + 0.25).toFixed(2)))}
+                    disabled={zoom >= 2.5}
+                    className="p-1 rounded hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer"
+                    title="Zoom In"
+                  >
+                    <ZoomIn className="w-3 h-3" />
+                  </button>
+                  {zoom > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setZoom(1)}
+                      className="text-[9px] font-mono text-cyan-300 hover:text-cyan-200 px-1 border-l border-white/10 cursor-pointer"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Canvas/Image Box */}
-            <div className="relative aspect-square w-full rounded-2xl overflow-hidden border border-white/15 bg-black flex items-center justify-center group shadow-2xl">
-              <img
-                src={currentImageSrc}
-                alt="Analyzed Terrain"
-                className="w-full h-full object-cover select-none"
-              />
+            {/* Canvas/Image Box: Responsive to image aspect ratio with zero empty black space */}
+            <div
+              className="relative w-full rounded-2xl overflow-hidden border border-white/15 bg-slate-950 flex items-center justify-center group shadow-2xl min-h-[300px]"
+              style={{ aspectRatio: `${viewWidth} / ${viewHeight}` }}
+            >
+              {isLoadingRegion ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center space-y-3 min-h-[300px]">
+                  <Activity className="w-10 h-10 text-cyan-400 animate-spin" />
+                  <span className="text-sm font-bold font-mono text-cyan-200">
+                    Fetching verified NASA/JPL imagery for {regionMetadata.regionName || 'selected region'}...
+                  </span>
+                  <p className="text-xs text-slate-400 max-w-md font-sans">
+                    Connecting to NASA Planetary Data System, HiRISE orbital archive, and rover image repositories.
+                  </p>
+                </div>
+              ) : regionError ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center space-y-3 min-h-[300px]">
+                  <AlertOctagon className="w-10 h-10 text-amber-400" />
+                  <span className="text-sm font-bold font-mono text-amber-200">
+                    Verified NASA Imagery Unavailable
+                  </span>
+                  <p className="text-xs text-slate-400 max-w-md font-sans">
+                    {regionError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const reg = CANDIDATE_REGIONS.find(r => r.id === selectedRegionId) || CANDIDATE_REGIONS[0];
+                      handleSelectRegion(reg);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold transition flex items-center gap-2 cursor-pointer shadow-lg"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Retry Fetch</span>
+                  </button>
+                </div>
+              ) : currentImageSrc ? (
+                <div
+                  className="w-full h-full relative overflow-hidden flex items-center justify-center transition-transform duration-150"
+                  style={{
+                    transform: `scale(${zoom})`,
+                    transformOrigin: 'center center'
+                  }}
+                >
+                  <img
+                    ref={imageRef}
+                    src={currentImageSrc}
+                    alt="Analyzed Terrain"
+                    crossOrigin="anonymous"
+                    className="w-full h-full object-contain select-none"
+                    onError={() => {
+                      setRegionError('Failed to load NASA image asset. Please click Retry.');
+                    }}
+                  />
 
-              {/* Overlay SVG for Detected Obstacles & Planned Route */}
-              <svg
-                viewBox="0 0 256 256"
-                className="absolute inset-0 w-full h-full pointer-events-none"
-              >
-                {/* 1. Planned Rover Route Polyline */}
-                {showRouteOverlay && activeRoute.waypoints.length > 1 && (
-                  <g>
-                    <polyline
-                      points={activeRoute.waypoints.map(p => `${p.x},${p.y}`).join(' ')}
-                      fill="none"
-                      stroke="#06b6d4"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeDasharray="4 2"
-                      opacity="0.9"
-                    />
-                    {/* Waypoint circles */}
-                    {activeRoute.waypoints.map((p, i) => (
-                      <circle
-                        key={i}
-                        cx={p.x}
-                        cy={p.y}
-                        r={i === 0 || i === activeRoute.waypoints.length - 1 ? 4 : 2}
-                        fill={i === 0 ? '#10b981' : i === activeRoute.waypoints.length - 1 ? '#ef4444' : '#06b6d4'}
-                        stroke="#ffffff"
-                        strokeWidth="0.8"
-                      />
-                    ))}
-                    {/* Start 'S' and Destination 'G' text */}
-                    <text x={activeRoute.waypoints[0].x} y={activeRoute.waypoints[0].y - 6} fill="#10b981" fontSize="10" fontWeight="bold" textAnchor="middle">S</text>
-                    <text x={activeRoute.waypoints[activeRoute.waypoints.length - 1].x} y={activeRoute.waypoints[activeRoute.waypoints.length - 1].y - 6} fill="#ef4444" fontSize="10" fontWeight="bold" textAnchor="middle">G</text>
-                  </g>
+                {/* Overlay SVG for Detected Obstacles & Planned Route (Only when explicitly active) */}
+                {(showRouteOverlay || showObstacleBoxes) && (
+                  <svg
+                    viewBox={`0 0 ${viewWidth} ${viewHeight}`}
+                    className="absolute inset-0 w-full h-full pointer-events-none"
+                  >
+                    {/* 1. Planned Rover Route Polyline */}
+                    {showRouteOverlay && isRouteGenerated && activeRoute.waypoints.length > 1 && (
+                      <g>
+                        <polyline
+                          points={activeRoute.waypoints.map(p => `${p.x},${p.y}`).join(' ')}
+                          fill="none"
+                          stroke="#06b6d4"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeDasharray="4 2"
+                          opacity="0.9"
+                        />
+                        {/* Waypoint circles */}
+                        {activeRoute.waypoints.map((p, i) => (
+                          <circle
+                            key={i}
+                            cx={p.x}
+                            cy={p.y}
+                            r={i === 0 || i === activeRoute.waypoints.length - 1 ? 5 : 2.5}
+                            fill={i === 0 ? '#10b981' : i === activeRoute.waypoints.length - 1 ? '#ef4444' : '#06b6d4'}
+                            stroke="#ffffff"
+                            strokeWidth="0.8"
+                          />
+                        ))}
+                        {/* Start 'S' marker badge */}
+                        <g>
+                          <rect
+                            x={activeRoute.waypoints[0].x - 8}
+                            y={Math.max(2, activeRoute.waypoints[0].y - 18)}
+                            width="16"
+                            height="12"
+                            fill="#060a18"
+                            stroke="#10b981"
+                            strokeWidth="1"
+                            rx="2"
+                          />
+                          <text
+                            x={activeRoute.waypoints[0].x}
+                            y={Math.max(11, activeRoute.waypoints[0].y - 9)}
+                            fill="#10b981"
+                            fontSize="8"
+                            fontFamily="monospace"
+                            fontWeight="bold"
+                            textAnchor="middle"
+                          >
+                            S
+                          </text>
+                        </g>
+                        {/* Destination 'G' marker badge */}
+                        <g>
+                          <rect
+                            x={activeRoute.waypoints[activeRoute.waypoints.length - 1].x - 8}
+                            y={Math.max(2, activeRoute.waypoints[activeRoute.waypoints.length - 1].y - 18)}
+                            width="16"
+                            height="12"
+                            fill="#060a18"
+                            stroke="#ef4444"
+                            strokeWidth="1"
+                            rx="2"
+                          />
+                          <text
+                            x={activeRoute.waypoints[activeRoute.waypoints.length - 1].x}
+                            y={Math.max(11, activeRoute.waypoints[activeRoute.waypoints.length - 1].y - 9)}
+                            fill="#ef4444"
+                            fontSize="8"
+                            fontFamily="monospace"
+                            fontWeight="bold"
+                            textAnchor="middle"
+                          >
+                            G
+                          </text>
+                        </g>
+                      </g>
+                    )}
+
+                    {/* 2. Detected Obstacles Bounding Boxes (Clean, non-cluttered) */}
+                    {showObstacleBoxes && featureExtraction?.detectedObstacles.map((obs) => {
+                      const isIntersecting = obs.intersectsPlannedRoute;
+                      const isSelected = selectedObstacle?.id === obs.id;
+                      const strokeColor = isIntersecting ? '#ef4444' : isSelected ? '#06b6d4' : '#f97316';
+                      const fillColor = isIntersecting ? 'rgba(239, 68, 68, 0.25)' : isSelected ? 'rgba(6, 182, 212, 0.25)' : 'rgba(249, 115, 22, 0.15)';
+                      const labelPos = placedLabelsMap.get(obs.id);
+                      const shouldShowLabel = showLabels || isSelected;
+
+                      return (
+                        <g key={obs.id} className="pointer-events-auto cursor-pointer" onClick={() => setSelectedObstacle(obs)}>
+                          {/* Leader line only if label is displayed and was displaced */}
+                          {shouldShowLabel && labelPos?.needsLeaderLine && (
+                            <line
+                              x1={labelPos.anchorX}
+                              y1={labelPos.anchorY}
+                              x2={labelPos.x + labelPos.width / 2}
+                              y2={labelPos.y + (labelPos.y < labelPos.anchorY ? labelPos.height : 0)}
+                              stroke={strokeColor}
+                              strokeWidth="0.8"
+                              strokeDasharray="2 2"
+                              opacity="0.75"
+                            />
+                          )}
+
+                          {/* Obstacle Bounding Box */}
+                          <rect
+                            x={obs.pixelX}
+                            y={obs.pixelY}
+                            width={obs.pixelWidth}
+                            height={obs.pixelHeight}
+                            fill={fillColor}
+                            stroke={strokeColor}
+                            strokeWidth={isIntersecting || isSelected ? '2' : '1.2'}
+                            rx="2"
+                          />
+
+                          {/* Clean Obstacle Label Tag (Only if enabled or selected) */}
+                          {shouldShowLabel && labelPos && (
+                            <g>
+                              <rect
+                                x={labelPos.x}
+                                y={labelPos.y}
+                                width={labelPos.width}
+                                height={labelPos.height}
+                                fill="#060a18"
+                                stroke={strokeColor}
+                                strokeWidth="0.8"
+                                rx="2"
+                              />
+                              <text
+                                x={labelPos.x + 4}
+                                y={labelPos.y + labelPos.height - 3.5}
+                                fill={strokeColor}
+                                fontSize="7.5"
+                                fontFamily="monospace"
+                                fontWeight="bold"
+                              >
+                                {obs.label} [{Math.round(obs.confidence * 100)}%]
+                              </text>
+                            </g>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </svg>
                 )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center p-8 text-center space-y-3 min-h-[300px]">
+                <ImageIcon className="w-10 h-10 text-slate-600" />
+                <span className="text-xs font-mono text-slate-400">
+                  Select a region above to fetch authentic NASA/JPL terrain imagery.
+                </span>
+              </div>
+            )}
 
-                {/* 2. Detected Obstacles Bounding Boxes */}
-                {showObstacleBoxes && featureExtraction?.detectedObstacles.map((obs) => {
-                  const isIntersecting = obs.intersectsPlannedRoute;
-                  const isSelected = selectedObstacle?.id === obs.id;
-                  const strokeColor = isIntersecting ? '#ef4444' : isSelected ? '#06b6d4' : '#f97316';
-                  const fillColor = isIntersecting ? 'rgba(239, 68, 68, 0.25)' : isSelected ? 'rgba(6, 182, 212, 0.25)' : 'rgba(249, 115, 22, 0.15)';
-
-                  return (
-                    <g key={obs.id} className="pointer-events-auto cursor-pointer" onClick={() => setSelectedObstacle(obs)}>
-                      <rect
-                        x={obs.pixelX}
-                        y={obs.pixelY}
-                        width={obs.pixelWidth}
-                        height={obs.pixelHeight}
-                        fill={fillColor}
-                        stroke={strokeColor}
-                        strokeWidth={isIntersecting ? '2' : '1.2'}
-                        rx="2"
-                      />
-                      {/* Obstacle Label Tag */}
-                      <rect
-                        x={obs.pixelX}
-                        y={Math.max(0, obs.pixelY - 12)}
-                        width={Math.max(48, obs.label.length * 5)}
-                        height="11"
-                        fill="#060a18"
-                        stroke={strokeColor}
-                        strokeWidth="0.8"
-                        rx="2"
-                      />
-                      <text
-                        x={obs.pixelX + 3}
-                        y={Math.max(8, obs.pixelY - 3)}
-                        fill={strokeColor}
-                        fontSize="7"
-                        fontFamily="monospace"
-                        fontWeight="bold"
-                      >
-                        {obs.label} ({Math.round(obs.confidence * 100)}%)
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
-
-              {/* Processing Spinner Overlay */}
+            {/* Processing Spinner Overlay */}
               {isProcessingImage && (
                 <div className="absolute inset-0 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center space-y-2 z-20">
                   <Activity className="w-8 h-8 text-cyan-400 animate-spin" />
                   <span className="text-xs font-mono text-cyan-300 font-bold uppercase tracking-wider">
-                    Executing Sobel Edge &amp; Shadow Detection...
+                    Scanning Surface Topology &amp; Hazard Envelopes...
                   </span>
                 </div>
               )}
             </div>
 
-            {/* Quick Caption */}
-            <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-              <span className="flex items-center gap-1 text-slate-300">
-                <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
-                <span>Red: Intersecting Route</span>
-                <span className="w-2 h-2 rounded-full bg-orange-500 inline-block ml-2" />
-                <span>Orange: Clear Feature</span>
+            {/* Quick Caption & Dynamic Legend with Real NASA Metadata */}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-400 font-mono">
+              <span className="text-slate-300">
+                Region: <strong className="text-white">{regionMetadata.regionName}</strong> ({regionMetadata.coordinates.formatted}) &bull; Product: <span className="text-cyan-300 font-bold">{regionMetadata.productId}</span> ({regionMetadata.mission})
               </span>
-              <span>Coordinates: Canvas Normalized (256×256)</span>
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded bg-slate-800 border border-white/10 text-slate-300 text-[9px]">
+                  Method: Baseline CV (Sobel Gradient &amp; Shadow Clustering)
+                </span>
+                <span className={`px-2 py-0.5 rounded border text-[9px] ${
+                  validationResult?.spatialResolutionMPerPx
+                    ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                }`}>
+                  {validationResult?.spatialResolutionMPerPx ? `Scale: ${validationResult.spatialResolutionMPerPx} m/px` : 'Scale: Uncalibrated'}
+                </span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 border border-white/10 text-slate-300 text-[9px]">
+                  {validationResult?.canDeriveNativeElevation ? 'DEM verified' : 'Analysis limited: DEM unavailable'}
+                </span>
+              </div>
             </div>
           </div>
 
           {/* Right: Detected Metadata & Validation Dossier */}
-          <div className="lg:col-span-5 space-y-4">
+          <div className="lg:col-span-4 xl:col-span-4 space-y-4">
+            {/* NASA Product & Origin Metadata Card */}
+            <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-3 shadow-lg">
+              <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                <span className="text-xs font-bold text-white flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-cyan-400 shrink-0" />
+                  <span>NASA Product &amp; Origin Metadata</span>
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shrink-0 font-bold">
+                  {regionMetadata.productId || 'Not available'}
+                </span>
+              </div>
+
+              <div className="space-y-2 text-[11px] font-mono">
+                <div className="flex items-center justify-between p-2 rounded-xl bg-black/30 border border-white/5 gap-2">
+                  <span className="text-slate-400 shrink-0">Mission:</span>
+                  <span className="text-white font-bold text-right truncate">{regionMetadata.mission || 'Not available'}</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded-xl bg-black/30 border border-white/5 gap-2">
+                  <span className="text-slate-400 shrink-0">Instrument:</span>
+                  <span className="text-cyan-300 font-bold text-right truncate">{regionMetadata.instrument || 'Not available'}</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded-xl bg-black/30 border border-white/5 gap-2">
+                  <span className="text-slate-400 shrink-0">Observation Date:</span>
+                  <span className="text-slate-200 text-right">{regionMetadata.observationDate || 'Not available'}</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded-xl bg-black/30 border border-white/5 gap-2">
+                  <span className="text-slate-400 shrink-0">Coordinates:</span>
+                  <span className="text-slate-200 text-right">{regionMetadata.coordinates?.formatted || 'Not available'}</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded-xl bg-black/30 border border-white/5 gap-2">
+                  <span className="text-slate-400 shrink-0">Source Credit:</span>
+                  <span className="text-slate-300 text-right text-[10px] truncate max-w-[180px]">{regionMetadata.sourceCredit || 'NASA / JPL-Caltech'}</span>
+                </div>
+                {regionMetadata.desc && (
+                  <p className="text-[10px] text-slate-400 font-sans leading-relaxed pt-1">
+                    {regionMetadata.desc}
+                  </p>
+                )}
+              </div>
+            </div>
+
             {/* STEP 1: Image Validation Card */}
-            {validationResult && (
-              <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-3">
-                <div className="flex items-center justify-between border-b border-white/10 pb-2">
+            {validationResult ? (
+              <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-3 shadow-lg">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
                   <span className="text-xs font-bold text-white flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                     <span>STEP 1: File &amp; Spatial Validation</span>
                   </span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0 font-bold">
                     {validationResult.format}
                   </span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
-                  <div className="p-2 rounded-xl bg-black/30 border border-white/5">
-                    <span className="text-[9px] text-slate-400 block">DIMENSIONS</span>
-                    <span className="text-white font-bold">{validationResult.width} × {validationResult.height} px</span>
+                  <div className="p-2.5 rounded-xl bg-black/30 border border-white/5 space-y-0.5">
+                    <span className="text-[9px] text-slate-400 block uppercase">DIMENSIONS</span>
+                    <span className="text-white font-bold block">{validationResult.width} × {validationResult.height} px</span>
                     <span className="text-[9px] text-slate-500 block">Aspect {validationResult.aspectRatio}</span>
                   </div>
-                  <div className="p-2 rounded-xl bg-black/30 border border-white/5">
-                    <span className="text-[9px] text-slate-400 block">FILE SIZE</span>
-                    <span className="text-white font-bold">{validationResult.fileSizeFormatted}</span>
+                  <div className="p-2.5 rounded-xl bg-black/30 border border-white/5 space-y-0.5">
+                    <span className="text-[9px] text-slate-400 block uppercase">FILE SIZE</span>
+                    <span className="text-white font-bold block">{validationResult.fileSizeFormatted}</span>
                     <span className="text-[9px] text-slate-500 block">{validationResult.fileName.split('.').pop()?.toUpperCase()}</span>
                   </div>
-                  <div className="p-2 rounded-xl bg-black/30 border border-white/5">
-                    <span className="text-[9px] text-slate-400 block">SPATIAL SCALE</span>
-                    <span className="text-cyan-300 font-bold">
-                      {validationResult.spatialResolutionMPerPx ? `${validationResult.spatialResolutionMPerPx} m/px` : 'Uncalibrated'}
+                  <div className="p-2.5 rounded-xl bg-black/30 border border-white/5 space-y-0.5">
+                    <span className="text-[9px] text-slate-400 block uppercase">SPATIAL SCALE</span>
+                    <span className={`font-bold block ${validationResult.spatialResolutionMPerPx ? 'text-cyan-300' : 'text-amber-300'}`}>
+                      {validationResult.spatialResolutionMPerPx ? `${validationResult.spatialResolutionMPerPx} m/px` : 'Not available'}
                     </span>
                     <span className="text-[9px] text-slate-500 block truncate">{validationResult.spatialReferenceSystem.split(' ')[0]}</span>
                   </div>
-                  <div className="p-2 rounded-xl bg-black/30 border border-white/5">
-                    <span className="text-[9px] text-slate-400 block">CLASSIFICATION</span>
-                    <span className="text-orange-300 font-bold text-[10px] truncate block">{validationResult.classification}</span>
+                  <div className="p-2.5 rounded-xl bg-black/30 border border-white/5 space-y-0.5">
+                    <span className="text-[9px] text-slate-400 block uppercase">CLASSIFICATION</span>
+                    <span className="text-orange-300 font-bold text-[10px] block leading-tight">{validationResult.classification.replace(/_/g, ' ')}</span>
                     <span className="text-[9px] text-slate-500 block">{validationResult.canDeriveNativeElevation ? 'DEM Matrix' : 'Optical 2D'}</span>
                   </div>
                 </div>
 
-                <div className="p-2 rounded-xl bg-slate-900/60 border border-white/5 text-[10px] space-y-1">
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-white/5 text-[10px] space-y-1">
                   <span className="text-slate-300 font-bold block">Validation Notes:</span>
                   {validationResult.validationNotes.map((note, i) => (
                     <p key={i} className="text-slate-400 font-sans leading-relaxed">&bull; {note}</p>
                   ))}
                 </div>
               </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-2 shadow-lg text-slate-400 font-mono text-xs">
+                <span>Waiting for image validation...</span>
+              </div>
             )}
 
             {/* STEP 3: Terrain Data Validation & Suitability Checklist */}
-            {featureExtraction && (
-              <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-3">
-                <div className="flex items-center justify-between border-b border-white/10 pb-2">
+            {featureExtraction ? (
+              <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-3 shadow-lg">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
                   <span className="text-xs font-bold text-white flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-cyan-400" />
+                    <Shield className="w-4 h-4 text-cyan-400 shrink-0" />
                     <span>STEP 3: Data Suitability for Navigation</span>
                   </span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shrink-0 font-bold truncate max-w-[120px]">
                     {featureExtraction.dominantFeature}
                   </span>
                 </div>
 
                 <div className="space-y-1.5 text-[11px] font-mono">
-                  <div className="flex items-center justify-between p-1.5 rounded bg-black/30">
-                    <span className="text-slate-300">Elevation Analysis:</span>
-                    <span className={featureExtraction.dataSuitability.elevationAnalysis ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
-                      {featureExtraction.dataSuitability.elevationAnalysis ? 'DIRECT DEM AVAILABLE' : 'REQUIRES LINKED ORBITAL DEM'}
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-black/30 border border-white/5 gap-2">
+                    <span className="text-slate-300 shrink-0">Elevation Analysis</span>
+                    <span className={`px-2 py-0.5 rounded text-[9px] font-bold font-mono text-right shrink-0 ${
+                      featureExtraction.dataSuitability.elevationAnalysis
+                        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                        : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                    }`}>
+                      {featureExtraction.dataSuitability.elevationAnalysis ? 'DIRECT DEM' : 'DEM UNAVAILABLE'}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between p-1.5 rounded bg-black/30">
-                    <span className="text-slate-300">Slope Gradient Calculation:</span>
-                    <span className={featureExtraction.dataSuitability.slopeCalculation ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
-                      {featureExtraction.dataSuitability.slopeCalculation ? 'CENTRAL-DIFF ENABLED' : 'AUXILIARY MOLA/HIRISE DTM'}
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-black/30 border border-white/5 gap-2">
+                    <span className="text-slate-300 shrink-0">Slope Calculation</span>
+                    <span className={`px-2 py-0.5 rounded text-[9px] font-bold font-mono text-right shrink-0 ${
+                      featureExtraction.dataSuitability.slopeCalculation
+                        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                        : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                    }`}>
+                      {featureExtraction.dataSuitability.slopeCalculation ? 'CENTRAL-DIFF' : 'DEM UNAVAILABLE'}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between p-1.5 rounded bg-black/30">
-                    <span className="text-slate-300">Surface Roughness:</span>
-                    <span className={featureExtraction.dataSuitability.surfaceRoughness ? 'text-emerald-400 font-bold' : 'text-cyan-300'}>
-                      Score: {featureExtraction.surfaceTextureScore} (Sobel Texture Proxy)
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-black/30 border border-white/5 gap-2">
+                    <span className="text-slate-300 shrink-0">Surface Roughness</span>
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-right shrink-0">
+                      SCORE: {featureExtraction.surfaceTextureScore} (2D PROXY)
                     </span>
                   </div>
-                  <div className="flex items-center justify-between p-1.5 rounded bg-black/30">
-                    <span className="text-slate-300">Obstacle Clearance:</span>
-                    <span className="text-emerald-400 font-bold">2D ENVELOPE VERIFIED</span>
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-black/30 border border-white/5 gap-2">
+                    <span className="text-slate-300 shrink-0">Obstacle Clearance</span>
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-right shrink-0">
+                      2D ENVELOPE VERIFIED
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-black/30 border border-white/5 gap-2">
+                    <span className="text-slate-300 shrink-0">Navigation Readiness</span>
+                    <span className={`px-2 py-0.5 rounded text-[9px] font-bold font-mono text-right shrink-0 ${
+                      validationResult?.canDeriveNativeElevation
+                        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                        : validationResult?.spatialResolutionMPerPx
+                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                        : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                    }`}>
+                      {validationResult?.canDeriveNativeElevation
+                        ? 'NAVIGATION READY'
+                        : validationResult?.spatialResolutionMPerPx
+                        ? 'LIMITED (DEM UNAVAILABLE)'
+                        : 'LIMITED (DEM & SCALE UNAVAILABLE)'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-black/30 border border-white/5 gap-2">
+                    <span className="text-slate-300 shrink-0">Analysis Pipeline</span>
+                    <span className="px-2 py-0.5 rounded text-[9px] font-bold font-mono bg-slate-800 text-slate-300 border border-white/10 text-right shrink-0">
+                      CV BASELINE (MODEL NOT CONNECTED)
+                    </span>
                   </div>
                 </div>
 
-                <div className="p-2 rounded-xl bg-cyan-950/30 border border-cyan-500/30 text-[10px] text-cyan-200">
+                <div className="p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/30 text-[10px] text-cyan-200">
                   {featureExtraction.dataSuitability.notes}
                 </div>
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-3 shadow-lg">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                  <span className="text-xs font-bold text-white flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-slate-500 shrink-0" />
+                    <span>STEP 3: Navigation Suitability Standby</span>
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-white/10 shrink-0">
+                    NOT STARTED
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed font-sans">
+                  Optical terrain validated. Run <span className="text-orange-400 font-mono font-bold">Detect Hazards</span> or execute a failure rehearsal to derive terrain texture metrics and assess autonomous navigation suitability. (Note: Deep learning AI segmentation model is not connected; real Computer Vision baseline is used).
+                </p>
+                <button
+                  type="button"
+                  onClick={handleRunAnalysis}
+                  disabled={isProcessingImage || !currentImageSrc}
+                  className="w-full py-2 rounded-xl bg-orange-600/20 hover:bg-orange-600/30 text-orange-300 border border-orange-500/40 text-xs font-mono font-bold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Scan Terrain Hazards Now</span>
+                </button>
               </div>
             )}
           </div>
@@ -1089,7 +1916,7 @@ export default function ScenarioTestingLab() {
               <Compass className="w-4 h-4 text-cyan-400" />
               <span>SYNCHRONIZED PATH TRAVERSAL MAPS (ORIGINAL VS. REVISED)</span>
             </span>
-            <span>Uniform 256×256 Coordinate Space</span>
+            <span>Dynamic Viewport ({viewWidth}×{viewHeight})</span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1105,13 +1932,16 @@ export default function ScenarioTestingLab() {
                 </span>
               </div>
 
-              <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-white/10 bg-slate-950 flex items-center justify-center">
+              <div
+                className="relative w-full rounded-xl overflow-hidden border border-white/10 bg-slate-950 flex items-center justify-center"
+                style={{ aspectRatio: `${viewWidth} / ${viewHeight}` }}
+              >
                 <img
                   src={currentImageSrc}
                   alt="Original Terrain"
-                  className="w-full h-full object-cover opacity-60"
+                  className="w-full h-full object-contain opacity-60"
                 />
-                <svg viewBox="0 0 256 256" className="absolute inset-0 w-full h-full">
+                <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} className="absolute inset-0 w-full h-full pointer-events-none">
                   {/* Original Path */}
                   <polyline
                     points={activeRoute.waypoints.map(p => `${p.x},${p.y}`).join(' ')}
@@ -1126,14 +1956,14 @@ export default function ScenarioTestingLab() {
                       key={i}
                       cx={p.x}
                       cy={p.y}
-                      r={i === 0 || i === activeRoute.waypoints.length - 1 ? 4 : 2}
+                      r={i === 0 || i === activeRoute.waypoints.length - 1 ? 5 : 3}
                       fill={i === 0 ? '#10b981' : i === activeRoute.waypoints.length - 1 ? '#ef4444' : '#06b6d4'}
                       stroke="#ffffff"
-                      strokeWidth="0.8"
+                      strokeWidth="1"
                     />
                   ))}
-                  {/* Highlighted obstruction sector if obstacle scenario */}
-                  {selectedScenarioKey === 'obstacle' && featureExtraction?.detectedObstacles.filter(o => o.intersectsPlannedRoute).map((obs) => (
+                  {/* Highlighted obstruction sector if obstacle scenario - ONLY after execution */}
+                  {currentActiveResult && selectedScenarioKey === 'obstacle' && featureExtraction?.detectedObstacles.filter(o => o.intersectsPlannedRoute).map((obs) => (
                     <g key={obs.id}>
                       <rect
                         x={obs.pixelX}
@@ -1148,13 +1978,31 @@ export default function ScenarioTestingLab() {
                       <circle cx={obs.pixelX + obs.pixelWidth / 2} cy={obs.pixelY + obs.pixelHeight / 2} r="12" fill="none" stroke="#ef4444" strokeWidth="1" strokeDasharray="2 2" />
                     </g>
                   ))}
-                  {/* Highlighted steep sector if slope scenario */}
-                  {selectedScenarioKey === 'slope' && (
-                    <rect x="80" y="80" width="80" height="80" fill="rgba(249, 115, 22, 0.25)" stroke="#f97316" strokeWidth="1.5" strokeDasharray="3 3" />
+                  {/* Highlighted steep sector if slope scenario - ONLY after execution */}
+                  {currentActiveResult && selectedScenarioKey === 'slope' && (
+                    <rect
+                      x={viewWidth * 0.35}
+                      y={viewHeight * 0.2}
+                      width={viewWidth * 0.3}
+                      height={viewHeight * 0.6}
+                      fill="rgba(249, 115, 22, 0.25)"
+                      stroke="#f97316"
+                      strokeWidth="1.5"
+                      strokeDasharray="3 3"
+                    />
                   )}
-                  {/* Highlighted telemetry drop corridor if telemetry scenario */}
-                  {selectedScenarioKey === 'telemetry' && (
-                    <rect x="70" y="50" width="100" height="150" fill="rgba(168, 85, 247, 0.25)" stroke="#a855f7" strokeWidth="1.5" strokeDasharray="4 2" />
+                  {/* Highlighted telemetry drop corridor if telemetry scenario - ONLY after execution */}
+                  {currentActiveResult && selectedScenarioKey === 'telemetry' && (
+                    <rect
+                      x={viewWidth * 0.3}
+                      y={viewHeight * 0.15}
+                      width={viewWidth * 0.4}
+                      height={viewHeight * 0.7}
+                      fill="rgba(168, 85, 247, 0.25)"
+                      stroke="#a855f7"
+                      strokeWidth="1.5"
+                      strokeDasharray="4 2"
+                    />
                   )}
                 </svg>
                 <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/70 text-[9px] font-mono text-cyan-300 border border-cyan-500/30">
@@ -1179,15 +2027,18 @@ export default function ScenarioTestingLab() {
                 )}
               </div>
 
-              <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-white/10 bg-slate-950 flex items-center justify-center">
+              <div
+                className="relative w-full rounded-xl overflow-hidden border border-white/10 bg-slate-950 flex items-center justify-center"
+                style={{ aspectRatio: `${viewWidth} / ${viewHeight}` }}
+              >
                 <img
                   src={currentImageSrc}
                   alt="Revised Terrain"
-                  className="w-full h-full object-cover opacity-60"
+                  className="w-full h-full object-contain opacity-60"
                 />
 
                 {currentActiveResult?.revisedRoute ? (
-                  <svg viewBox="0 0 256 256" className="absolute inset-0 w-full h-full">
+                  <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} className="absolute inset-0 w-full h-full pointer-events-none">
                     {/* Ghosted Original Path */}
                     <polyline
                       points={activeRoute.waypoints.map(p => `${p.x},${p.y}`).join(' ')}
@@ -1210,10 +2061,10 @@ export default function ScenarioTestingLab() {
                         key={i}
                         cx={p.x}
                         cy={p.y}
-                        r={i === 0 || i === currentActiveResult.revisedRoute!.waypoints.length - 1 ? 4 : 2}
+                        r={i === 0 || i === currentActiveResult.revisedRoute!.waypoints.length - 1 ? 5 : 3}
                         fill={i === 0 ? '#10b981' : i === currentActiveResult.revisedRoute!.waypoints.length - 1 ? '#ef4444' : '#f97316'}
                         stroke="#ffffff"
-                        strokeWidth="0.8"
+                        strokeWidth="1"
                       />
                     ))}
                   </svg>

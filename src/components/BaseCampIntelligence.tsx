@@ -63,7 +63,7 @@ const CANDIDATE_SITES: SiteCandidate[] = [
     scientificReasoning: 'Shallow slab ice offers direct resource utilization (ISRU) for propellant production and life support, with smooth terrain providing safe touchdown.',
     primaryRisk: 'Higher latitude results in seasonal solar radiation drops during Martian winter.',
     provenance: 'NASA MRO SHARAD / Mars Odyssey THEMIS / MOLA DTM',
-    imageUrl: '/assets/aistudio/vis_1_84d26681.png'
+    imageUrl: 'https://images-assets.nasa.gov/image/PIA26321/PIA26321~orig.jpg'
   },
   {
     id: 'utopia',
@@ -101,7 +101,7 @@ const CANDIDATE_SITES: SiteCandidate[] = [
     scientificReasoning: 'Unrivaled astrobiological priority; diverse lacustrine sedimentary rocks and igneous floor for sample return.',
     primaryRisk: 'Steep delta scarp slopes and boulder fields restrict heavy lander footprint options.',
     provenance: 'NASA Perseverance / MRO HiRISE DTM DTEEC_001414_1780',
-    imageUrl: '/assets/aistudio/vis_0_f6a9756b.png'
+    imageUrl: 'https://images-assets.nasa.gov/image/PIA22905/PIA22905~orig.jpg'
   },
   {
     id: 'elysium',
@@ -158,7 +158,7 @@ const CANDIDATE_SITES: SiteCandidate[] = [
     scientificReasoning: 'Continuous stratigraphic record of Martian habitability transition from wet clay-rich to dry sulfate-rich eras.',
     primaryRisk: 'Rugged topography, sharp clay-capped ridges, and deep active sand dunes (Bagnold Dunes).',
     provenance: 'NASA Curiosity (MSL) / MRO HiRISE Stereo DTM',
-    imageUrl: '/assets/aistudio/image_e58e8f79.png'
+    imageUrl: 'https://images-assets.nasa.gov/image/PIA19114/PIA19114~orig.jpg'
   },
   {
     id: 'hellas',

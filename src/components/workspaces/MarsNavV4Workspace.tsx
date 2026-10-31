@@ -606,7 +606,7 @@ export default function MarsNavV4Workspace() {
         priority: noteFormPriority,
         x: noteFormCoords.x,
         y: noteFormCoords.y,
-        imageUrl: terrainImage || '/assets/aistudio/vis_0_f6a9756b.png',
+        imageUrl: terrainImage || '',
         imageIdentifier: imageProvenance?.identifier || 'IMAGE_1',
         createdAt: new Date().toISOString(),
         tags: tagArray
@@ -644,23 +644,7 @@ export default function MarsNavV4Workspace() {
     return `/api/nasa/proxy-image?url=${encodeURIComponent(url)}`;
   };
 
-  // Auto-initialize terrain image if empty
-  useEffect(() => {
-    if (!terrainImage || terrainImage.trim() === '') {
-      updateSharedSession({
-        terrainImage: '/assets/aistudio/vis_0_f6a9756b.png',
-        imageProvenance: {
-          source: 'HiRISE DTM (Jezero Crater)',
-          rover: 'Perseverance (Mars 2020)',
-          camera: 'NAVCAM_LEFT',
-          sol: 428,
-          acquisitionUtc: new Date().toISOString(),
-          identifier: 'PSP_001414_1780',
-          sourceUrl: '/assets/aistudio/vis_0_f6a9756b.png'
-        }
-      });
-    }
-  }, [terrainImage, updateSharedSession]);
+  // NOTE: No auto-initialization of terrain image — workspace starts empty until user provides input.
 
   // Clean up object URLs on component unmount
   useEffect(() => {
@@ -1015,7 +999,7 @@ export default function MarsNavV4Workspace() {
           distPx,
           isPhysicalCalibrated: isCalibrated,
           physicalDistM,
-          imageUrl: terrainImage || '/assets/aistudio/vis_0_f6a9756b.png',
+          imageUrl: terrainImage || '',
           imageIdentifier: imageProvenance?.identifier || 'IMAGE_1',
           visible: true
         });
@@ -2565,38 +2549,74 @@ export default function MarsNavV4Workspace() {
                   </button>
                 </div>
               ) : (
-                <div className="space-y-3 flex flex-col items-center">
-                  <Compass className="w-12 h-12 text-cyan-400 mb-1" />
-                  <h3 className="text-white font-bold text-base">No terrain map image loaded</h3>
-                  <p className="text-slate-400 text-xs font-mono max-w-xs">
-                    Upload a JPEG/PNG image or select a raw feed frame from NASA JPL Perseverance.
-                  </p>
-                  <div className="flex items-center gap-2 mt-2 flex-wrap justify-center">
-                    <button
-                      onClick={() => setActiveWorkspace('base-camp-intel')}
-                      className="px-3.5 py-1.5 rounded-lg bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/50 text-cyan-200 text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer shadow-md"
-                    >
-                      <Compass className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Select Base Camp Region</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (fileInputRef.current) fileInputRef.current.value = '';
-                        fileInputRef.current?.click();
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-orange-600/30 hover:bg-orange-600/50 border border-orange-500/50 text-orange-200 text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>Upload Image</span>
-                    </button>
-                    <button
-                      onClick={() => setNasaBrowserOpen(true)}
-                      className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-mono flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                      <span>NASA Feed</span>
-                    </button>
+                /* UPLOAD-FIRST EMPTY WORKSPACE STATE */
+                <div className="flex flex-col items-center justify-center gap-6 px-6 py-8 w-full max-w-lg mx-auto">
+                  {/* Icon + Headline */}
+                  <div className="flex flex-col items-center gap-3 text-center">
+                    <div className="relative">
+                      <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700/80 flex items-center justify-center shadow-2xl">
+                        <Compass className="w-10 h-10 text-cyan-400/70" />
+                      </div>
+                      <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center shadow-lg">
+                        <ImageIcon className="w-3.5 h-3.5 text-white" />
+                      </div>
+                    </div>
+                    <div>
+                      <h3 className="text-white font-bold text-sm tracking-tight">Your terrain workspace is ready</h3>
+                      <p className="text-slate-400 text-xs font-mono mt-1 leading-relaxed max-w-xs">
+                        Choose a terrain image to begin your EVA analysis
+                      </p>
+                    </div>
                   </div>
+
+                  {/* Option A — Upload */}
+                  <button
+                    onClick={() => {
+                      if (fileInputRef.current) fileInputRef.current.value = '';
+                      fileInputRef.current?.click();
+                    }}
+                    className="group w-full flex items-center gap-4 p-4 rounded-xl bg-gradient-to-r from-orange-950/60 to-amber-950/40 border border-orange-500/40 hover:border-orange-400/70 hover:from-orange-900/60 hover:to-amber-900/50 transition-all shadow-lg cursor-pointer text-left"
+                  >
+                    <div className="shrink-0 w-10 h-10 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center group-hover:bg-orange-500/30 transition-colors">
+                      <Upload className="w-5 h-5 text-orange-300" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="block text-orange-200 font-bold text-xs uppercase tracking-wider">Upload Image</span>
+                      <span className="block text-slate-400 text-[11px] font-mono mt-0.5">PNG, JPG, JPEG, WebP · Max 25 MB</span>
+                    </div>
+                    <div className="ml-auto shrink-0 text-orange-500/60 group-hover:text-orange-400 transition-colors">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    </div>
+                  </button>
+
+                  {/* Divider */}
+                  <div className="w-full flex items-center gap-3">
+                    <div className="flex-1 h-px bg-slate-800" />
+                    <span className="text-slate-600 text-[10px] font-mono uppercase tracking-wider">or</span>
+                    <div className="flex-1 h-px bg-slate-800" />
+                  </div>
+
+                  {/* Option B — NASA Feed */}
+                  <button
+                    onClick={() => setNasaBrowserOpen(true)}
+                    className="group w-full flex items-center gap-4 p-4 rounded-xl bg-gradient-to-r from-cyan-950/60 to-teal-950/40 border border-cyan-500/40 hover:border-cyan-400/70 hover:from-cyan-900/60 hover:to-teal-900/50 transition-all shadow-lg cursor-pointer text-left"
+                  >
+                    <div className="shrink-0 w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center group-hover:bg-cyan-500/30 transition-colors">
+                      <Radio className="w-5 h-5 text-cyan-300 animate-pulse" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="block text-cyan-200 font-bold text-xs uppercase tracking-wider">Select NASA Image</span>
+                      <span className="block text-slate-400 text-[11px] font-mono mt-0.5">Live feed · Mars 2020 Perseverance rover</span>
+                    </div>
+                    <div className="ml-auto shrink-0 text-cyan-500/60 group-hover:text-cyan-400 transition-colors">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    </div>
+                  </button>
+
+                  {/* Drag-and-drop hint */}
+                  <p className="text-slate-600 text-[10px] font-mono text-center">
+                    ↓ Or drag &amp; drop an image file directly onto this panel
+                  </p>
                 </div>
               )}
             </div>

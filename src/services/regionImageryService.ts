@@ -72,8 +72,8 @@ const RAW_VERIFIED_REGION_IMAGES: Record<string, RegionImageRecord[]> = {
       regionId: 'arcadia',
       regionName: 'Arcadia Planitia',
       title: 'Polygonal Ground and Flow Margins in Arcadia Planitia Sheet Ice',
-      assetUrl: '/assets/aistudio/vis_1_84d26681.png',
-      thumbnailUrl: '/assets/aistudio/vis_1_84d26681.png',
+      assetUrl: 'https://images-assets.nasa.gov/image/PIA26321/PIA26321~orig.jpg',
+      thumbnailUrl: 'https://images-assets.nasa.gov/image/PIA26321/PIA26321~thumb.jpg',
       sourcePageUrl: 'https://hirise.lpl.arizona.edu/ESP_018549_2195',
       mission: 'Mars Reconnaissance Orbiter (MRO)',
       instrument: 'HiRISE (High Resolution Imaging Science Experiment)',
@@ -967,8 +967,8 @@ const RAW_VERIFIED_REGION_IMAGES: Record<string, RegionImageRecord[]> = {
       regionId: 'jezero',
       regionName: 'Jezero Crater Western Delta',
       title: 'Jezero Crater Western Delta Fan HiRISE DTM Stereo Pair',
-      assetUrl: '/assets/aistudio/vis_0_f6a9756b.png',
-      thumbnailUrl: '/assets/aistudio/vis_0_f6a9756b.png',
+      assetUrl: 'https://images-assets.nasa.gov/image/PIA22905/PIA22905~orig.jpg',
+      thumbnailUrl: 'https://images-assets.nasa.gov/image/PIA22905/PIA22905~thumb.jpg',
       sourcePageUrl: 'https://hirise.lpl.arizona.edu/PSP_001414_1780',
       mission: 'Mars Reconnaissance Orbiter (MRO)',
       instrument: 'HiRISE (High Resolution Imaging Science Experiment)',
@@ -1116,8 +1116,8 @@ const RAW_VERIFIED_REGION_IMAGES: Record<string, RegionImageRecord[]> = {
       regionId: 'gale',
       regionName: 'Gale Crater Mount Sharp',
       title: 'Curiosity Rover First Color Mastcam Panorama of Mount Sharp (Aeolis Mons)',
-      assetUrl: '/assets/aistudio/image_e58e8f79.png',
-      thumbnailUrl: '/assets/aistudio/image_e58e8f79.png',
+      assetUrl: 'https://images-assets.nasa.gov/image/PIA19114/PIA19114~orig.jpg',
+      thumbnailUrl: 'https://images-assets.nasa.gov/image/PIA19114/PIA19114~thumb.jpg',
       sourcePageUrl: 'https://photojournal.jpl.nasa.gov/catalog/PIA16051',
       mission: 'Mars Science Laboratory (Curiosity Rover)',
       instrument: 'Mastcam (Mast Camera 34mm)',
@@ -1257,6 +1257,34 @@ const RAW_VERIFIED_REGION_IMAGES: Record<string, RegionImageRecord[]> = {
       geographicMatchLevel: 'exact-footprint',
       status: 'verified-archive-record'
     }
+  ],
+
+  belva: [
+    {
+      id: 'PIA25889',
+      regionId: 'belva',
+      regionName: 'Belva Crater Rim & Slump',
+      title: 'Perseverance Mastcam-Z View at Belva Crater Rim & Slump',
+      assetUrl: 'https://images-assets.nasa.gov/image/PIA25889/PIA25889~orig.jpg',
+      thumbnailUrl: 'https://images-assets.nasa.gov/image/PIA25889/PIA25889~thumb.jpg',
+      sourcePageUrl: 'https://photojournal.jpl.nasa.gov/catalog/PIA25889',
+      mission: 'Mars 2020 (Perseverance Rover)',
+      instrument: 'Mastcam-Z Stereo Camera',
+      observationDate: '2023-05-18',
+      releaseDate: '2023-05-19',
+      description: '152-image mosaic of Belva Crater within Jezero Crater, showing steep crater wall stratigraphy, slump blocks, and boulder scree.',
+      dimensions: '2048 x 1024 px',
+      resolution: '0.25 m/pixel',
+      spatialScaleMetersPerPx: 0.25,
+      coordinates: { lat: 18.47, lon: 77.38, latFormatted: '18.47° N', lonFormatted: '77.38° E' },
+      quadrangle: 'Syrtis Major Quadrangle (MC-13)',
+      imageType: 'Surface Rover Frame',
+      viewType: 'rover',
+      spectrumType: 'visible',
+      sourceCredit: 'NASA / JPL-Caltech / ASU / MSSS',
+      geographicMatchLevel: 'exact-footprint',
+      status: 'verified-archive-record'
+    }
   ]
 };
 
@@ -1278,9 +1306,16 @@ import { apiGet } from '../utils/apiClient';
  */
 export async function getRegionGallery(regionId: string, filters?: RegionFilterOptions): Promise<RegionGalleryData> {
   const normKey = regionId.toLowerCase().trim();
-  const matchedKey = Object.keys(VERIFIED_REGION_IMAGES).find(k => k === normKey || normKey.includes(k)) || 'arcadia';
+  const matchedKey = Object.keys(VERIFIED_REGION_IMAGES).find(k => k === normKey || normKey.includes(k) || k.includes(normKey));
   
-  let list = [...(VERIFIED_REGION_IMAGES[matchedKey] || VERIFIED_REGION_IMAGES['arcadia'])];
+  if (!matchedKey) {
+    throw new Error('No verified NASA imagery available for this region.');
+  }
+
+  let list = [...(VERIFIED_REGION_IMAGES[matchedKey] || [])];
+  if (list.length === 0) {
+    throw new Error('No verified NASA imagery available for this region.');
+  }
 
   // Try fetching live server additions if endpoint is available
   try {

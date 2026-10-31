@@ -1,5 +1,3 @@
-import { initializeApp, getApp, getApps } from 'firebase/app';
-import { getFirestore, doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -7,15 +5,51 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load Firebase config
-const configPath = path.resolve(__dirname, 'firebase-applet-config.json');
-let firebaseConfig: any = {};
-if (fs.existsSync(configPath)) {
-  firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+// ─── Firebase (optional cache backend) ───────────────────────────────────────
+// Firebase is used for persistent caching. If it fails to initialize (e.g. on
+// Vercel serverless where the config file may not be present), we gracefully
+// fall back to an in-memory cache so the API keeps working.
+
+let db: any = null;
+let getFirestoreDoc: ((key: string) => Promise<any>) | null = null;
+let setFirestoreDoc: ((key: string, data: any) => Promise<void>) | null = null;
+
+try {
+  const { initializeApp, getApp, getApps } = await import('firebase/app');
+  const { getFirestore, doc, getDoc, setDoc, Timestamp } = await import('firebase/firestore');
+
+  // Load Firebase config from file (local) or fall back to env vars
+  let firebaseConfig: any = {};
+  const configPath = path.resolve(__dirname, 'firebase-applet-config.json');
+  if (fs.existsSync(configPath)) {
+    firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  }
+
+  if (firebaseConfig.projectId) {
+    const firebaseApp = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+    const firestore = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+
+    getFirestoreDoc = async (key: string) => {
+      const docRef = doc(firestore, 'nasa_cache', key);
+      const snap = await getDoc(docRef);
+      return snap.exists() ? snap.data() : null;
+    };
+
+    setFirestoreDoc = async (key: string, data: any) => {
+      const docRef = doc(firestore, 'nasa_cache', key);
+      await setDoc(docRef, { ...data, updatedAt: Timestamp.now() });
+    };
+
+    console.log('[NASA_ENGINE] Firebase cache backend initialized.');
+  } else {
+    console.warn('[NASA_ENGINE] No Firebase projectId found — using in-memory cache.');
+  }
+} catch (err: any) {
+  console.warn('[NASA_ENGINE] Firebase init failed — using in-memory cache.', err?.message || err);
 }
 
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// ─── In-memory fallback cache ─────────────────────────────────────────────────
+const memoryCache = new Map<string, { data: any; timestamp: string; url: string; source: string }>();
 
 export interface CacheEntry<T> {
   data: T;
@@ -55,7 +89,7 @@ export class NASADataEngine {
     // 1. Try Cache first unless forceRefresh
     if (!forceRefresh) {
       try {
-        const cached = await this.getFromFirestore(cacheKey);
+        const cached = await this.readCache(cacheKey);
         if (cached) {
           const age = Date.now() - new Date(cached.timestamp).getTime();
           if (age < cacheTTLMs) {
@@ -78,12 +112,8 @@ export class NASADataEngine {
       const timestamp = new Date().toISOString();
 
       // Async cache update (don't block response)
-      this.saveToFirestore(cacheKey, {
-        data,
-        timestamp,
-        url,
-        source: 'nasa_jpl'
-      }).catch(err => console.warn(`[NASA_ENGINE] Cache write error:`, err));
+      this.writeCache(cacheKey, { data, timestamp, url, source: 'nasa_jpl' })
+        .catch(err => console.warn(`[NASA_ENGINE] Cache write error:`, err));
 
       return { data, source: 'live', timestamp };
     } catch (err: any) {
@@ -91,7 +121,7 @@ export class NASADataEngine {
 
       // 3. Try Stale Cache Fallback
       try {
-        const staleCached = await this.getFromFirestore(cacheKey);
+        const staleCached = await this.readCache(cacheKey);
         if (staleCached) {
           console.log(`[NASA_ENGINE] Serving stale cache for ${url}`);
           return {
@@ -116,10 +146,12 @@ export class NASADataEngine {
   ): Promise<T> {
     let lastError: any;
 
-    // Automatically append API key if it's a nasa.gov API (not JPL RSS)
+    // Automatically append API key if it's api.nasa.gov (excluding images-api.nasa.gov which rejects api_key)
     let finalUrl = url;
-    if (url.includes('api.nasa.gov') && !url.includes('api_key=')) {
-      const apiKey = process.env.NASA_API_KEY || 'DEMO_KEY';
+    if (url.includes('api.nasa.gov') && !url.includes('images-api.nasa.gov') && !url.includes('api_key=')) {
+      // Trim the key to avoid whitespace-only values from .env
+      const rawKey = (process.env.NASA_API_KEY || '').trim();
+      const apiKey = rawKey.length > 0 ? rawKey : 'DEMO_KEY';
       finalUrl += (url.includes('?') ? '&' : '?') + `api_key=${apiKey}`;
     }
 
@@ -173,14 +205,62 @@ export class NASADataEngine {
   }
 
   /**
-   * Filter NASA Image Library items by geographic keywords
+   * Filter NASA Image Library items by geographic keywords and terrain suitability
+   * Strictly excludes rover selfies, underbody photos, landing-system hardware,
+   * instrument close-ups, infographics, and promotional illustrations.
    */
   static filterByRegion(items: any[], regionName: string): any[] {
-    const keywords = regionName.toLowerCase().split(' ');
+    const regionLower = regionName.toLowerCase();
+    const primaryKeyword = regionLower.split(' ')[0]; // e.g. 'jezero', 'arcadia', 'gale', 'belva'
+
+    const EXCLUDED_PATTERNS = [
+      'self-portrait',
+      'selfie',
+      'curiosity self',
+      'perseverance self',
+      'underbelly',
+      'underbody',
+      'wheel inspection',
+      'belly pan',
+      'sky crane',
+      'heat shield',
+      'descent stage',
+      'parachute',
+      'backshell',
+      'landing system',
+      'illustration',
+      'artist concept',
+      "artist's concept",
+      'infographic',
+      'poster',
+      'diagram',
+      'artwork',
+      'flyover',
+      'animation',
+      'calibration target',
+      'drill bit',
+      'sample tube',
+      'logo'
+    ];
+
     return items.filter(item => {
       const data = item.data?.[0] || {};
-      const text = `${data.title} ${data.description} ${data.keywords?.join(' ')}`.toLowerCase();
-      return keywords.every(kw => text.includes(keywords[0])); // Simple heuristic: at least first word must match
+      const title = (data.title || '').toLowerCase();
+      const description = (data.description || '').toLowerCase();
+      const keywords = Array.isArray(data.keywords) ? data.keywords.map((k: string) => k.toLowerCase()) : [];
+      const combinedText = `${title} ${description} ${keywords.join(' ')}`;
+
+      // 1. Must match region keyword
+      const matchesRegion = combinedText.includes(primaryKeyword) || combinedText.includes(regionLower);
+      if (!matchesRegion) return false;
+
+      // 2. Must NOT contain excluded non-terrain patterns
+      const hasExcluded = EXCLUDED_PATTERNS.some(pat =>
+        title.includes(pat) || description.includes(pat) || keywords.some(k => k.includes(pat))
+      );
+      if (hasExcluded) return false;
+
+      return true;
     });
   }
 
@@ -194,20 +274,20 @@ export class NASADataEngine {
     return sanitized;
   }
 
-  private static async getFromFirestore(key: string): Promise<any> {
-    const docRef = doc(db, this.CACHE_COLLECTION, key);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      return docSnap.data();
+  /** Read from Firestore (if available) or fall back to in-memory cache. */
+  private static async readCache(key: string): Promise<any> {
+    if (getFirestoreDoc) {
+      return getFirestoreDoc(key);
     }
-    return null;
+    return memoryCache.get(key) ?? null;
   }
 
-  private static async saveToFirestore(key: string, data: any): Promise<void> {
-    const docRef = doc(db, this.CACHE_COLLECTION, key);
-    await setDoc(docRef, {
-      ...data,
-      updatedAt: Timestamp.now()
-    });
+  /** Write to Firestore (if available) or fall back to in-memory cache. */
+  private static async writeCache(key: string, data: any): Promise<void> {
+    if (setFirestoreDoc) {
+      await setFirestoreDoc(key, data);
+    } else {
+      memoryCache.set(key, data);
+    }
   }
 }

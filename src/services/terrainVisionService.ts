@@ -194,10 +194,10 @@ export function analyzeImageTerrainFeatures(
   imageElement: HTMLImageElement,
   validation: UploadedImageValidation,
   activeRouteWaypoints: Array<{ x: number; y: number }>,
-  sourceDimensions: { width: number; height: number } = { width: 256, height: 256 }
+  sourceDimensions: { width: number; height: number } = { width: 776, height: 256 }
 ): TerrainFeatureExtractionResult {
-  const analysisWidth = 256;
-  const analysisHeight = 256;
+  const analysisWidth = imageElement.naturalWidth || sourceDimensions.width || validation.width || 776;
+  const analysisHeight = imageElement.naturalHeight || sourceDimensions.height || validation.height || 256;
 
   // Create offscreen canvas for computer vision pixel extraction
   const canvas = document.createElement('canvas');
@@ -371,11 +371,11 @@ export function analyzeImageTerrainFeatures(
     });
   }
 
-  // Normalize waypoints to analysis canvas coordinates (0-256)
+  // Normalize waypoints to analysis canvas coordinates
   const normalizedRoute = (activeRouteWaypoints && activeRouteWaypoints.length > 0)
     ? activeRouteWaypoints.map(wp => ({
-        x: (wp.x / (sourceDimensions.width || 256)) * analysisWidth,
-        y: (wp.y / (sourceDimensions.height || 256)) * analysisHeight
+        x: (wp.x / (sourceDimensions.width || analysisWidth)) * analysisWidth,
+        y: (wp.y / (sourceDimensions.height || analysisHeight)) * analysisHeight
       }))
     : [];
 

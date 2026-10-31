@@ -68,7 +68,7 @@ function findDetourPath(
   goal: RoutePoint,
   blockedRegions: Array<{ minX: number; minY: number; maxX: number; maxY: number }>,
   gridSize = 64,
-  sourceDimensions = { width: 256, height: 256 }
+  sourceDimensions = { width: 776, height: 256 }
 ): RoutePoint[] | null {
   const scaleX = gridSize / sourceDimensions.width;
   const scaleY = gridSize / sourceDimensions.height;
@@ -302,7 +302,11 @@ export function runScenario1BoulderObstacle(
     maxY: o.pixelY + o.pixelHeight
   }));
 
-  const detourWaypoints = findDetourPath(startPt, goalPt, blockedBoxes);
+  const sourceDim = {
+    width: featureResult.validation.width || 776,
+    height: featureResult.validation.height || 256
+  };
+  const detourWaypoints = findDetourPath(startPt, goalPt, blockedBoxes, 64, sourceDim);
 
   const elapsed = parseFloat((performance.now() - t0).toFixed(1));
 
@@ -484,12 +488,22 @@ export function runScenario2SlopeAndSlip(
 
   // Check if constraints are violated
   if (affectedSegmentsCount > 0) {
+    const sourceDim = {
+      width: featureResult.validation.width || 776,
+      height: featureResult.validation.height || 256
+    };
     // Generate contour-following alternative route that detours around steep slope section
     const contourDetour = findDetourPath(
       startPt,
       goalPt,
-      [{ minX: 80, minY: 80, maxX: 160, maxY: 160 }],
-      64
+      [{
+        minX: Math.round(sourceDim.width * 0.32),
+        minY: Math.round(sourceDim.height * 0.22),
+        maxX: Math.round(sourceDim.width * 0.65),
+        maxY: Math.round(sourceDim.height * 0.78)
+      }],
+      64,
+      sourceDim
     );
 
     if (contourDetour) {

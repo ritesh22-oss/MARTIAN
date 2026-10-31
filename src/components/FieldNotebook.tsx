@@ -103,7 +103,7 @@ export default function FieldNotebook() {
         priority: formPriority,
         x: 128,
         y: 128,
-        imageUrl: sharedSession.terrainImage || '/assets/aistudio/vis_0_f6a9756b.png',
+        imageUrl: sharedSession.terrainImage || 'https://images-assets.nasa.gov/image/PIA24424/PIA24424~orig.jpg',
         createdAt: editingNote ? editingNote.createdAt : new Date().toISOString(),
         tags: tagArray
     };

@@ -204,15 +204,15 @@ const defaultTelemetry: RoverTelemetry = {
 };
 
 const defaultSharedSession: SharedTerrainSession = {
-  terrainImage: '/assets/aistudio/vis_0_f6a9756b.png',
+  terrainImage: '',
   imageProvenance: {
-    source: 'HiRISE DTM (Jezero Crater)',
-    rover: 'Perseverance (Mars 2020)',
-    camera: 'NAVCAM_LEFT',
-    sol: 428,
-    acquisitionUtc: new Date().toISOString(),
-    identifier: 'PSP_001414_1780',
-    sourceUrl: '/assets/aistudio/vis_0_f6a9756b.png'
+    source: '',
+    rover: '',
+    camera: '',
+    sol: 0,
+    acquisitionUtc: '',
+    identifier: '',
+    sourceUrl: ''
   },
   startPoint: null,
   destinationPoint: null,
@@ -359,10 +359,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     // Sync shared session
     setSharedSession(prev => ({
       ...prev,
-      terrainImage: saved.terrainImage || prev.terrainImage || '/assets/aistudio/vis_0_f6a9756b.png',
+      terrainImage: saved.terrainImage || prev.terrainImage || '',
       imageProvenance: saved.imageProvenance || prev.imageProvenance,
-      startPoint: saved.startPoint || { x: 35, y: 220 },
-      destinationPoint: saved.destinationPoint || { x: 220, y: 45 },
+      startPoint: saved.startPoint || null,
+      destinationPoint: saved.destinationPoint || null,
       obstacles: saved.obstacles || [],
       selectedStrategy: (saved.selectedStrategy || 'alpha') as 'alpha' | 'beta' | 'delta' | 'gamma'
     }));
@@ -376,10 +376,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     setRecordActiveMission(missionId);
     setSharedSession(prev => ({
       ...prev,
-      terrainImage: target.terrainImage || prev.terrainImage || '/assets/aistudio/vis_0_f6a9756b.png',
+      terrainImage: target.terrainImage || prev.terrainImage || '',
       imageProvenance: target.imageProvenance || prev.imageProvenance,
-      startPoint: target.startPoint || { x: 35, y: 220 },
-      destinationPoint: target.destinationPoint || { x: 220, y: 45 },
+      startPoint: target.startPoint || null,
+      destinationPoint: target.destinationPoint || null,
       obstacles: target.obstacles || [],
       selectedStrategy: (target.selectedStrategy || 'alpha') as 'alpha' | 'beta' | 'delta' | 'gamma'
     }));
@@ -461,7 +461,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           // If blob URL or giant base64 data URL, do not store raw multi-megabytes into localStorage/Firestore
           const imgStr = partial.terrainImage;
           if (imgStr && (imgStr.startsWith('blob:') || (imgStr.startsWith('data:') && imgStr.length > 50000))) {
-            missionUpdates.terrainImage = currentActiveMission.terrainImage || '/assets/aistudio/vis_0_f6a9756b.png';
+            missionUpdates.terrainImage = currentActiveMission.terrainImage || '';
           } else {
             missionUpdates.terrainImage = imgStr;
           }

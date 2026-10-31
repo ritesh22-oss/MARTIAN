@@ -607,6 +607,21 @@ export const LiveMissionDataWorkspace: React.FC = () => {
                         isSelected ? 'border-cyan-500 ring-1 ring-cyan-500/40' : 'border-slate-800'
                       }`}
                     >
+                      {/* HiRISE Image Viewer */}
+                      <div className="relative w-full h-48 bg-slate-950 overflow-hidden group">
+                        <img
+                          src={`/api/nasa/proxy-image?url=${encodeURIComponent(product.thumbnailUrl)}`}
+                          alt={product.title}
+                          className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="100%" height="100%" fill="%230f172a"/><text x="50%" y="50%" fill="%2364748b" font-family="monospace" font-size="12" text-anchor="middle">Image Data Unavailable</text></svg>';
+                          }}
+                        />
+                        <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent text-[10px] text-slate-300 font-mono truncate">
+                          HiRISE Orthoimage Preview
+                        </div>
+                      </div>
+
                       <div className="p-4 space-y-3">
                         <div className="flex items-center justify-between gap-2">
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-950/80 text-cyan-300 border border-cyan-500/30">

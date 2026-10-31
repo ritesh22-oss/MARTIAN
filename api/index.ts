@@ -1,5 +1,7 @@
 import express from 'express';
 import { GoogleGenAI } from '@google/genai';
+import { fromUrl } from 'geotiff';
+import sharp from 'sharp';
 
 const app = express();
 
@@ -360,10 +362,112 @@ app.get('/api/nasa/sync/latest', async (req, res) => {
   }
 });
 
-// Image Proxy with automatic 302 Redirect Fallback
+// Helper: Render Cloud-Optimized GeoTIFF raster to JPEG buffer
+async function renderGeotiffToJpegBuffer(tiffUrl: string): Promise<Buffer> {
+  const tiff = await fromUrl(tiffUrl, { allowFullFile: false });
+  const count = await tiff.getImageCount();
+
+  let selectedLevel = Math.max(0, count - 1);
+  for (let i = 0; i < count; i++) {
+    const img = await tiff.getImage(i);
+    const maxDim = Math.max(img.getWidth(), img.getHeight());
+    if (maxDim <= 600) {
+      selectedLevel = i;
+      break;
+    }
+  }
+
+  const image = await tiff.getImage(selectedLevel);
+  const width = image.getWidth();
+  const height = image.getHeight();
+  const rasters = await image.readRasters();
+  const numChannels = rasters.length;
+  const pixelCount = width * height;
+
+  if (numChannels >= 3) {
+    // RGB or RGBA Orthoimage
+    const r = rasters[0] as any;
+    const g = rasters[1] as any;
+    const b = rasters[2] as any;
+    const rgb = new Uint8Array(pixelCount * 3);
+
+    const isFloat = (r instanceof Float32Array || r instanceof Float64Array);
+    if (isFloat) {
+      for (let i = 0; i < pixelCount; i++) {
+        rgb[i * 3] = Math.max(0, Math.min(255, Math.round(r[i] || 0)));
+        rgb[i * 3 + 1] = Math.max(0, Math.min(255, Math.round(g[i] || 0)));
+        rgb[i * 3 + 2] = Math.max(0, Math.min(255, Math.round(b[i] || 0)));
+      }
+    } else {
+      for (let i = 0; i < pixelCount; i++) {
+        rgb[i * 3] = r[i] || 0;
+        rgb[i * 3 + 1] = g[i] || 0;
+        rgb[i * 3 + 2] = b[i] || 0;
+      }
+    }
+    return await sharp(rgb, { raw: { width, height, channels: 3 } }).jpeg({ quality: 82 }).toBuffer();
+  } else {
+    // 1-channel DTM elevation or hillshade
+    const data = rasters[0] as any;
+    const gray = new Uint8Array(pixelCount);
+
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = 0; i < pixelCount; i++) {
+      const val = data[i];
+      if (val !== undefined && !isNaN(val) && val > -10000 && val < 30000) {
+        if (val < min) min = val;
+        if (val > max) max = val;
+      }
+    }
+
+    const range = (max - min) || 1;
+    for (let i = 0; i < pixelCount; i++) {
+      const val = data[i];
+      if (val === undefined || isNaN(val) || val < -10000 || val > 30000) {
+        gray[i] = 18; // Dark charcoal background for NoData
+      } else {
+        gray[i] = Math.max(0, Math.min(255, Math.round(((val - min) / range) * 255)));
+      }
+    }
+    return await sharp(gray, { raw: { width, height, channels: 1 } }).jpeg({ quality: 82 }).toBuffer();
+  }
+}
+
+// GeoTIFF Renderer Route
+app.get('/api/stac/render-geotiff', async (req, res) => {
+  const imageUrl = req.query.url as string;
+  if (!imageUrl) return res.status(400).json({ error: 'url parameter is required' });
+
+  try {
+    const buffer = await renderGeotiffToJpegBuffer(imageUrl);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+    return res.send(buffer);
+  } catch (err: any) {
+    console.error('[GEOTIFF_RENDER_FAILED]', err.message);
+    return res.status(502).json({ success: false, error: { message: `GeoTIFF rendering failed: ${getErrorMessage(err)}` } });
+  }
+});
+
+// Image Proxy with automatic 302 Redirect Fallback and GeoTIFF auto-render
 app.get('/api/nasa/proxy-image', async (req, res) => {
   const imageUrl = req.query.url as string;
   if (!imageUrl) return res.status(400).json({ error: 'url parameter is required' });
+
+  // If URL is a GeoTIFF, route automatically to GeoTIFF renderer
+  if (imageUrl.toLowerCase().includes('.tif') || imageUrl.toLowerCase().includes('.tiff')) {
+    try {
+      const buffer = await renderGeotiffToJpegBuffer(imageUrl);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+      return res.send(buffer);
+    } catch (renderErr: any) {
+      console.warn('[PROXY] GeoTIFF rendering failed, attempting direct proxy:', renderErr.message);
+    }
+  }
 
   try {
     let resp = await fetch(imageUrl, {
@@ -818,6 +922,156 @@ app.get('/api/sources/health', async (_req, res) => {
     overallStatus: 'connected',
     timestamp: new Date().toISOString()
   });
+});
+
+// NASA HiRISE Products proxy / repository
+app.get('/api/nasa/hirise/products', async (req, res, next) => {
+  try {
+    const query = (req.query.q as string || '').toLowerCase();
+    const mockProducts = [
+      {
+        id: 'ESP_048842_1985',
+        title: 'MRO HiRISE Jezero Crater Western Delta DTM',
+        mission: 'Mars Reconnaissance Orbiter (MRO)',
+        instrument: 'HiRISE Stereo Camera (0.25 m/px)',
+        product: 'PSP_001414_1780_DTM_JEZERO_FAN',
+        resolutionMeters: 0.25,
+        elevationRange: [-2580, -2410],
+        datum: 'Mars Aeroid / MOLA Topographic Datum',
+        crs: 'Planetocentric East-positive (18.38°N, 77.42°E)',
+        pdsStatus: 'VERIFIED ARCHIVE',
+        description: 'High-resolution Digital Terrain Model of the delta scarp beds and fluvial channels explored by Perseverance.',
+        dtmUrl: 'https://astrogeo-ard.s3-us-west-2.amazonaws.com/mars/mro/hirise/controlled/dtm/ESP_048842_1985_ESP_048908_1985/DTEEC_048842_1985_048908_1985_U01.tif',
+        thumbnailUrl: 'https://hirise-pds.lpl.arizona.edu/PDS/EXTRAS/RDR/PSP/ORB_001400_001499/PSP_001414_1780/PSP_001414_1780_RED.NOMAP.browse.jpg'
+      },
+      {
+        id: 'ESP_069151_1985',
+        title: 'MRO HiRISE Belva Crater Slump Escarpment',
+        mission: 'Mars Reconnaissance Orbiter (MRO)',
+        instrument: 'HiRISE High-Resolution Stereo (0.25 m/px)',
+        product: 'ESP_069151_1985_BELVA_CRATER',
+        resolutionMeters: 0.25,
+        elevationRange: [-2690, -2320],
+        datum: 'Mars Aeroid / MOLA Topographic Datum',
+        crs: 'Planetocentric East-positive (18.49°N, 77.34°E)',
+        pdsStatus: 'RETRIEVED PDS',
+        description: 'Steep impact crater wall with slumped block escarpments and active regolith creep slopes.',
+        dtmUrl: 'https://astrogeo-ard.s3-us-west-2.amazonaws.com/mars/mro/hirise/controlled/dtm/ESP_069151_1985_ESP_069296_1985/DTEEC_069151_1985_069296_1985_U01.tif',
+        thumbnailUrl: 'https://hirise-pds.lpl.arizona.edu/PDS/EXTRAS/RDR/ESP/ORB_069100_069199/ESP_069151_1985/ESP_069151_1985_RED.NOMAP.browse.jpg'
+      }
+    ];
+
+    const filtered = query ? mockProducts.filter(p => p.title.toLowerCase().includes(query) || p.description.toLowerCase().includes(query) || p.id.toLowerCase().includes(query)) : mockProducts;
+
+    res.json({
+      success: true,
+      products: filtered,
+      retrievedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// STAC Discovery Helper
+async function discoverStacApi() {
+  const response = await fetch('https://stac.astrogeology.usgs.gov/api');
+  if (!response.ok) throw new Error(`STAC Root failed: ${response.status}`);
+  const root = await response.json();
+  const searchLink = root.links.find((l: any) => l.rel === 'search');
+  const collectionsLink = root.links.find((l: any) => l.rel === 'data');
+  return { 
+    searchUrl: searchLink ? searchLink.href : 'https://stac.astrogeology.usgs.gov/api/search', 
+    collectionsUrl: collectionsLink ? collectionsLink.href : 'https://stac.astrogeology.usgs.gov/api/collections' 
+  };
+}
+
+// USGS STAC Diagnostics
+app.get('/api/nasa/stac/diagnostics', async (_req, res) => {
+  const tests: any[] = [];
+  try {
+    const t0 = Date.now();
+    const resp = await fetch('https://stac.astrogeology.usgs.gov/api');
+    const root = await resp.json();
+    tests.push({ step: 'Root', status: resp.ok ? 'OK' : 'FAIL', time: Date.now() - t0, info: root.links ? 'HATEOAS OK' : 'Links missing' });
+    
+    if (resp.ok) {
+        const { collectionsUrl } = await discoverStacApi();
+        const t1 = Date.now();
+        const resp2 = await fetch(collectionsUrl);
+        tests.push({ step: 'Collections', status: resp2.ok ? 'OK' : 'FAIL', time: Date.now() - t1, url: collectionsUrl });
+    }
+  } catch (e: any) {
+    tests.push({ step: 'Diagnostics', status: 'FAIL', error: e.message });
+  }
+  res.json({ tests });
+});
+
+// STAC Collections Discovery
+app.get('/api/stac/collections', async (req, res, next) => {
+  try {
+    const { collectionsUrl } = await discoverStacApi();
+    const response = await fetch(collectionsUrl);
+    const data = await response.json();
+    res.json({
+      success: true,
+      count: data.collections.length,
+      collections: data.collections
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// STAC Item Search supporting both GET and POST
+app.all('/api/stac/search', async (req, res, next) => {
+  try {
+    const { searchUrl } = await discoverStacApi();
+    const collection = (req.method === 'GET' ? req.query.collection : req.body.collection) || 'mro_hirise_socet_dtms';
+    const limit = parseInt((req.method === 'GET' ? req.query.limit : req.body.limit) || '24', 10);
+    const page = parseInt((req.method === 'GET' ? req.query.page : req.body.page) || '1', 10);
+    const query = req.method === 'GET' ? (req.query.query as string) : req.body.query;
+
+    let bbox = req.method === 'GET' ? req.query.bbox : req.body.bbox;
+    if (typeof bbox === 'string') {
+      bbox = bbox.split(',').map((n: string) => parseFloat(n.trim()));
+    }
+
+    const body: any = {
+      collections: [collection],
+      limit: limit,
+      page: page
+    };
+    if (bbox && Array.isArray(bbox) && bbox.length === 4) {
+      body.bbox = bbox;
+    }
+
+    const response = await fetch(searchUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/geo+json' },
+      body: JSON.stringify(body)
+    });
+
+    const data = await response.json();
+    let features = data.features || [];
+
+    if (query && typeof query === 'string' && query.trim()) {
+      const q = query.toLowerCase().trim();
+      features = features.filter((f: any) =>
+        f.id.toLowerCase().includes(q) ||
+        (f.properties?.title && f.properties.title.toLowerCase().includes(q)) ||
+        (f.properties?.description && f.properties.description.toLowerCase().includes(q))
+      );
+    }
+
+    res.json({
+      success: true,
+      items: features,
+      totalCount: data.numberMatched || features.length
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Centralized Error Handler

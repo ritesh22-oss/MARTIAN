@@ -10,6 +10,8 @@ import { createServer as createViteServer } from 'vite';
 import { generateAutonomousAnswer } from './src/utils/orbitKnowledgeEngine';
 import { NASADataEngine } from './nasaEngine';
 import { getStacCollections, searchStacItems, processDtmRaster } from './src/services/stacProcessor';
+import { fromUrl } from 'geotiff';
+import sharp from 'sharp';
 
 dotenv.config();
 
@@ -268,10 +270,112 @@ app.get('/api/nasa/sync/latest', async (req, res, next) => {
   }
 });
 
+// Helper: Render Cloud-Optimized GeoTIFF raster to JPEG buffer
+async function renderGeotiffToJpegBuffer(tiffUrl: string): Promise<Buffer> {
+  const tiff = await fromUrl(tiffUrl, { allowFullFile: false });
+  const count = await tiff.getImageCount();
+
+  let selectedLevel = Math.max(0, count - 1);
+  for (let i = 0; i < count; i++) {
+    const img = await tiff.getImage(i);
+    const maxDim = Math.max(img.getWidth(), img.getHeight());
+    if (maxDim <= 600) {
+      selectedLevel = i;
+      break;
+    }
+  }
+
+  const image = await tiff.getImage(selectedLevel);
+  const width = image.getWidth();
+  const height = image.getHeight();
+  const rasters = await image.readRasters();
+  const numChannels = rasters.length;
+  const pixelCount = width * height;
+
+  if (numChannels >= 3) {
+    // RGB or RGBA Orthoimage
+    const r = rasters[0] as any;
+    const g = rasters[1] as any;
+    const b = rasters[2] as any;
+    const rgb = new Uint8Array(pixelCount * 3);
+
+    const isFloat = (r instanceof Float32Array || r instanceof Float64Array);
+    if (isFloat) {
+      for (let i = 0; i < pixelCount; i++) {
+        rgb[i * 3] = Math.max(0, Math.min(255, Math.round(r[i] || 0)));
+        rgb[i * 3 + 1] = Math.max(0, Math.min(255, Math.round(g[i] || 0)));
+        rgb[i * 3 + 2] = Math.max(0, Math.min(255, Math.round(b[i] || 0)));
+      }
+    } else {
+      for (let i = 0; i < pixelCount; i++) {
+        rgb[i * 3] = r[i] || 0;
+        rgb[i * 3 + 1] = g[i] || 0;
+        rgb[i * 3 + 2] = b[i] || 0;
+      }
+    }
+    return await sharp(rgb, { raw: { width, height, channels: 3 } }).jpeg({ quality: 82 }).toBuffer();
+  } else {
+    // 1-channel DTM elevation or hillshade
+    const data = rasters[0] as any;
+    const gray = new Uint8Array(pixelCount);
+
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = 0; i < pixelCount; i++) {
+      const val = data[i];
+      if (val !== undefined && !isNaN(val) && val > -10000 && val < 30000) {
+        if (val < min) min = val;
+        if (val > max) max = val;
+      }
+    }
+
+    const range = (max - min) || 1;
+    for (let i = 0; i < pixelCount; i++) {
+      const val = data[i];
+      if (val === undefined || isNaN(val) || val < -10000 || val > 30000) {
+        gray[i] = 18; // Dark charcoal background for NoData
+      } else {
+        gray[i] = Math.max(0, Math.min(255, Math.round(((val - min) / range) * 255)));
+      }
+    }
+    return await sharp(gray, { raw: { width, height, channels: 1 } }).jpeg({ quality: 82 }).toBuffer();
+  }
+}
+
+// GeoTIFF Renderer Route
+app.get('/api/stac/render-geotiff', async (req, res) => {
+  const imageUrl = req.query.url as string;
+  if (!imageUrl) return res.status(400).json({ error: 'url parameter is required' });
+
+  try {
+    const buffer = await renderGeotiffToJpegBuffer(imageUrl);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+    return res.send(buffer);
+  } catch (err: any) {
+    console.error('[GEOTIFF_RENDER_FAILED]', err.message);
+    return res.status(502).json({ success: false, error: { message: `GeoTIFF rendering failed: ${getErrorMessage(err)}` } });
+  }
+});
+
 // Image Proxy
 app.get('/api/nasa/proxy-image', async (req, res) => {
   const imageUrl = req.query.url as string;
   if (!imageUrl) return res.status(400).json({ error: 'url required' });
+
+  // If URL is a GeoTIFF, route automatically to GeoTIFF renderer
+  if (imageUrl.toLowerCase().includes('.tif') || imageUrl.toLowerCase().includes('.tiff')) {
+    try {
+      const buffer = await renderGeotiffToJpegBuffer(imageUrl);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+      return res.send(buffer);
+    } catch (renderErr: any) {
+      console.warn('[PROXY] GeoTIFF rendering failed, attempting direct proxy:', renderErr.message);
+    }
+  }
 
   try {
     let resp = await fetch(imageUrl, {
@@ -299,7 +403,7 @@ app.get('/api/nasa/proxy-image', async (req, res) => {
     }
 
     if (!resp.ok) return res.status(resp.status).end();
-    
+
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', resp.headers.get('content-type') || 'image/jpeg');
     res.setHeader('Cache-Control', 'public, max-age=86400');
@@ -666,7 +770,7 @@ app.get(['/api/nasa/sources-status', '/api/sources/health'], async (_req, res) =
 });
 
 // STAC Collections Discovery
-app.get('/api/stac/collections', async (req, res, next) => {
+app.all('/api/stac/collections', async (req, res, next) => {
   try {
     const forceRefresh = req.query.refresh === 'true';
     const collections = await getStacCollections(forceRefresh);
@@ -680,18 +784,20 @@ app.get('/api/stac/collections', async (req, res, next) => {
   }
 });
 
-// STAC Item Search with spatial bbox, pagination & keyword filtering
-app.get('/api/stac/search', async (req, res, next) => {
+// STAC Item Search with spatial bbox, pagination & keyword filtering (supports GET and POST)
+app.all('/api/stac/search', async (req, res, next) => {
   try {
-    const collection = (req.query.collection as string) || 'mro_hirise_socet_dtms';
-    const limit = parseInt((req.query.limit as string) || '20', 10);
-    const query = req.query.query as string;
-    const page = parseInt((req.query.page as string) || '1', 10);
+    const body = req.method === 'POST' ? req.body : {};
+    const collection = (req.query.collection as string) || body.collection || 'mro_hirise_socet_dtms';
+    const limit = parseInt((req.query.limit as string) || String(body.limit || 20), 10);
+    const query = (req.query.query as string) || body.query;
+    const page = parseInt((req.query.page as string) || String(body.page || 1), 10);
 
     let bbox: [number, number, number, number] | undefined = undefined;
-    if (req.query.bbox) {
-      const parts = (req.query.bbox as string).split(',').map(n => parseFloat(n.trim()));
-      if (parts.length === 4 && parts.every(n => !isNaN(n))) {
+    const bboxStr = (req.query.bbox as string) || (Array.isArray(body.bbox) ? body.bbox.join(',') : body.bbox);
+    if (bboxStr) {
+      const parts = bboxStr.split(',').map((n: string) => parseFloat(n.trim()));
+      if (parts.length === 4 && parts.every((n: number) => !isNaN(n))) {
         bbox = parts as [number, number, number, number];
       }
     }

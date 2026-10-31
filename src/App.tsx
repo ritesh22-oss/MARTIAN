@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import { Search } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
 import { MissionRecordProvider } from './context/MissionRecordContext';
@@ -43,6 +43,19 @@ import { useNetworkStatus } from './hooks/useNetworkStatus';
 import OfflineScreen from './components/OfflineScreen';
 import SlowConnectionScreen from './components/SlowConnectionScreen';
 import ServiceStatusBanner from './components/ServiceStatusBanner';
+
+// Inline ErrorBoundary to fix production bundling issue
+interface ErrorBoundaryProps { children: ReactNode; fallback?: ReactNode; }
+interface ErrorBoundaryState { hasError: boolean; }
+class InlinedErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public state: ErrorBoundaryState = { hasError: false };
+  public static getDerivedStateFromError(_: Error): ErrorBoundaryState { return { hasError: true }; }
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo) { console.error("Uncaught error:", error, errorInfo); }
+  public render() {
+    if (this.state.hasError) return this.props.fallback || <div className="p-8 text-center text-rose-400 bg-rose-950/20 border border-rose-900 rounded-lg">Something went wrong.</div>;
+    return this.props.children;
+  }
+}
 
 function WorkstationMain() {
   const { activeWorkspace, setActiveWorkspace, commandPaletteOpen, setCommandPaletteOpen } = useWorkspace();
@@ -142,7 +155,20 @@ function WorkstationMain() {
       case 'scenario-testing':
         return (
           <div className="p-4 lg:p-6 max-w-[1800px] mx-auto w-full">
-            <ScenarioTestingLab />
+            <InlinedErrorBoundary fallback={
+              <div className="p-8 text-center text-rose-400 bg-rose-950/20 border border-rose-900 rounded-lg">
+                <h2 className="text-lg font-bold mb-2">Scenario Testing simulation failed.</h2>
+                <p className="text-sm mb-4">The simulation engine encountered an unexpected error.</p>
+                <button 
+                  onClick={() => window.location.reload()}
+                  className="px-4 py-2 bg-rose-900 hover:bg-rose-800 text-white rounded font-bold text-xs"
+                >
+                  Reload Page
+                </button>
+              </div>
+            }>
+              <ScenarioTestingLab />
+            </InlinedErrorBoundary>
           </div>
         );
       case 'validation-harness':

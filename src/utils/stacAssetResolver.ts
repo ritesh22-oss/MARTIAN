@@ -59,6 +59,7 @@ export function resolveStacItemImage(item: any): ResolvedStacImage {
     const roles = Array.isArray(asset?.roles) ? asset.roles.map((r: string) => r.toLowerCase()) : [];
     const isImageFile = Boolean(href.toLowerCase().match(/\.(jpg|jpeg|png|webp)($|\?)/));
     const isTiffFile = Boolean(href.toLowerCase().match(/\.(tif|tiff)($|\?)/) || type.includes('tiff') || type.includes('geotiff'));
+    const isBrokenTopLevelDtepd = href.includes('/DTEPD_') && (href.endsWith('.jpg') || href.endsWith('.tif'));
 
     return {
       key,
@@ -67,99 +68,62 @@ export function resolveStacItemImage(item: any): ResolvedStacImage {
       type,
       roles,
       isImageFile,
-      isTiffFile
+      isTiffFile,
+      isBrokenTopLevelDtepd
     };
   });
 
-  // Priority 1: Thumbnail asset (web image format or GeoTIFF)
-  const thumbAsset = assetEntries.find(a => a.key === 'thumbnail' || a.roles.includes('thumbnail'));
-  if (thumbAsset) {
-    if (thumbAsset.isImageFile) {
-      return {
-        imageUrl: `/api/nasa/proxy-image?url=${encodeURIComponent(thumbAsset.href)}`,
-        originalAssetUrl: thumbAsset.href,
-        assetKey: thumbAsset.key,
-        assetTypeLabel: 'Thumbnail',
-        observationId: obsId,
-        attribution,
-        isGeoTiff: false
-      };
-    }
+  // Priority 1: Orthophoto Thumbnail JPEG asset (known 200 OK live images in USGS S3)
+  const orthoThumb = assetEntries.find(a =>
+    !a.isBrokenTopLevelDtepd &&
+    a.isImageFile &&
+    (a.key.toLowerCase().includes('ortho_thumbnail') || a.key.toLowerCase().includes('ortho_browse') || a.title.includes('ortho') || a.title.includes('browse'))
+  );
+  if (orthoThumb) {
+    return {
+      imageUrl: `/api/stac/image?url=${encodeURIComponent(orthoThumb.href)}`,
+      originalAssetUrl: orthoThumb.href,
+      assetKey: orthoThumb.key,
+      assetTypeLabel: 'Orthophoto Thumbnail',
+      observationId: obsId,
+      attribution,
+      isGeoTiff: false
+    };
   }
 
-  // Priority 2: Browse asset (web image format or GeoTIFF)
-  const browseAsset = assetEntries.find(a => a.key === 'browse' || a.roles.includes('browse') || a.title.includes('browse'));
-  if (browseAsset) {
-    if (browseAsset.isImageFile) {
-      return {
-        imageUrl: `/api/nasa/proxy-image?url=${encodeURIComponent(browseAsset.href)}`,
-        originalAssetUrl: browseAsset.href,
-        assetKey: browseAsset.key,
-        assetTypeLabel: 'Browse Image',
-        observationId: obsId,
-        attribution,
-        isGeoTiff: false
-      };
-    }
+  // Priority 2: Any other valid non-DTEPD JPEG asset
+  const validJpeg = assetEntries.find(a => !a.isBrokenTopLevelDtepd && a.isImageFile);
+  if (validJpeg) {
+    return {
+      imageUrl: `/api/stac/image?url=${encodeURIComponent(validJpeg.href)}`,
+      originalAssetUrl: validJpeg.href,
+      assetKey: validJpeg.key,
+      assetTypeLabel: 'Browse Image',
+      observationId: obsId,
+      attribution,
+      isGeoTiff: false
+    };
   }
 
-  // Priority 3: Orthoimage asset
-  const orthoAsset = assetEntries.find(a => a.key === 'orthoimage' || a.key === 'ortho' || a.title.includes('ortho'));
-  if (orthoAsset) {
-    if (orthoAsset.isImageFile) {
-      return {
-        imageUrl: `/api/nasa/proxy-image?url=${encodeURIComponent(orthoAsset.href)}`,
-        originalAssetUrl: orthoAsset.href,
-        assetKey: orthoAsset.key,
-        assetTypeLabel: 'Orthophoto',
-        observationId: obsId,
-        attribution,
-        isGeoTiff: false
-      };
-    } else if (orthoAsset.isTiffFile) {
-      return {
-        imageUrl: `/api/stac/render-geotiff?url=${encodeURIComponent(orthoAsset.href)}`,
-        originalAssetUrl: orthoAsset.href,
-        assetKey: orthoAsset.key,
-        assetTypeLabel: 'Orthophoto (GeoTIFF)',
-        observationId: obsId,
-        attribution,
-        isGeoTiff: true
-      };
-    }
+  // Priority 3: Orthophoto GeoTIFF asset (rendered server-side)
+  const orthoTiff = assetEntries.find(a => !a.isBrokenTopLevelDtepd && a.isTiffFile && a.key.toLowerCase().includes('ortho'));
+  if (orthoTiff) {
+    return {
+      imageUrl: `/api/stac/image?url=${encodeURIComponent(orthoTiff.href)}`,
+      originalAssetUrl: orthoTiff.href,
+      assetKey: orthoTiff.key,
+      assetTypeLabel: 'Orthophoto (GeoTIFF)',
+      observationId: obsId,
+      attribution,
+      isGeoTiff: true
+    };
   }
 
-  // Priority 4: Hillshade asset
-  const hillshadeAsset = assetEntries.find(a => a.key === 'hillshade' || a.title.includes('hillshade'));
-  if (hillshadeAsset) {
-    if (hillshadeAsset.isImageFile) {
-      return {
-        imageUrl: `/api/nasa/proxy-image?url=${encodeURIComponent(hillshadeAsset.href)}`,
-        originalAssetUrl: hillshadeAsset.href,
-        assetKey: hillshadeAsset.key,
-        assetTypeLabel: 'Shaded Relief',
-        observationId: obsId,
-        attribution,
-        isGeoTiff: false
-      };
-    } else if (hillshadeAsset.isTiffFile) {
-      return {
-        imageUrl: `/api/stac/render-geotiff?url=${encodeURIComponent(hillshadeAsset.href)}`,
-        originalAssetUrl: hillshadeAsset.href,
-        assetKey: hillshadeAsset.key,
-        assetTypeLabel: 'Shaded Relief (GeoTIFF)',
-        observationId: obsId,
-        attribution,
-        isGeoTiff: true
-      };
-    }
-  }
-
-  // Priority 5: HiRISE PDS Extras direct browse URL (if valid observation ID)
+  // Priority 4: HiRISE PDS Extras direct browse image URL
   const pdsBrowseUrl = getHiRisePdsBrowseUrl(obsId);
   if (pdsBrowseUrl) {
     return {
-      imageUrl: `/api/nasa/proxy-image?url=${encodeURIComponent(pdsBrowseUrl)}`,
+      imageUrl: `/api/stac/image?url=${encodeURIComponent(pdsBrowseUrl)}`,
       originalAssetUrl: pdsBrowseUrl,
       assetKey: 'pds_extras',
       assetTypeLabel: 'HiRISE PDS Browse',
@@ -169,27 +133,13 @@ export function resolveStacItemImage(item: any): ResolvedStacImage {
     };
   }
 
-  // Priority 6: Any image asset file found
-  const anyImageAsset = assetEntries.find(a => a.isImageFile);
-  if (anyImageAsset) {
+  // Priority 5: DTM GeoTIFF raster asset (if not broken)
+  const dtmTiff = assetEntries.find(a => !a.isBrokenTopLevelDtepd && a.isTiffFile);
+  if (dtmTiff) {
     return {
-      imageUrl: `/api/nasa/proxy-image?url=${encodeURIComponent(anyImageAsset.href)}`,
-      originalAssetUrl: anyImageAsset.href,
-      assetKey: anyImageAsset.key,
-      assetTypeLabel: 'Preview',
-      observationId: obsId,
-      attribution,
-      isGeoTiff: false
-    };
-  }
-
-  // Priority 7: DTM GeoTIFF rendering
-  const dtmAsset = assetEntries.find(a => a.key === 'dtm' || a.key === 'DTM' || a.isTiffFile);
-  if (dtmAsset) {
-    return {
-      imageUrl: `/api/stac/render-geotiff?url=${encodeURIComponent(dtmAsset.href)}`,
-      originalAssetUrl: dtmAsset.href,
-      assetKey: dtmAsset.key,
+      imageUrl: `/api/stac/image?url=${encodeURIComponent(dtmTiff.href)}`,
+      originalAssetUrl: dtmTiff.href,
+      assetKey: dtmTiff.key,
       assetTypeLabel: 'DTM Elevation Raster',
       observationId: obsId,
       attribution,
@@ -197,7 +147,7 @@ export function resolveStacItemImage(item: any): ResolvedStacImage {
     };
   }
 
-  // Fallback
+  // Fallback: Preview unavailable
   return {
     imageUrl: '',
     originalAssetUrl: '',

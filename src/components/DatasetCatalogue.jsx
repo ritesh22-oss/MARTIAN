@@ -107,8 +107,11 @@ export default function DatasetCatalogue() {
     setLoadingSources(true);
     try {
       const res = await fetch('/api/nasa/sources-status');
-      const data = await res.json();
-      setSourcesStatus(data);
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('json')) {
+        const data = await res.json();
+        setSourcesStatus(data);
+      }
     } catch (err) {
       console.error('Failed to query sources status:', err);
     } finally {
@@ -120,9 +123,12 @@ export default function DatasetCatalogue() {
   const fetchCollections = async () => {
     try {
       const res = await fetch('/api/stac/collections');
-      const data = await res.json();
-      if (data.collections) {
-        setCollections(data.collections);
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('json')) {
+        const data = await res.json();
+        if (data.collections) {
+          setCollections(data.collections);
+        }
       }
     } catch (err) {
       console.warn('STAC collection discovery error:', err);
@@ -150,6 +156,10 @@ export default function DatasetCatalogue() {
       if (searchQuery.trim()) url += `&query=${encodeURIComponent(searchQuery.trim())}`;
 
       const res = await fetch(url);
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('json')) {
+        throw new Error(`Server returned non-JSON response (HTTP ${res.status})`);
+      }
       const data = await res.json();
 
       if (!res.ok || !data.success) {
@@ -180,6 +190,10 @@ export default function DatasetCatalogue() {
     setIsSearchingNasa(true);
     try {
       const res = await fetch(`/api/nasa/images-library/search?q=${encodeURIComponent(q)}`);
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('json')) {
+        throw new Error(`Server returned non-JSON response (HTTP ${res.status})`);
+      }
       const data = await res.json();
       setNasaImages(data.collection?.items || []);
     } catch (err) {

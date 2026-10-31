@@ -155,14 +155,14 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
     const bScaleX = bumpCanvas.width / texW;
     const bScaleY = bumpCanvas.height / texH;
 
-    // A) Latitudinal Base Tone Gradient: authentic rusty ochre, terracotta, burnt umber
+    // A) Latitudinal Base Tone Gradient: authentic scientific Martian palette
     const baseGrad = cCtx.createLinearGradient(0, 0, 0, texH);
-    baseGrad.addColorStop(0.0, '#752b14'); // North polar fringe
-    baseGrad.addColorStop(0.2, '#9d3c1a'); // Vastitas Borealis lowlands
-    baseGrad.addColorStop(0.42, '#b85427'); // Warm equatorial dust (Amazonis / Elysium)
-    baseGrad.addColorStop(0.65, '#873214'); // Noachian cratered highlands
-    baseGrad.addColorStop(0.86, '#5e1f0b'); // Rugged southern plateau
-    baseGrad.addColorStop(1.0, '#3e1306');
+    baseGrad.addColorStop(0.0, '#5a2214'); // North polar dark fringe
+    baseGrad.addColorStop(0.18, '#88371c'); // Vastitas Borealis lowlands
+    baseGrad.addColorStop(0.42, '#a44922'); // Warm equatorial regolith (Amazonis / Elysium)
+    baseGrad.addColorStop(0.65, '#7b3117'); // Noachian cratered highlands
+    baseGrad.addColorStop(0.85, '#521d0e'); // Rugged southern plateau
+    baseGrad.addColorStop(1.0, '#361208');
     cCtx.fillStyle = baseGrad;
     cCtx.fillRect(0, 0, texW, texH);
 
@@ -172,16 +172,15 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
 
     // B) Wind-Shaped Sand Ripples & Transverse Aeolian Ridges (TARs) across dust plains
     cCtx.save();
-    cCtx.fillStyle = 'rgba(215, 115, 68, 0.18)';
-    for (let y = texH * 0.25; y < texH * 0.75; y += 14) {
+    for (let y = texH * 0.25; y < texH * 0.75; y += 18) {
       cCtx.beginPath();
       cCtx.moveTo(0, y);
-      for (let x = 0; x < texW; x += 30) {
-        const rippleOffset = Math.sin(x * 0.04 + y * 0.02) * 3.5;
+      for (let x = 0; x < texW; x += 40) {
+        const rippleOffset = Math.sin(x * 0.03 + y * 0.02) * 3.0;
         cCtx.lineTo(x, y + rippleOffset);
       }
-      cCtx.lineWidth = 4;
-      cCtx.strokeStyle = 'rgba(210, 105, 60, 0.2)';
+      cCtx.lineWidth = 3;
+      cCtx.strokeStyle = 'rgba(160, 70, 35, 0.12)';
       cCtx.stroke();
     }
     cCtx.restore();
@@ -189,25 +188,25 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
     // Bump ripples
     bCtx.save();
     bCtx.lineWidth = 2;
-    for (let y = bumpCanvas.height * 0.25; y < bumpCanvas.height * 0.75; y += 12) {
+    for (let y = bumpCanvas.height * 0.25; y < bumpCanvas.height * 0.75; y += 14) {
       bCtx.beginPath();
       bCtx.moveTo(0, y);
-      for (let x = 0; x < bumpCanvas.width; x += 24) {
-        const rOff = Math.sin(x * 0.05 + y * 0.03) * 2.5;
+      for (let x = 0; x < bumpCanvas.width; x += 30) {
+        const rOff = Math.sin(x * 0.04 + y * 0.03) * 2.0;
         bCtx.lineTo(x, y + rOff);
       }
-      bCtx.strokeStyle = 'rgba(145, 145, 145, 0.35)';
+      bCtx.strokeStyle = 'rgba(140, 140, 140, 0.25)';
       bCtx.stroke();
     }
     bCtx.restore();
 
     // C) Dark Basaltic Volcanic Lowlands (Syrtis Major, Acidalia, Sinus Sabaeus, Solis Lacus)
     const darkBasalts = [
-      { x: texW * 0.72, y: texH * 0.46, rx: texW * 0.13, ry: texH * 0.16, rot: -0.32, col: 'rgba(32, 14, 10, 0.85)' },
-      { x: texW * 0.28, y: texH * 0.32, rx: texW * 0.17, ry: texH * 0.19, rot: 0.18, col: 'rgba(36, 16, 12, 0.76)' },
-      { x: texW * 0.49, y: texH * 0.52, rx: texW * 0.15, ry: texH * 0.09, rot: 0.12, col: 'rgba(40, 18, 14, 0.78)' },
-      { x: texW * 0.88, y: texH * 0.60, rx: texW * 0.18, ry: texH * 0.14, rot: -0.15, col: 'rgba(30, 14, 10, 0.72)' },
-      { x: texW * 0.15, y: texH * 0.56, rx: texW * 0.15, ry: texH * 0.12, rot: 0.35, col: 'rgba(34, 16, 12, 0.75)' }
+      { x: texW * 0.72, y: texH * 0.46, rx: texW * 0.14, ry: texH * 0.17, rot: -0.32, col: 'rgba(28, 12, 9, 0.78)' },
+      { x: texW * 0.28, y: texH * 0.32, rx: texW * 0.18, ry: texH * 0.20, rot: 0.18, col: 'rgba(32, 14, 10, 0.72)' },
+      { x: texW * 0.49, y: texH * 0.52, rx: texW * 0.16, ry: texH * 0.10, rot: 0.12, col: 'rgba(35, 15, 11, 0.75)' },
+      { x: texW * 0.88, y: texH * 0.60, rx: texW * 0.19, ry: texH * 0.15, rot: -0.15, col: 'rgba(26, 11, 8, 0.70)' },
+      { x: texW * 0.15, y: texH * 0.56, rx: texW * 0.16, ry: texH * 0.13, rot: 0.35, col: 'rgba(30, 13, 9, 0.72)' }
     ];
 
     darkBasalts.forEach((feat) => {
@@ -224,7 +223,7 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
       bCtx.save();
       bCtx.translate(feat.x * bScaleX, feat.y * bScaleY);
       bCtx.rotate(feat.rot);
-      bCtx.fillStyle = 'rgba(60, 60, 60, 0.5)';
+      bCtx.fillStyle = 'rgba(65, 65, 65, 0.45)';
       bCtx.beginPath();
       bCtx.ellipse(0, 0, feat.rx * bScaleX, feat.ry * bScaleY, 0, 0, Math.PI * 2);
       bCtx.fill();
@@ -237,8 +236,8 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
     const vmLim = texW * 0.26;
 
     // Main trench
-    cCtx.strokeStyle = 'rgba(22, 8, 5, 0.96)';
-    cCtx.lineWidth = Math.max(3, texW * 0.0075);
+    cCtx.strokeStyle = 'rgba(20, 8, 5, 0.88)';
+    cCtx.lineWidth = Math.max(3, texW * 0.007);
     cCtx.beginPath();
     cCtx.moveTo(vmStartX, vmCenterY);
     cCtx.bezierCurveTo(
@@ -249,7 +248,7 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
     cCtx.stroke();
 
     // Branching tributary chasmata
-    cCtx.lineWidth = Math.max(2, texW * 0.004);
+    cCtx.lineWidth = Math.max(2, texW * 0.0035);
     cCtx.beginPath();
     cCtx.moveTo(vmStartX + vmLim * 0.3, vmCenterY + 8);
     cCtx.lineTo(vmStartX + vmLim * 0.42, vmCenterY + 28);
@@ -258,8 +257,8 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
     cCtx.stroke();
 
     // Bump trench
-    bCtx.strokeStyle = 'rgba(12, 12, 12, 0.95)';
-    bCtx.lineWidth = Math.max(2, bumpCanvas.width * 0.009);
+    bCtx.strokeStyle = 'rgba(15, 15, 15, 0.90)';
+    bCtx.lineWidth = Math.max(2, bumpCanvas.width * 0.008);
     bCtx.beginPath();
     bCtx.moveTo(vmStartX * bScaleX, vmCenterY * bScaleY);
     bCtx.bezierCurveTo(
@@ -270,8 +269,8 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
     bCtx.stroke();
 
     // Raised shoulder ridges on canyon rims
-    bCtx.strokeStyle = 'rgba(215, 215, 215, 0.75)';
-    bCtx.lineWidth = Math.max(1, bumpCanvas.width * 0.0035);
+    bCtx.strokeStyle = 'rgba(200, 200, 200, 0.60)';
+    bCtx.lineWidth = Math.max(1, bumpCanvas.width * 0.003);
     bCtx.beginPath();
     bCtx.moveTo(vmStartX * bScaleX, (vmCenterY - 6) * bScaleY);
     bCtx.bezierCurveTo(
@@ -281,21 +280,21 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
     );
     bCtx.stroke();
 
-    // E) Tharsis Shield Volcanoes (Olympus Mons + 3 Tharsis Montes)
+    // E) Tharsis Shield Volcanoes (Olympus Mons + Tharsis Montes)
     const volcanoes = [
-      { x: texW * 0.22, y: texH * 0.42, r: texW * 0.038, name: 'Olympus Mons' },
-      { x: texW * 0.27, y: texH * 0.38, r: texW * 0.022, name: 'Ascraeus Mons' },
-      { x: texW * 0.29, y: texH * 0.46, r: texW * 0.020, name: 'Pavonis Mons' },
-      { x: texW * 0.31, y: texH * 0.54, r: texW * 0.021, name: 'Arsia Mons' },
-      { x: texW * 0.58, y: texH * 0.35, r: texW * 0.025, name: 'Elysium Mons' }
+      { x: texW * 0.22, y: texH * 0.42, r: texW * 0.038 },
+      { x: texW * 0.27, y: texH * 0.38, r: texW * 0.022 },
+      { x: texW * 0.29, y: texH * 0.46, r: texW * 0.020 },
+      { x: texW * 0.31, y: texH * 0.54, r: texW * 0.021 },
+      { x: texW * 0.58, y: texH * 0.35, r: texW * 0.025 }
     ];
 
     volcanoes.forEach((v) => {
       const vGrad = cCtx.createRadialGradient(v.x, v.y, 0, v.x, v.y, v.r);
-      vGrad.addColorStop(0.0, '#321309');
-      vGrad.addColorStop(0.24, '#c65f2e');
-      vGrad.addColorStop(0.72, '#d47242');
-      vGrad.addColorStop(1.0, 'rgba(180, 80, 38, 0)');
+      vGrad.addColorStop(0.0, '#2a0e07');
+      vGrad.addColorStop(0.28, '#a24b22');
+      vGrad.addColorStop(0.70, '#b85629');
+      vGrad.addColorStop(1.0, 'rgba(160, 70, 30, 0)');
       cCtx.fillStyle = vGrad;
       cCtx.beginPath();
       cCtx.arc(v.x, v.y, v.r, 0, Math.PI * 2);
@@ -305,9 +304,9 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
       const bVy = v.y * bScaleY;
       const bVr = v.r * bScaleX;
       const bGrad = bCtx.createRadialGradient(bVx, bVy, 0, bVx, bVy, bVr);
-      bGrad.addColorStop(0.0, '#161616'); // Caldera pit
-      bGrad.addColorStop(0.25, '#ffffff'); // Highest caldera rim
-      bGrad.addColorStop(0.75, '#b0b0b0');
+      bGrad.addColorStop(0.0, '#1a1a1a'); // Caldera pit
+      bGrad.addColorStop(0.25, '#f0f0f0'); // Caldera rim elevation
+      bGrad.addColorStop(0.75, '#a8a8a8');
       bGrad.addColorStop(1.0, 'rgba(128, 128, 128, 0)');
       bCtx.fillStyle = bGrad;
       bCtx.beginPath();
@@ -315,77 +314,75 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
       bCtx.fill();
     });
 
-    // F) Impact Craters with Ejecta Blankets, Terraced Walls & Central Peaks
-    const craterCount = deviceProfile.tier === 'HIGH' ? 360 : 190;
+    // F) Natural Impact Craters (NO artificial stroke rings!)
+    const craterCount = deviceProfile.tier === 'HIGH' ? 320 : 180;
     for (let i = 0; i < craterCount; i++) {
       const cx = Math.random() * texW;
       const cy = texH * 0.12 + Math.random() * (texH * 0.76);
-      const cr = 2 + Math.pow(Math.random(), 2.8) * (texW * 0.024);
+      const cr = 2 + Math.pow(Math.random(), 2.8) * (texW * 0.022);
 
-      // Color: shadowed interior & sunlit rim arc
-      cCtx.fillStyle = 'rgba(32, 12, 8, 0.52)';
-      cCtx.beginPath();
-      cCtx.arc(cx, cy, cr * 0.76, 0, Math.PI * 2);
-      cCtx.fill();
-
-      cCtx.strokeStyle = 'rgba(245, 150, 98, 0.44)';
-      cCtx.lineWidth = Math.max(1, cr * 0.18);
+      // Natural shading: soft shadowed interior gradient instead of vector strokes
+      const craterGrad = cCtx.createRadialGradient(cx, cy, 0, cx, cy, cr);
+      craterGrad.addColorStop(0.0, 'rgba(28, 10, 7, 0.65)');
+      craterGrad.addColorStop(0.7, 'rgba(40, 15, 10, 0.40)');
+      craterGrad.addColorStop(0.9, 'rgba(175, 80, 40, 0.18)');
+      craterGrad.addColorStop(1.0, 'rgba(140, 60, 30, 0)');
+      cCtx.fillStyle = craterGrad;
       cCtx.beginPath();
       cCtx.arc(cx, cy, cr, 0, Math.PI * 2);
-      cCtx.stroke();
+      cCtx.fill();
 
-      // Bump: crater bowl with elevated bright circular rim
+      // Bump map handles physical crater geometry (depressed center + raised rim)
       const bcx = cx * bScaleX;
       const bcy = cy * bScaleY;
       const bcr = cr * bScaleX;
 
-      bCtx.fillStyle = 'rgba(38, 38, 38, 0.7)';
+      bCtx.fillStyle = 'rgba(45, 45, 45, 0.65)';
       bCtx.beginPath();
-      bCtx.arc(bcx, bcy, bcr * 0.8, 0, Math.PI * 2);
+      bCtx.arc(bcx, bcy, bcr * 0.78, 0, Math.PI * 2);
       bCtx.fill();
 
-      bCtx.strokeStyle = 'rgba(235, 235, 235, 0.8)';
-      bCtx.lineWidth = Math.max(1, bcr * 0.22);
+      bCtx.strokeStyle = 'rgba(215, 215, 215, 0.6)';
+      bCtx.lineWidth = Math.max(1, bcr * 0.18);
       bCtx.beginPath();
       bCtx.arc(bcx, bcy, bcr, 0, Math.PI * 2);
       bCtx.stroke();
 
-      // Central peak uplift on medium-large craters
       if (bcr > 8) {
-        bCtx.fillStyle = 'rgba(245, 245, 245, 0.9)';
+        bCtx.fillStyle = 'rgba(230, 230, 230, 0.75)';
         bCtx.beginPath();
-        bCtx.arc(bcx, bcy, bcr * 0.22, 0, Math.PI * 2);
+        bCtx.arc(bcx, bcy, bcr * 0.2, 0, Math.PI * 2);
         bCtx.fill();
       }
     }
 
-    // G) Scattered Rocks & Boulder Fields (Micro-Roughness)
-    const rockClusters = deviceProfile.tier === 'HIGH' ? 600 : 250;
+    // G) Micro Terrain Roughness
+    const rockClusters = deviceProfile.tier === 'HIGH' ? 500 : 220;
     for (let i = 0; i < rockClusters; i++) {
       const rx = Math.random() * texW;
       const ry = texH * 0.15 + Math.random() * (texH * 0.7);
-      const rSize = 1 + Math.random() * 2.5;
+      const rSize = 1 + Math.random() * 2.2;
 
-      cCtx.fillStyle = Math.random() > 0.5 ? 'rgba(240, 140, 90, 0.4)' : 'rgba(25, 10, 6, 0.45)';
+      cCtx.fillStyle = Math.random() > 0.5 ? 'rgba(180, 85, 45, 0.25)' : 'rgba(22, 9, 5, 0.35)';
       cCtx.fillRect(rx, ry, rSize, rSize);
 
       const brx = rx * bScaleX;
       const bry = ry * bScaleY;
-      bCtx.fillStyle = 'rgba(220, 220, 220, 0.6)';
+      bCtx.fillStyle = 'rgba(200, 200, 200, 0.45)';
       bCtx.fillRect(brx, bry, rSize, rSize);
     }
 
-    // H) Polar Ice Cap (Planum Boreum at North)
+    // H) North Polar Ice Cap (Planum Boreum)
     const northCap = cCtx.createRadialGradient(
-      texW * 0.5, 30, 8,
-      texW * 0.5, 30, texH * 0.15
+      texW * 0.5, 20, 6,
+      texW * 0.5, 20, texH * 0.14
     );
-    northCap.addColorStop(0.0, 'rgba(255, 255, 255, 0.98)');
-    northCap.addColorStop(0.5, 'rgba(238, 246, 255, 0.84)');
-    northCap.addColorStop(0.8, 'rgba(205, 222, 238, 0.35)');
-    northCap.addColorStop(1.0, 'rgba(180, 195, 210, 0)');
+    northCap.addColorStop(0.0, 'rgba(240, 246, 252, 0.95)');
+    northCap.addColorStop(0.5, 'rgba(215, 230, 245, 0.70)');
+    northCap.addColorStop(0.8, 'rgba(180, 200, 220, 0.25)');
+    northCap.addColorStop(1.0, 'rgba(150, 175, 195, 0)');
     cCtx.fillStyle = northCap;
-    cCtx.fillRect(0, 0, texW, texH * 0.18);
+    cCtx.fillRect(0, 0, texW, texH * 0.16);
 
     // Textures
     const marsTexture = new THREE.CanvasTexture(colorCanvas);
@@ -407,8 +404,8 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
     const marsMaterial = new THREE.MeshStandardMaterial({
       map: marsTexture,
       bumpMap: deviceProfile.enableNormalMap ? bumpTexture : null,
-      bumpScale: 0.046,
-      roughness: 0.86,
+      bumpScale: 0.042,
+      roughness: 0.88,
       metalness: 0.02
     });
 
@@ -420,8 +417,8 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
     marsMeshRef.current = marsMesh;
     scene.add(marsMesh);
 
-    // 7. Atmospheric Limb Shader (Warm Coral-Red Rim Corona)
-    const atmosGeometry = new THREE.SphereGeometry(placement.radius * 1.018, 54, 54);
+    // 7. Atmospheric Limb Shader (Authentic Scientific Martian Haze)
+    const atmosGeometry = new THREE.SphereGeometry(placement.radius * 1.016, 54, 54);
     const atmosUniforms = {
       uTime: { value: 0 },
       uIntensity: { value: 1.0 }
@@ -451,17 +448,18 @@ export const RealisticMarsPlanet: React.FC<RealisticMarsPlanetProps> = ({
         float dotNV = max(dot(viewDir, normal), 0.0);
         float fresnel = 1.0 - dotNV;
 
-        float edgeGlow = pow(fresnel, 2.5) * 2.4;
+        float edgeGlow = pow(fresnel, 3.2) * 1.8;
         float upFactor = smoothstep(-0.35, 0.45, normal.y);
-        float breath = 1.0 + 0.04 * sin(uTime * 1.3);
+        float breath = 1.0 + 0.03 * sin(uTime * 1.2);
 
         float alpha = edgeGlow * upFactor * uIntensity * breath;
 
-        vec3 coralRed = vec3(1.0, 0.28, 0.14);
-        vec3 hotCore = vec3(1.0, 0.84, 0.72);
-        vec3 color = mix(coralRed, hotCore, pow(fresnel, 4.0));
+        // Scientific Mars Atmosphere: Muted dust red fading to subtle high-altitude sky blue scatter
+        vec3 dustRed = vec3(0.78, 0.32, 0.18);
+        vec3 limbSkyBlue = vec3(0.40, 0.52, 0.68);
+        vec3 color = mix(dustRed, limbSkyBlue, pow(fresnel, 4.5));
 
-        gl_FragColor = vec4(color, clamp(alpha, 0.0, 1.0));
+        gl_FragColor = vec4(color, clamp(alpha, 0.0, 0.85));
       }
     `;
 

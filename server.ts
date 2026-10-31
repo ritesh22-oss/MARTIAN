@@ -342,29 +342,46 @@ async function renderGeotiffToJpegBuffer(tiffUrl: string): Promise<Buffer> {
   }
 }
 
-// GeoTIFF Renderer Route
-app.get('/api/stac/render-geotiff', async (req, res) => {
-  const imageUrl = req.query.url as string;
-  if (!imageUrl) return res.status(400).json({ error: 'url parameter is required' });
+// Approved Host Whitelist for Image Proxying (SSRF Protection)
+const APPROVED_IMAGE_HOSTS = [
+  'stac.astrogeology.usgs.gov',
+  'astrogeo-ard.s3-us-west-2.amazonaws.com',
+  'astrogeo-ard.s3.us-west-2.amazonaws.com',
+  'hirise-pds.lpl.arizona.edu',
+  'images-assets.nasa.gov',
+  'images-api.nasa.gov',
+  'mars.nasa.gov',
+  'api.nasa.gov',
+  'pds-geosciences.wustl.edu',
+  'usgs.gov',
+  'nasa.gov',
+  'arizona.edu',
+  'amazonaws.com'
+];
 
-  try {
-    const buffer = await renderGeotiffToJpegBuffer(imageUrl);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
-    return res.send(buffer);
-  } catch (err: any) {
-    console.error('[GEOTIFF_RENDER_FAILED]', err.message);
-    return res.status(502).json({ success: false, error: { message: `GeoTIFF rendering failed: ${getErrorMessage(err)}` } });
+async function handleStacImageProxy(req: express.Request, res: express.Response) {
+  const imageUrl = req.query.url as string;
+  if (!imageUrl || typeof imageUrl !== 'string') {
+    return res.status(400).json({ success: false, error: 'url parameter is required' });
   }
-});
 
-// Image Proxy
-app.get('/api/nasa/proxy-image', async (req, res) => {
-  const imageUrl = req.query.url as string;
-  if (!imageUrl) return res.status(400).json({ error: 'url required' });
+  if (!imageUrl.startsWith('https://')) {
+    return res.status(400).json({ success: false, error: 'Only secure https asset URLs are permitted' });
+  }
 
-  // If URL is a GeoTIFF, route automatically to GeoTIFF renderer
+  // Host Whitelist Verification
+  try {
+    const parsed = new URL(imageUrl);
+    const host = parsed.hostname.toLowerCase();
+    const isApproved = APPROVED_IMAGE_HOSTS.some(h => host === h || host.endsWith('.' + h));
+    if (!isApproved) {
+      return res.status(403).json({ success: false, error: `Host ${host} is not in approved asset allowlist` });
+    }
+  } catch {
+    return res.status(400).json({ success: false, error: 'Invalid URL format' });
+  }
+
+  // Handle GeoTIFF assets via server-side raster renderer
   if (imageUrl.toLowerCase().includes('.tif') || imageUrl.toLowerCase().includes('.tiff')) {
     try {
       const buffer = await renderGeotiffToJpegBuffer(imageUrl);
@@ -373,46 +390,62 @@ app.get('/api/nasa/proxy-image', async (req, res) => {
       res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
       return res.send(buffer);
     } catch (renderErr: any) {
-      console.warn('[PROXY] GeoTIFF rendering failed, attempting direct proxy:', renderErr.message);
+      console.warn('[STAC_IMAGE_PROXY] GeoTIFF render failed:', renderErr.message);
+      return res.status(502).json({ success: false, error: `GeoTIFF render failed: ${getErrorMessage(renderErr)}` });
     }
   }
 
+  // Handle Web Images (JPEG, PNG, WebP)
   try {
     let resp = await fetch(imageUrl, {
       redirect: 'follow',
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://mars.nasa.gov/' }
+      headers: {
+        'User-Agent': 'MarsNav-PlanetaryWorkstation/1.0 (NASA Mission Control)',
+        'Accept': 'image/*, */*',
+        'Referer': 'https://stac.astrogeology.usgs.gov/'
+      }
     });
 
-    // If ~large.jpg fails, fall back to ~medium.jpg or ~thumb.jpg
     if (!resp.ok && imageUrl.includes('~large.jpg')) {
       const medUrl = imageUrl.replace('~large.jpg', '~medium.jpg');
-      let fb = await fetch(medUrl, {
-        redirect: 'follow',
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://mars.nasa.gov/' }
-      });
+      let fb = await fetch(medUrl, { redirect: 'follow' });
       if (!fb.ok) {
         const thumbUrl = imageUrl.replace('~large.jpg', '~thumb.jpg');
-        fb = await fetch(thumbUrl, {
-          redirect: 'follow',
-          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://mars.nasa.gov/' }
-        });
+        fb = await fetch(thumbUrl, { redirect: 'follow' });
       }
-      if (fb.ok) {
-        resp = fb;
-      }
+      if (fb.ok) resp = fb;
     }
 
-    if (!resp.ok) return res.status(resp.status).end();
+    if (!resp.ok) {
+      return res.status(resp.status).json({
+        success: false,
+        error: `Upstream asset server returned HTTP ${resp.status}`
+      });
+    }
+
+    const contentType = resp.headers.get('content-type') || 'image/jpeg';
+    if (contentType.includes('html') || contentType.includes('xml')) {
+      return res.status(404).json({
+        success: false,
+        error: 'Upstream asset returned HTML/XML error page instead of image bytes'
+      });
+    }
 
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', resp.headers.get('content-type') || 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
     const buffer = Buffer.from(await resp.arrayBuffer());
-    res.send(buffer);
+    return res.send(buffer);
   } catch (err: any) {
-    res.status(502).json({ success: false, error: { message: `Proxy failed: ${getErrorMessage(err)}` } });
+    return res.status(502).json({
+      success: false,
+      error: `Proxy failed: ${getErrorMessage(err)}`
+    });
   }
-});
+}
+
+// Register Unified Image Proxy Routes
+app.get(['/api/stac/image', '/stac/image', '/api/stac/render-geotiff', '/stac/render-geotiff', '/api/nasa/proxy-image'], handleStacImageProxy);
 
 // Regional Gallery
 const REGION_MAP: Record<string, any> = {
@@ -922,6 +955,18 @@ app.get('/api/nasa/mars-photos', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// API 404 Catch-All Fallback
+app.all(['/api/*', '/stac/*'], (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: {
+      code: 'NOT_FOUND',
+      message: `API endpoint not found: ${req.method} ${req.url}`,
+      timestamp: new Date().toISOString()
+    }
+  });
 });
 
 // Centralized Error Handler

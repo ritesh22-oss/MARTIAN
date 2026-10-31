@@ -1,352 +1,315 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  ChevronRight,
-  Wifi,
-  Cpu,
-  Layers,
-  Activity,
-  CheckCircle2,
-  Clock,
-  Sparkles,
-  Info
-} from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { ChevronRight } from 'lucide-react';
 import CinematicBackground from './CinematicBackground';
 import {
   runIntelligentInitialization,
-  AppInitProgress,
-  INITIALIZATION_STAGES,
-  InitStage
+  INITIALIZATION_STAGES
 } from '../services/appInitializer';
-import OfflineScreen from './OfflineScreen';
-import SlowConnectionScreen from './SlowConnectionScreen';
 
 interface BootScreenProps {
   onComplete: () => void;
 }
 
-// Stage task action headers for the live readout above the progress bar
-const STAGE_ACTION_LABELS: Record<string, string> = {
-  SYS_CORE_INIT: 'INITIALIZING MARSNAV SYSTEMS...',
-  HW_AUDIT: 'PROFILING HARDWARE & GPU CAPABILITIES...',
-  RENDER_ENGINE: 'CALIBRATING PLANETARY 3D RENDERER...',
-  TEX_SYNTHESIS: 'SYNTHESIZING MARTIAN TERRAIN TEXTURES...',
-  TERRAIN_INTEL: 'CALIBRATING TERRAIN INTELLIGENCE & DEM KERNELS...',
-  NET_TELEMETRY: 'VERIFYING DATA & TELEMETRY CONNECTIONS...',
-  NAV_ENGINE: 'INITIALIZING ROVER NAVIGATION ENGINES...',
-  WORKSPACE_CACHE: 'FINALIZING MISSION WORKSPACE CACHE...'
-};
-
 /**
- * MARSNAV Premium Cinematic Intro with Realistic Animated Martian Terrain
- * - Exact typography: Centered uppercase "MARSNAV" with subtle cyan accent
- * - Subtitle: "MARTIAN TERRAIN INTELLIGENCE & ROVER NAVIGATION"
- * - Massive half-visible photorealistic Mars planet dominating lower screen
- * - Real 8-stage interactive progress bar with stage inspector & genuine telemetry
- * - Unobtrusive real-time technical status badges
+ * MARSNAV Full Cinematic NASA Mission Intro & Workstation Boot Sequence
+ * 
+ * Features:
+ * - 3D WebGL Photorealistic Mars horizon & surface traversal
+ * - Cinematic title reveal ("MARSNAV") & planetary subtitle
+ * - Smooth 12-18 second progress interpolation tracking real asset preloading
+ * - Shimmering specular reflection & orange glow inside the loading bar
+ * - Single-execution keyboard/pointer entry trigger
  */
 export const BootScreen: React.FC<BootScreenProps> = ({ onComplete }) => {
-  const [initProgress, setInitProgress] = useState<AppInitProgress>({
-    stageIndex: 0,
-    stage: INITIALIZATION_STAGES[0],
-    percent: 0,
-    isComplete: false,
-    deviceProfile: null,
-    networkStatus: null
-  });
+  // Animation Phase Steps (0: Approach, 1: Surface, 2: Reveal, 3: Cinematic Ready)
+  const [hudStep, setHudStep] = useState(0);
+
+  // Real Application Initialization Tracking
+  const [realProgress, setRealProgress] = useState(0);
+  const [isRealComplete, setIsRealComplete] = useState(false);
+
+  // Displayed Progress Interpolated State (0 to 100%)
+  const [displayedPercent, setDisplayedPercent] = useState(0);
+
+  const realProgressRef = useRef(0);
+  const isRealCompleteRef = useRef(false);
+  const startTimeRef = useRef<number | null>(null);
 
   const [isExiting, setIsExiting] = useState(false);
-  const [showOfflineModal, setShowOfflineModal] = useState(false);
-  const [showSlowModal, setShowSlowModal] = useState(false);
-  const [titleVisible, setTitleVisible] = useState(false);
-  const [subtitleVisible, setSubtitleVisible] = useState(false);
-  const [selectedStage, setSelectedStage] = useState<InitStage | null>(null);
-  const hasCompletedRef = useRef(false);
+  const hasEnteredRef = useRef(false);
 
-  const handleFinish = () => {
-    if (hasCompletedRef.current) return;
-    hasCompletedRef.current = true;
+  // Single-Execution Entry Handler
+  const enterApplication = useCallback(() => {
+    if (hasEnteredRef.current) return;
+    hasEnteredRef.current = true;
     setIsExiting(true);
+    
+    // Smooth cinematic forward transition into workstation
     setTimeout(() => {
       onComplete();
-    }, 600);
-  };
+    }, 450);
+  }, [onComplete]);
 
-  // Keyboard shortcut listener to bypass instantaneously
+  // Keyboard shortcut listener attached while intro screen is active
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        handleFinish();
+      // Ignore keypress if typing inside input fields
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+         target.tagName === 'TEXTAREA' ||
+         target.tagName === 'SELECT' ||
+         target.isContentEditable)
+      ) {
+        return;
       }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
-  // Cinematic staggered text reveals
+      // Preserve browser navigation & dev tools shortcuts
+      if (e.key === 'F5' || e.key === 'F12' || (e.key === 'r' && (e.ctrlKey || e.metaKey))) {
+        return;
+      }
+
+      e.preventDefault();
+      enterApplication();
+    };
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+  }, [enterApplication]);
+
+  // Pointer/Click listener for full screen coverage
   useEffect(() => {
-    const t1 = setTimeout(() => setTitleVisible(true), 200);
-    const t2 = setTimeout(() => setSubtitleVisible(true), 550);
+    const handlePointerDown = () => {
+      enterApplication();
+    };
+
+    const timer = setTimeout(() => {
+      window.addEventListener('pointerdown', handlePointerDown, { capture: true });
+    }, 120);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('pointerdown', handlePointerDown, { capture: true });
+    };
+  }, [enterApplication]);
+
+  // Cinematic Timeline Controller
+  useEffect(() => {
+    const t1 = setTimeout(() => setHudStep(1), 300);   // Surface transition
+    const t2 = setTimeout(() => setHudStep(2), 800);   // Title reveal
+    const t3 = setTimeout(() => setHudStep(3), 3200);  // Cinematic Ready sync
+
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
+      clearTimeout(t3);
     };
   }, []);
 
-  // Run the genuine 8-stage initialization
+  // Run Real Application Initialization Engine
   useEffect(() => {
     let cancelled = false;
 
     const startInit = async () => {
       try {
-        const { networkStatus } = await runIntelligentInitialization((p) => {
+        await runIntelligentInitialization((p) => {
           if (!cancelled) {
-            setInitProgress(p);
+            realProgressRef.current = p.percent;
+            setRealProgress(p.percent);
+            if (p.isComplete) {
+              isRealCompleteRef.current = true;
+              setIsRealComplete(true);
+            }
           }
         });
-
-        if (cancelled) return;
-
-        // Inspect network health
-        if (networkStatus && !networkStatus.isOnline) {
-          setShowOfflineModal(true);
-          return;
-        }
-
-        if (networkStatus && networkStatus.state === 'SLOW_CONNECTION' && (networkStatus.latencyMs || 0) > 3000) {
-          setShowSlowModal(true);
-          return;
-        }
-
-        // Nominal complete, brief pause to view completed state
-        setTimeout(() => {
-          if (!cancelled && !hasCompletedRef.current) {
-            handleFinish();
-          }
-        }, 750);
       } catch (err) {
-        console.error('Initialization notice:', err);
-        setTimeout(() => {
-          if (!cancelled) handleFinish();
-        }, 800);
+        console.warn('Initialization notice:', err);
+        if (!cancelled) {
+          realProgressRef.current = 100;
+          isRealCompleteRef.current = true;
+          setRealProgress(100);
+          setIsRealComplete(true);
+        }
       }
     };
 
     startInit();
-
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // Offline fallback screen
-  if (showOfflineModal) {
-    return (
-      <OfflineScreen
-        onContinueOffline={() => {
-          setShowOfflineModal(false);
-          handleFinish();
-        }}
-      />
-    );
-  }
+  // Frame-Rate Independent Smooth Progress Interpolator (Fast & Smooth ~3.2 second pace)
+  useEffect(() => {
+    let animId: number;
+    let lastTime = performance.now();
 
-  // Slow network screen
-  if (showSlowModal) {
-    return (
-      <SlowConnectionScreen
-        onContinue={() => {
-          setShowSlowModal(false);
-          handleFinish();
-        }}
-      />
-    );
-  }
+    const updateProgress = (now: number) => {
+      if (!startTimeRef.current) startTimeRef.current = now;
+      const totalElapsedSec = (now - startTimeRef.current) / 1000;
+      const dt = Math.min(0.1, (now - lastTime) / 1000);
+      lastTime = now;
 
-  const { percent, stage, stageIndex, deviceProfile, networkStatus } = initProgress;
-  const currentActionLabel = STAGE_ACTION_LABELS[stage.id] || 'INITIALIZING MARSNAV SYSTEMS...';
+      // Fast cinematic floor duration: 3.2 seconds
+      const CINEMATIC_DURATION = 3.2;
+      const rawRatio = Math.min(1.0, totalElapsedSec / CINEMATIC_DURATION);
+      
+      // Smooth cubic ease-in-out curve
+      const easedRatio =
+        rawRatio < 0.5
+          ? 2 * rawRatio * rawRatio
+          : 1 - Math.pow(-2 * rawRatio + 2, 2) / 2;
+      
+      const cinematicCap = easedRatio * 100;
+
+      let target: number;
+      if (isRealCompleteRef.current) {
+        // Real init complete: follow smooth curve up to 100%
+        target = cinematicCap;
+      } else {
+        // Real init still running: never exceed real progress or 95% cap
+        const currentReal = realProgressRef.current;
+        target = Math.min(currentReal, Math.min(95, cinematicCap));
+      }
+
+      setDisplayedPercent((prev) => {
+        const speed = 6.0;
+        const next = prev + (target - prev) * Math.min(1.0, dt * speed);
+        
+        if (target >= 99.8 && next >= 99.2) {
+          return 100;
+        }
+        return next;
+      });
+
+      animId = requestAnimationFrame(updateProgress);
+    };
+
+    animId = requestAnimationFrame(updateProgress);
+    return () => cancelAnimationFrame(animId);
+  }, []);
+
+  const isWorkstationReady = (displayedPercent >= 99.5 && isRealComplete) || hudStep >= 3;
 
   return (
     <div
-      className={`fixed inset-0 z-50 bg-[#030105] select-none overflow-hidden transition-all duration-700 ease-in-out ${
-        isExiting ? 'opacity-0 scale-102 pointer-events-none' : 'opacity-100 scale-100'
+      onClick={enterApplication}
+      className={`fixed inset-0 z-50 bg-[#030105] select-none overflow-hidden cursor-pointer transition-all duration-500 ease-out ${
+        isExiting ? 'opacity-0 scale-[1.04] blur-xs pointer-events-none' : 'opacity-100 scale-100'
       }`}
       role="region"
-      aria-label="MARSNAV Software Loading Experience"
+      aria-label="MARSNAV Cinematic Mission Intro - Click anywhere or press any key to enter"
     >
-      {/* 3D Photorealistic Mars Planet & Space Background */}
-      <CinematicBackground mode="horizon" />
+      <style>{`
+        @keyframes marsBarShimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(200%); }
+        }
+      `}</style>
 
-      {/* Top Header: MARSNAV & System Subtitle */}
-      <header className="absolute top-8 sm:top-12 md:top-16 left-0 right-0 flex flex-col items-center pointer-events-none z-20 px-4 text-center">
-        {/* MARSNAV Heading */}
-        <h1
-          className={`text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-extralight tracking-[0.22em] sm:tracking-[0.28em] text-white uppercase font-sans select-none transition-all duration-1000 ease-out pl-[0.22em] sm:pl-[0.28em] ${
-            titleVisible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-4 scale-98'
+      {/* 1. Photorealistic 3D Mars Planet & Rover Surface Traversal */}
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        <CinematicBackground mode="horizon" showRover={hudStep >= 1} glowOpacity={0.8} />
+      </div>
+
+      {/* 2. Scanning Lines & Vignette Contrast Overlay */}
+      <div className="absolute inset-0 pointer-events-none z-10 bg-gradient-to-b from-black/80 via-transparent to-black/90" />
+      <div className="absolute inset-0 pointer-events-none z-10 opacity-10 bg-[linear-gradient(to_bottom,transparent_50%,rgba(0,0,0,0.8)_51%)] bg-[length:100%_4px]" />
+
+      {/* 3. MARSNAV TITLE, SUBTITLE & CINEMATIC LOADING BAR (Centered) */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center z-20 px-6 text-center pointer-events-none">
+        <div
+          className={`flex flex-col items-center transition-all duration-700 ease-out ${
+            hudStep >= 2 ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-6 scale-95'
           }`}
-          style={{
-            textShadow: '0 0 40px rgba(255, 92, 54, 0.32), 0 2px 24px rgba(255, 255, 255, 0.2)'
-          }}
         >
-          MARS<span className="text-cyan-400 font-normal drop-shadow-[0_0_25px_rgba(34,211,238,0.6)]">NAV</span>
-        </h1>
+          {/* Main MARSNAV Title */}
+          <div className="relative group">
+            {/* Ambient Radial Glow */}
+            <div
+              className="absolute -inset-12 bg-gradient-to-r from-orange-600/20 via-red-500/25 to-amber-600/20 rounded-full blur-3xl opacity-75 animate-pulse"
+              style={{ animationDuration: '4s' }}
+            />
 
-        {/* Subtitle */}
-        <p
-          className={`mt-2 sm:mt-3 md:mt-3.5 text-[10px] sm:text-xs md:text-sm font-semibold tracking-[0.34em] sm:tracking-[0.42em] text-cyan-300/85 uppercase font-sans select-none transition-all duration-1000 ease-out pl-[0.34em] sm:pl-[0.42em] ${
-            subtitleVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'
-          }`}
-          style={{
-            textShadow: '0 0 20px rgba(34, 211, 238, 0.4)'
-          }}
-        >
-          MARTIAN TERRAIN INTELLIGENCE &amp; ROVER NAVIGATION
-        </p>
-
-        {/* Real Technical Status Badges */}
-        <div className="mt-3.5 flex flex-wrap items-center justify-center gap-2 pointer-events-auto">
-          <div className="px-2.5 py-1 rounded-full bg-black/50 border border-white/10 backdrop-blur-md text-[9px] sm:text-[10px] font-mono text-slate-300 flex items-center space-x-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="text-cyan-300 font-semibold">MARSNAV ORBITAL SYS:</span>
-            <span>v4.4 NOMINAL</span>
-          </div>
-
-          <div className="px-2.5 py-1 rounded-full bg-black/50 border border-white/10 backdrop-blur-md text-[9px] sm:text-[10px] font-mono text-slate-300 flex items-center space-x-1.5">
-            <Cpu className="w-2.5 h-2.5 text-orange-400" />
-            <span className="text-slate-400">RENDER:</span>
-            <span>
-              {deviceProfile ? `WEBGL2 • TIER ${deviceProfile.tier}` : 'PBR PIPELINE'}
-            </span>
-          </div>
-
-          <div className="px-2.5 py-1 rounded-full bg-black/50 border border-white/10 backdrop-blur-md text-[9px] sm:text-[10px] font-mono text-slate-300 flex items-center space-x-1.5">
-            <Layers className="w-2.5 h-2.5 text-cyan-400" />
-            <span className="text-slate-400">TERRAIN:</span>
-            <span>HiRISE &amp; MOLA DEM</span>
-          </div>
-
-          <div
-            className={`px-2.5 py-1 rounded-full bg-black/50 border backdrop-blur-md text-[9px] sm:text-[10px] font-mono flex items-center space-x-1.5 ${
-              networkStatus?.isOnline
-                ? 'border-emerald-500/30 text-emerald-300'
-                : 'border-amber-500/30 text-amber-300'
-            }`}
-          >
-            <Wifi className="w-2.5 h-2.5" />
-            <span>
-              {networkStatus?.isOnline
-                ? `NET: ${networkStatus.latencyMs ? `${networkStatus.latencyMs}ms` : 'NOMINAL'}`
-                : 'OFFLINE MODE'}
-            </span>
-          </div>
-        </div>
-      </header>
-
-      {/* Lower Interactive Loading Section */}
-      <footer className="absolute bottom-6 sm:bottom-8 md:bottom-10 left-0 right-0 flex flex-col items-center pointer-events-auto z-20 px-4 sm:px-6">
-        <div className="w-full max-w-xl bg-slate-950/75 border border-white/10 rounded-2xl p-4 sm:p-5 backdrop-blur-xl shadow-[0_12px_45px_rgba(0,0,0,0.8)]">
-          {/* Active Task Header & Large Readable Percentage */}
-          <div className="flex items-center justify-between mb-2.5">
-            <div className="flex items-center space-x-2 min-w-0 pr-3">
-              <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0 animate-spin" style={{ animationDuration: '6s' }} />
-              <div className="truncate">
-                <span className="text-white font-mono font-semibold text-xs tracking-wider uppercase">
-                  {currentActionLabel}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-baseline space-x-1 shrink-0 font-mono">
-              <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-cyan-400 to-[#FF5A36] bg-clip-text text-transparent">
-                {percent}
+            <h1 className="relative text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-black tracking-[0.22em] sm:tracking-[0.28em] text-white uppercase font-sans select-none pl-[0.22em] sm:pl-[0.28em]">
+              MARS
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-rose-500 to-red-400 drop-shadow-[0_0_35px_rgba(255,90,54,0.65)] font-black">
+                NAV
               </span>
-              <span className="text-xs text-slate-400 font-semibold">%</span>
-            </div>
+            </h1>
           </div>
 
-          {/* Subsystem Detail Description */}
-          <p className="text-[11px] text-slate-400 font-mono mb-3 truncate">
-            {stage.detail}
+          {/* Subtitle */}
+          <p className="mt-3 sm:mt-5 text-xs sm:text-sm md:text-base font-semibold tracking-[0.38em] sm:tracking-[0.45em] text-orange-200/90 uppercase font-sans select-none pl-[0.38em] sm:pl-[0.45em] drop-shadow-[0_2px_12px_rgba(255,80,40,0.4)]">
+            PLANETARY EXPLORATION &amp; ROVER NAVIGATION
           </p>
 
-          {/* Wide Animated Progress Bar */}
-          <div className="relative w-full h-3 bg-black/60 rounded-full overflow-hidden border border-white/10 p-0.5 mb-3.5">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-amber-400 to-[#FF5A36] transition-all duration-200 ease-out relative overflow-hidden shadow-[0_0_16px_rgba(255,90,54,0.7)]"
-              style={{ width: `${percent}%` }}
-            >
-              {/* Animated Light Traveling Across Progress */}
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/50 to-transparent animate-[shimmer_2s_infinite]" />
-              {/* Pulse glow on the leading edge */}
-              <div className="absolute right-0 top-0 bottom-0 w-3 bg-white/90 blur-[2px]" />
-            </div>
+          {/* Decorative Laser Line */}
+          <div className="mt-5 sm:mt-6 flex items-center justify-center space-x-3 w-full max-w-xs sm:max-w-sm">
+            <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-orange-500/50 to-orange-400/80" />
+            <div className="w-1.5 h-1.5 rounded-full bg-orange-400 shadow-[0_0_8px_rgba(255,140,50,0.9)] animate-ping" style={{ animationDuration: '2.5s' }} />
+            <div className="h-[1px] flex-1 bg-gradient-to-l from-transparent via-orange-500/50 to-orange-400/80" />
           </div>
 
-          {/* 8-Stage Interactive Status Indicators */}
-          <div className="grid grid-cols-8 gap-1.5 mb-3">
-            {INITIALIZATION_STAGES.map((s, idx) => {
-              const isCompleted = idx < stageIndex || (idx === stageIndex && percent >= s.targetPercent);
-              const isActive = idx === stageIndex && percent < s.targetPercent;
-              const isSelected = selectedStage?.id === s.id;
-
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => setSelectedStage(isSelected ? null : s)}
-                  onMouseEnter={() => setSelectedStage(s)}
-                  className={`group relative h-2 rounded-full transition-all cursor-pointer ${
-                    isCompleted
-                      ? 'bg-gradient-to-r from-cyan-400 to-emerald-400 shadow-[0_0_8px_rgba(34,211,238,0.5)]'
-                      : isActive
-                      ? 'bg-gradient-to-r from-amber-400 to-[#FF5A36] animate-pulse shadow-[0_0_10px_rgba(255,90,54,0.6)]'
-                      : 'bg-white/10 hover:bg-white/20'
-                  } ${isSelected ? 'ring-2 ring-white/80' : ''}`}
-                  title={`${s.label} (${isCompleted ? 'Completed' : isActive ? 'Active' : 'Pending'})`}
-                  aria-label={`Stage ${idx + 1}: ${s.label}`}
-                />
-              );
-            })}
-          </div>
-
-          {/* Interactive Stage Inspector Card (Revealed on Click or Hover) */}
-          {selectedStage && (
-            <div className="mb-3 p-2.5 rounded-xl bg-slate-900/90 border border-cyan-500/30 text-xs font-mono transition-all animate-fadeIn">
-              <div className="flex items-center justify-between text-cyan-300 font-semibold mb-1">
-                <div className="flex items-center space-x-1.5">
-                  <Info className="w-3.5 h-3.5" />
-                  <span>{selectedStage.label}</span>
-                </div>
-                <span className="text-[10px] text-slate-400">
-                  Target: {selectedStage.targetPercent}%
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-300">{selectedStage.detail}</p>
-            </div>
-          )}
-
-          {/* Footer Controls & Real-Time Status */}
-          <div className="flex items-center justify-between text-xs pt-2 border-t border-white/10">
-            <div className="flex items-center space-x-2 text-[11px] font-mono text-slate-400">
-              <Activity className="w-3 h-3 text-cyan-400 shrink-0" />
-              <span className="truncate">
-                STAGE {stageIndex + 1} OF 8: {stage.id}
-              </span>
-            </div>
-
-            <div className="flex items-center space-x-3">
-              <span className="text-[10px] font-mono text-slate-400/80 hidden sm:inline">
-                [ESC / SPACE TO SKIP]
-              </span>
-              <button
-                onClick={handleFinish}
-                className="px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-white font-mono text-xs tracking-wider transition-all cursor-pointer border border-cyan-500/30 flex items-center space-x-1.5 active:scale-95 shadow-sm"
+          {/* 4. ONE SINGLE SLIM HORIZONTAL ANIMATED LOADING BAR */}
+          <div className="mt-6 sm:mt-8 w-full max-w-xs sm:max-w-md flex flex-col items-center pointer-events-auto">
+            <div className="relative w-full h-2 bg-slate-950/90 rounded-full border border-orange-500/35 overflow-hidden shadow-[0_0_16px_rgba(255,90,54,0.45)]">
+              {/* Animated Progress Fill */}
+              <div
+                className="relative h-full rounded-full bg-gradient-to-r from-orange-600 via-amber-400 to-orange-500 shadow-[0_0_12px_rgba(255,140,50,0.9)] transition-all duration-75 ease-out overflow-hidden"
+                style={{ width: `${Math.min(100, Math.max(0, displayedPercent))}%` }}
               >
-                <span>ENTER MISSION</span>
-                <ChevronRight className="w-3.5 h-3.5 text-[#FF5A36]" />
-              </button>
+                {/* Moving Light Reflection / Shimmer Sweep */}
+                <div
+                  className="absolute inset-0 w-full h-full bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.65)_50%,transparent_100%)]"
+                  style={{
+                    animation: 'marsBarShimmer 2.2s infinite linear'
+                  }}
+                />
+              </div>
+            </div>
+            
+            {/* Minimal Progress Readout */}
+            <div className="mt-2.5 text-[10px] font-mono tracking-[0.2em] text-slate-300/80 uppercase select-none">
+              {displayedPercent >= 99.5
+                ? 'SYSTEM READY • 100%'
+                : `PRELOADING ASSETS • ${Math.floor(displayedPercent)}%`}
             </div>
           </div>
         </div>
-      </footer>
+      </div>
+
+      {/* 5. WORKSTATION READY INTERACTION BUTTON & PROMPT (Bottom) */}
+      <div
+        className={`absolute bottom-8 sm:bottom-12 left-0 right-0 z-30 flex flex-col items-center justify-center pointer-events-auto transition-all duration-700 delay-100 ease-out ${
+          isWorkstationReady ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            enterApplication();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.stopPropagation();
+              enterApplication();
+            }
+          }}
+          aria-label="Initialize MARSNAV Workstation"
+          className="group relative px-8 py-3.5 rounded-full bg-gradient-to-r from-orange-950/90 via-slate-950/90 to-orange-950/90 hover:from-orange-600 hover:to-red-600 border border-orange-500/50 hover:border-orange-400 text-slate-100 hover:text-white font-mono text-xs sm:text-sm tracking-[0.25em] transition-all duration-300 shadow-[0_0_35px_rgba(255,90,54,0.35)] hover:shadow-[0_0_40px_rgba(255,90,54,0.7)] flex items-center space-x-3 cursor-pointer active:scale-95 backdrop-blur-xl focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2 focus:ring-offset-black"
+        >
+          <span className="uppercase font-bold pl-1">INITIALIZE WORKSTATION</span>
+          <ChevronRight className="w-4 h-4 text-orange-400 group-hover:translate-x-1.5 transition-transform" />
+        </button>
+
+        <span className="mt-3 text-[10px] font-mono tracking-[0.2em] text-orange-200/80 uppercase animate-pulse">
+          PRESS ANY KEY OR CLICK TO ENTER
+        </span>
+      </div>
     </div>
   );
 };

@@ -202,6 +202,8 @@ const MASK_CLASSES = [
   { name: 'Big Rock / Hazard', color: '#FFFF00', hex: '#FFFF00', key: 'big_rock', pct: 7.4 }
 ];
 
+import { MarsRoverIcon } from '../MarsRoverIcon';
+
 export default function MarsNavV4Workspace() {
   const {
     sharedSession,
@@ -227,7 +229,18 @@ export default function MarsNavV4Workspace() {
     setSelectedRouteIndex,
     addObstacle: addContextObstacle,
     removeObstacle: removeContextObstacle,
-    clearObstacles: clearContextObstacles
+    clearObstacles: clearContextObstacles,
+    isPlaying,
+    traversalProgress,
+    simSpeed: contextSimSpeed,
+    traversalStatus,
+    startTraversal,
+    pauseTraversal,
+    resumeTraversal,
+    resetTraversal,
+    setTraversalProgress,
+    setSimSpeed: setContextSimSpeed,
+    roverPos
   } = useTerrainAnalysis();
 
   // NASA Feed Modal
@@ -244,8 +257,8 @@ export default function MarsNavV4Workspace() {
   // Natural Image Dimensions
   const [naturalDimensions, setNaturalDimensions] = useState<{ width: number; height: number }>({ width: 256, height: 256 });
 
-  // Display Mode Selection (Section 2 - Original, Route, Annotations, Analysis, Split View)
-  const [displayMode, setDisplayMode] = useState<'original' | 'route' | 'annotations' | 'analysis' | 'split_comparison'>('route');
+  // Display Mode Selection (Clean Original Image by default)
+  const [displayMode, setDisplayMode] = useState<'original' | 'route' | 'annotations' | 'analysis' | 'split_comparison'>('original');
   const [showMetadataStrip, setShowMetadataStrip] = useState<boolean>(true);
 
   // Zoom & Pan View Controls (Section 1 & 7)
@@ -256,12 +269,12 @@ export default function MarsNavV4Workspace() {
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [showMinimap, setShowMinimap] = useState<boolean>(true);
 
-  // Layer Visibility Controls
-  const [showSelectedRoute, setShowSelectedRoute] = useState<boolean>(true);
-  const [showAltRoutes, setShowAltRoutes] = useState<boolean>(true);
+  // Layer Visibility Controls (Disabled by default until user explicitly requests an overlay)
+  const [showSelectedRoute, setShowSelectedRoute] = useState<boolean>(false);
+  const [showAltRoutes, setShowAltRoutes] = useState<boolean>(false);
   const [showEmergencyPath, setShowEmergencyPath] = useState<boolean>(false);
-  const [showWaypoints, setShowWaypoints] = useState<boolean>(true);
-  const [showRestrictedZones, setShowRestrictedZones] = useState<boolean>(true);
+  const [showWaypoints, setShowWaypoints] = useState<boolean>(false);
+  const [showRestrictedZones, setShowRestrictedZones] = useState<boolean>(false);
   const [showDirectionArrows, setShowDirectionArrows] = useState<boolean>(true);
   const [showSquareTargetBoxes, setShowSquareTargetBoxes] = useState<boolean>(true);
   const [showLegend, setShowLegend] = useState<boolean>(true);
@@ -657,7 +670,7 @@ export default function MarsNavV4Workspace() {
     };
   }, []);
 
-  // Sync image status & reset stale analysis on image replace (Section 6)
+  // Sync image status & reset stale analysis on image replace (STRICT RULE: Clean Original Image by default)
   useEffect(() => {
     if (terrainImage && terrainImage.trim() !== '') {
       setImageStatus('loading');
@@ -667,6 +680,21 @@ export default function MarsNavV4Workspace() {
       setImageStats(null);
       setSegmentationMetrics(null);
       setInferenceTimeMs(null);
+
+      // Reset display mode and all overlays on image change to ensure a clean default image view
+      setDisplayMode('original');
+      setShowSelectedRoute(false);
+      setShowAltRoutes(false);
+      setShowEmergencyPath(false);
+      setShowWaypoints(false);
+      setShowRestrictedZones(false);
+      setManualHazards([]);
+      setRestrictedPolygons([]);
+      setCheckpointsList([]);
+      setScienceStopsList([]);
+      setActiveDrawingPolygon([]);
+      setActiveMeasureStart(null);
+      setSelectedItem(null);
 
       const targetUrl = getSafeImageUrl(terrainImage);
       const img = new Image();
@@ -1590,12 +1618,47 @@ export default function MarsNavV4Workspace() {
           </button>
 
           <button
+            onClick={() => {
+              setDisplayMode('route');
+              setShowSelectedRoute(true);
+              setShowWaypoints(true);
+              addTimelineEvent('route', 'Route Plotted', 'Calculated and displayed primary navigation trajectory overlay.');
+            }}
+            disabled={imageStatus !== 'loaded'}
+            className="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-mono font-bold text-xs shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-40 transition-all"
+            title="Explicitly plot and display calculated navigation route"
+          >
+            <Route className="w-3.5 h-3.5 text-cyan-200" />
+            <span>PLOT ROUTE</span>
+          </button>
+
+          <button
             onClick={handleAnalyzeImage}
             disabled={imageStatus !== 'loaded' || isAnalyzingImage}
-            className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-bold text-xs shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-40 transition-all"
+            className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-mono font-bold text-xs shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-40 transition-all"
+            title="Explicitly run AI hazard detection and display results"
           >
             <Cpu className={`w-3.5 h-3.5 ${isAnalyzingImage ? 'animate-spin' : ''}`} />
-            <span>{isAnalyzingImage ? 'ANALYZING...' : 'ANALYZE IMAGE NOW'}</span>
+            <span>{isAnalyzingImage ? 'DETECTING...' : 'DETECT HAZARDS'}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setDisplayMode('original');
+              setShowSelectedRoute(false);
+              setShowWaypoints(false);
+              setShowRestrictedZones(false);
+              addTimelineEvent('image', 'Clean Original View', 'Hidden all graphical overlays.');
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer transition-all border ${
+              displayMode === 'original' && !showSelectedRoute && !showRestrictedZones
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+                : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+            }`}
+            title="Hide all overlays and show clean original terrain image"
+          >
+            <EyeOff className="w-3.5 h-3.5 text-amber-400" />
+            <span>CLEAN ORIGINAL</span>
           </button>
         </div>
       </div>
@@ -2450,12 +2513,10 @@ export default function MarsNavV4Workspace() {
                             <circle key={idx} cx={nd.x} cy={nd.y} r="1.6" fill="#ffffff" stroke="#000000" strokeWidth="0.5" />
                           ))}
 
-                          {/* Animated Rover Position Marker */}
-                          {simulationState !== 'stopped' && (
-                            <g transform={`translate(${astronautPos.x}, ${astronautPos.y}) rotate(${astronautPos.angle})`}>
-                              <circle r="6" fill="rgba(0, 240, 255, 0.4)" className="animate-pulse" />
-                              <circle r="3" fill="#ffffff" stroke="#000000" strokeWidth="1" />
-                              <line x1="0" y1="0" x2="5" y2="0" stroke="#ff0000" strokeWidth="1" />
+                          {/* Animated Miniature 2D Mars Rover Marker */}
+                          {(isPlaying || traversalProgress > 0) && (
+                            <g transform={`translate(${roverPos.x}, ${roverPos.y}) rotate(${roverPos.angle})`}>
+                              <MarsRoverIcon size={24} />
                             </g>
                           )}
                         </>

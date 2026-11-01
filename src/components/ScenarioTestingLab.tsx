@@ -1057,43 +1057,160 @@ export default function ScenarioTestingLab() {
           </div>
         </div>
 
-        {/* Target Region Quick Selector */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-slate-400 font-mono uppercase tracking-wider block">
-              EXPLORATION TARGET REGIONS (AUTHENTIC NASA / JPL TERRAIN):
-            </span>
-            {isLoadingRegion && (
-              <span className="text-[10px] font-mono text-cyan-400 flex items-center gap-1.5 animate-pulse">
-                <Activity className="w-3 h-3 animate-spin" />
-                <span>Fetching NASA/JPL Observation...</span>
+        {/* ======================================================== */}
+        {/* VERIFIED NASA/USGS FOUR-REGION TERRAIN INTELLIGENCE GALLERY */}
+        {/* ======================================================== */}
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-2.5">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
+              <span className="text-xs text-slate-200 font-mono uppercase tracking-wider font-bold">
+                VERIFIED NASA / USGS FOUR-REGION TERRAIN INTELLIGENCE GALLERY
               </span>
-            )}
+            </div>
+            <div className="flex items-center gap-3 text-[10px] font-mono text-slate-400">
+              <span className="text-cyan-400 font-bold">2 &times; 2 DESKTOP GRID</span>
+              <span>&bull;</span>
+              <span>AUTHENTIC ORBITAL RASTERS</span>
+              {isLoadingRegion && (
+                <span className="text-cyan-400 flex items-center gap-1.5 animate-pulse font-bold">
+                  <Activity className="w-3 h-3 animate-spin text-cyan-400" />
+                  <span>SYNCHRONIZING TERRAIN VIEWPORT...</span>
+                </span>
+              )}
+            </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+
+          {/* 2 x 2 Desktop Grid Gallery */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-5">
             {CANDIDATE_REGIONS.map((reg) => {
               const isSelected = selectedRegionId === reg.id;
+              const proxyImageUrl = `/api/nasa/proxy-image?url=${encodeURIComponent(reg.defaultProduct.url)}`;
+
               return (
-                <button
+                <div
                   key={reg.id}
-                  type="button"
                   onClick={() => handleSelectRegion(reg)}
-                  className={`p-3 rounded-2xl text-left border transition-all cursor-pointer ${
+                  className={`group relative rounded-2xl overflow-hidden border transition-all duration-300 cursor-pointer flex flex-col justify-between ${
                     isSelected
-                      ? 'bg-cyan-950/60 border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.3)] ring-1 ring-cyan-400'
-                      : 'bg-black/40 border-white/10 hover:border-white/30'
+                      ? 'bg-[#09152e] border-cyan-400 shadow-[0_0_25px_rgba(6,182,212,0.35)] ring-1 ring-cyan-400/80'
+                      : 'bg-[#050915] border-white/10 hover:border-cyan-500/50 hover:bg-[#070e22] shadow-lg'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="text-white font-bold text-xs truncate">{reg.name}</span>
-                    {isSelected && <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />}
+                  {/* Card Header & Thumbnail Image Container */}
+                  <div className="relative aspect-[16/9] w-full overflow-hidden bg-black/80">
+                    <img
+                      src={proxyImageUrl}
+                      alt={reg.name}
+                      loading="lazy"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+                    />
+
+                    {/* Image Gradient Scrim overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#050915] via-black/20 to-black/60 pointer-events-none" />
+
+                    {/* Overlay Badges Top Row */}
+                    <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2 z-10">
+                      <span className="px-2.5 py-1 rounded-md bg-black/80 backdrop-blur-md text-orange-400 font-mono text-[10px] font-bold border border-orange-500/40 shadow-md">
+                        {reg.defaultProduct.id}
+                      </span>
+                      <span className="px-2.5 py-1 rounded-md bg-black/80 backdrop-blur-md text-cyan-300 font-mono text-[10px] font-bold border border-cyan-500/40 shadow-md">
+                        {reg.coordinates.formatted}
+                      </span>
+                    </div>
+
+                    {/* Overlay Badges Bottom Row */}
+                    <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2 z-10">
+                      <span className="px-2 py-0.5 rounded bg-black/75 backdrop-blur-md text-slate-300 font-mono text-[9px] border border-white/10">
+                        {reg.defaultProduct.instrument.split(' ')[0]} &bull; {reg.defaultProduct.mission.split(' ')[0]}
+                      </span>
+                      {reg.defaultProduct.scaleMPerPx && (
+                        <span className="px-2 py-0.5 rounded bg-black/75 backdrop-blur-md text-emerald-400 font-mono text-[9px] border border-emerald-500/30 font-bold">
+                          {reg.defaultProduct.scaleMPerPx} m/px
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Active Selected Glow Badge on Image */}
+                    {isSelected && (
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
+                        <span className="px-3 py-1.5 rounded-full bg-cyan-950/90 border border-cyan-400 text-cyan-300 font-mono font-bold text-[10px] uppercase tracking-wider shadow-[0_0_20px_rgba(6,182,212,0.6)] backdrop-blur-md flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                          <span>VIEWPORT SYNCHRONIZED</span>
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  <span className="text-[9px] text-cyan-300 font-mono block mt-0.5">{reg.coordinates.formatted}</span>
-                  <p className="text-[10px] text-slate-400 line-clamp-1 mt-1 font-sans">{reg.subTitle}</p>
-                </button>
+
+                  {/* Card Content & Metadata Body */}
+                  <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-white tracking-wide font-sans group-hover:text-cyan-300 transition-colors">
+                          {reg.name}
+                        </h3>
+                        {isSelected ? (
+                          <span className="flex items-center gap-1 text-[10px] text-cyan-400 font-mono font-bold uppercase">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>ACTIVE</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-500 font-mono uppercase group-hover:text-cyan-400 transition-colors">
+                            READY
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-cyan-300/90 font-mono font-medium line-clamp-1">
+                        {reg.subTitle}
+                      </p>
+                      <p className="text-[10px] text-slate-400 line-clamp-2 leading-relaxed font-sans">
+                        {reg.defaultProduct.desc}
+                      </p>
+                    </div>
+
+                    {/* Metadata Detail Row */}
+                    <div className="pt-2.5 border-t border-white/10 flex items-center justify-between gap-2 text-[9px] font-mono text-slate-400">
+                      <div className="truncate">
+                        <span className="text-slate-500">CREDIT:</span>{' '}
+                        <span className="text-slate-300">{reg.defaultProduct.sourceCredit}</span>
+                      </div>
+                      <div className="shrink-0 text-slate-400">
+                        {reg.defaultProduct.observationDate}
+                      </div>
+                    </div>
+
+                    {/* Action Button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectRegion(reg);
+                      }}
+                      className={`w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                        isSelected
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/60 shadow-[0_0_12px_rgba(6,182,212,0.3)]'
+                          : 'bg-white/5 hover:bg-cyan-600 hover:text-white text-slate-300 border border-white/10 hover:border-cyan-400'
+                      }`}
+                    >
+                      {isSelected ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>VIEWPORT SYNCHRONIZED</span>
+                        </>
+                      ) : (
+                        <>
+                          <Compass className="w-3.5 h-3.5 text-cyan-400 group-hover:rotate-45 transition-transform" />
+                          <span>SELECT &amp; ANALYZE TERRAIN</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               );
             })}
           </div>
+
           {regionError && (
             <div className="p-3 rounded-xl bg-red-950/50 border border-red-500/40 text-red-200 text-xs font-mono flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">

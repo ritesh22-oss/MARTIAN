@@ -34,33 +34,71 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { useTerrainAnalysis } from '../../context/TerrainAnalysisContext';
+import { useTerrainAnalysis, logRouteDiagnostics } from '../../context/TerrainAnalysisContext';
 import { MARS_REFERENCE_DATUM } from '../../utils/marsScienceData';
+
+import { MarsRoverIcon } from '../MarsRoverIcon';
 
 export default function ConfigurationWorkspace() {
   const { settings, updateSettings } = useWorkspace();
-  const { analysis, setStartPoint, setDestinationPoint, setSelectedRouteIndex, addObstacle, removeObstacle, clearObstacles } = useTerrainAnalysis();
+  const {
+    analysis,
+    setStartPoint,
+    setDestinationPoint,
+    setSelectedRouteIndex,
+    addObstacle,
+    removeObstacle,
+    clearObstacles,
+    isPlaying,
+    traversalProgress,
+    simSpeed,
+    traversalStatus,
+    startTraversal,
+    pauseTraversal,
+    resumeTraversal,
+    resetTraversal,
+    setTraversalProgress,
+    setSimSpeed,
+    roverPos
+  } = useTerrainAnalysis();
 
   const [savedNotice, setSavedNotice] = useState<boolean>(false);
   const [activePreset, setActivePreset] = useState<string>('Custom');
   const [compareModalOpen, setCompareModalOpen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'analytics' | 'detections' | 'planning' | 'status'>('analytics');
-
-  // Animation and simulation state
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [animProgress, setAnimProgress] = useState<number>(0.0); // 0 to 100%
-  const [simSpeed, setSimSpeed] = useState<number>(1.0);
+  const [showHazards, setShowHazards] = useState<boolean>(false);
+  const [showRouteOverlay, setShowRouteOverlay] = useState<boolean>(false);
 
   // Unit conversion helper
   const isImperial = settings.unitSystem === 'imperial';
   const formatDist = (meters: number) => isImperial ? `${(meters * 3.28084).toFixed(0)} ft` : `${Math.round(meters)} m`;
 
-  // Animation Loop via requestAnimationFrame
-  const animRef = useRef<number | null>(null);
-  const lastTimeRef = useRef<number | null>(null);
-
   const currentRoute = analysis.routes[analysis.selectedRouteIndex] || analysis.routes[0];
   const waypoints = currentRoute?.waypoints || [];
+
+  // Log route diagnostics when route or waypoints update
+  useEffect(() => {
+    if (waypoints.length > 0) {
+      const xs = waypoints.map(w => w.x);
+      const ys = waypoints.map(w => w.y);
+      logRouteDiagnostics('ConfigurationWorkspace', {
+        imageId: analysis.imageId,
+        imageWidth: analysis.imageWidth,
+        imageHeight: analysis.imageHeight,
+        viewBox: '0 0 256 256',
+        waypointCount: waypoints.length,
+        firstWaypoint: waypoints[0],
+        lastWaypoint: waypoints[waypoints.length - 1],
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs),
+        minY: Math.min(...ys),
+        maxY: Math.max(...ys),
+        startPt: analysis.effectiveStartPoint,
+        destPt: analysis.effectiveDestinationPoint,
+        totalLengthM: currentRoute?.totalLengthM || 0
+      });
+    }
+  }, [waypoints, analysis.imageId, analysis.imageWidth, analysis.imageHeight, analysis.effectiveStartPoint, analysis.effectiveDestinationPoint, currentRoute?.totalLengthM]);
 
   // Sample waypoints for graphs to prevent UI lag and "zero-width" invisible bars in flex containers
   const sampledWaypoints = useMemo(() => {
@@ -69,43 +107,14 @@ export default function ConfigurationWorkspace() {
     return waypoints.filter((_, i) => i % step === 0 || i === waypoints.length - 1);
   }, [waypoints]);
   
-  // Find index in sampled array that corresponds to current anim progress
+  // Find index in sampled array that corresponds to current traversal progress
   const currentSampledIndex = useMemo(() => {
     if (sampledWaypoints.length === 0) return -1;
-    return Math.min(sampledWaypoints.length - 1, Math.floor((animProgress / 100) * (sampledWaypoints.length - 1)));
-  }, [sampledWaypoints, animProgress]);
-  useEffect(() => {
-    if (!isPlaying || currentRoute?.isBlocked || analysis.isLoading) {
-      if (animRef.current) cancelAnimationFrame(animRef.current);
-      return;
-    }
-
-    const animate = (time: number) => {
-      if (!lastTimeRef.current) lastTimeRef.current = time;
-      const dt = (time - lastTimeRef.current) / 1000;
-      lastTimeRef.current = time;
-
-      setAnimProgress((prev) => {
-        const speedPct = 25 * simSpeed * dt;
-        const next = prev + speedPct;
-        if (next >= 100) {
-          setIsPlaying(false);
-          return 100;
-        }
-        return next;
-      });
-
-      animRef.current = requestAnimationFrame(animate);
-    };
-
-    animRef.current = requestAnimationFrame(animate);
-    return () => {
-      if (animRef.current) cancelAnimationFrame(animRef.current);
-    };
-  }, [isPlaying, simSpeed, currentRoute?.isBlocked, analysis.isLoading]);
+    return Math.min(sampledWaypoints.length - 1, Math.floor((traversalProgress / 100) * (sampledWaypoints.length - 1)));
+  }, [sampledWaypoints, traversalProgress]);
   
-  const currentWaypointIndex = Math.min(waypoints.length - 1, Math.floor((animProgress / 100) * (waypoints.length - 1)));
-  const currentWaypoint = waypoints[currentWaypointIndex] || { slope: 0, roughness: 0, slip: 0, stepCost: 0, x: 0, y: 0 };
+  const currentWaypointIndex = roverPos.waypointIndex;
+  const currentWaypoint = waypoints[currentWaypointIndex] || { slope: roverPos.currentSlope, roughness: roverPos.currentRoughness, slip: roverPos.currentSlip, stepCost: roverPos.currentStepCost, x: roverPos.x, y: roverPos.y };
 
   const presets: Record<string, any> = {
     'NASA Defaults': { maxSlopeLimitDeg: 14.0, roverMassKg: 1025, slopeWeight: 0.45, roughnessWeight: 0.25, slipWeight: 0.30 },
@@ -224,7 +233,7 @@ export default function ConfigurationWorkspace() {
 
           <div className="bg-[#070B14] border border-white/10 p-4 rounded-2xl space-y-1">
             <div className="text-[10px] text-slate-400 uppercase">Rover Progress</div>
-            <div className="text-cyan-300 font-bold text-sm">{animProgress.toFixed(0)}%</div>
+            <div className="text-cyan-300 font-bold text-sm">{traversalProgress.toFixed(0)}%</div>
             <div className="text-[9px] text-slate-500">Waypoint {currentWaypointIndex + 1}/{waypoints.length}</div>
           </div>
 
@@ -232,7 +241,7 @@ export default function ConfigurationWorkspace() {
             <div className="text-[10px] text-slate-400 uppercase">Simulation State</div>
             <div className={`font-bold text-sm flex items-center space-x-1.5 ${isPlaying ? 'text-amber-400 animate-pulse' : currentRoute?.isBlocked ? 'text-red-400' : 'text-emerald-400'}`}>
               <span className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-amber-400' : currentRoute?.isBlocked ? 'bg-red-400' : 'bg-emerald-400'}`} />
-              <span>{isPlaying ? 'Traversing...' : currentRoute?.isBlocked ? 'Blocked' : 'Ready'}</span>
+              <span>{isPlaying ? 'Traversing...' : currentRoute?.isBlocked ? 'Blocked' : traversalStatus}</span>
             </div>
             <div className="text-[9px] text-slate-500">Active Selection: #{analysis.selectedRouteIndex + 1}</div>
           </div>
@@ -303,66 +312,153 @@ export default function ConfigurationWorkspace() {
               
               {/* Left: Image & Route Overlay */}
               <div className="bg-[#050813] border border-white/10 rounded-2xl p-4 flex flex-col items-center justify-between space-y-4 relative overflow-hidden">
-                <div className="text-[10px] font-mono text-cyan-400 uppercase font-bold self-start">Active Image &amp; Route Overlay</div>
+                <div className="w-full flex items-center justify-between gap-2 flex-wrap">
+                  <div className="text-[10px] font-mono text-cyan-400 uppercase font-bold">Active Image View</div>
+                  <div className="flex items-center gap-1.5 font-mono text-[10px]">
+                    <button
+                      onClick={() => setShowRouteOverlay(!showRouteOverlay)}
+                      className={`px-2 py-0.5 rounded transition-all border cursor-pointer ${
+                        showRouteOverlay
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 font-bold'
+                          : 'bg-white/5 text-slate-400 border-white/10 hover:text-slate-200'
+                      }`}
+                    >
+                      Route: {showRouteOverlay ? 'ON' : 'OFF'}
+                    </button>
+
+                    <button
+                      onClick={() => setShowHazards(!showHazards)}
+                      className={`px-2 py-0.5 rounded transition-all border cursor-pointer ${
+                        showHazards
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
+                          : 'bg-white/5 text-slate-400 border-white/10 hover:text-slate-200'
+                      }`}
+                    >
+                      Hazards: {showHazards ? 'ON' : 'OFF'}
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setShowRouteOverlay(false);
+                        setShowHazards(false);
+                      }}
+                      className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300 hover:text-white cursor-pointer"
+                      title="Show clean original image only"
+                    >
+                      Clean
+                    </button>
+                  </div>
+                </div>
                 
-                <div className="relative w-full h-64 rounded-xl overflow-hidden border border-white/10 flex items-center justify-center bg-black/60">
+                <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden border border-white/10 flex items-center justify-center bg-black/80">
                   {!analysis.isLoading && analysis.imageUrl ? (
-                    <img src={analysis.imageUrl} alt="Terrain" className="w-full h-full object-cover" />
+                    <img src={analysis.imageUrl} alt="Terrain" className="w-full h-full object-fill" />
                   ) : (
                     <div className="text-cyan-400 text-xs animate-pulse">Loading image resource...</div>
                   )}
 
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${analysis.imageWidth} ${analysis.imageHeight}`}>
-                    {analysis.obstacles.map(obs => (
-                      <g key={obs.id} transform={`translate(${obs.x}, ${obs.y})`}>
-                        <circle cx="0" cy="0" r={obs.radius} fill={obs.blocked ? '#EF4444' : '#F59E0B'} fillOpacity="0.4" stroke={obs.blocked ? '#EF4444' : '#F59E0B'} strokeWidth="1" />
-                      </g>
-                    ))}
+                  {(showRouteOverlay || showHazards) && (
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 256 256" preserveAspectRatio="none">
+                      {/* Restrained Scientific Hazard Markers */}
+                      {showHazards && analysis.obstacles.map(obs => (
+                        <g key={obs.id} transform={`translate(${obs.x}, ${obs.y})`}>
+                          <circle cx="0" cy="0" r={Math.max(4, obs.radius)} fill="rgba(245, 158, 11, 0.08)" stroke={obs.blocked ? '#EF4444' : '#F59E0B'} strokeWidth="0.8" strokeDasharray="2 1" />
+                          <circle cx="0" cy="0" r="1.5" fill={obs.blocked ? '#EF4444' : '#F59E0B'} />
+                        </g>
+                      ))}
 
-                    {analysis.startPoint && (
-                      <path
-                        d={`M ${analysis.startPoint.x} ${analysis.startPoint.y} ` + waypoints.map(w => `L ${w.x} ${w.y}`).join(' ')}
-                        stroke="#06B6D4"
-                        strokeWidth={analysis.imageWidth / 100}
-                        fill="none"
-                        strokeDasharray="4 2"
-                      />
-                    )}
+                      {/* Primary Route Line */}
+                      {showRouteOverlay && waypoints.length > 1 && (
+                        <g>
+                          <polyline
+                            points={waypoints.map(w => `${w.x},${w.y}`).join(' ')}
+                            stroke="#00F0FF"
+                            strokeWidth="5"
+                            strokeOpacity="0.25"
+                            fill="none"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <polyline
+                            points={waypoints.map(w => `${w.x},${w.y}`).join(' ')}
+                            stroke="#040814"
+                            strokeWidth="2.8"
+                            strokeOpacity="0.8"
+                            fill="none"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <polyline
+                            points={waypoints.map(w => `${w.x},${w.y}`).join(' ')}
+                            stroke={currentRoute?.isBlocked ? "#EF4444" : "#00F0FF"}
+                            strokeWidth="1.8"
+                            fill="none"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <polyline
+                            points={waypoints.map(w => `${w.x},${w.y}`).join(' ')}
+                            stroke="#E0F2FE"
+                            strokeWidth="0.6"
+                            strokeOpacity="0.9"
+                            fill="none"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </g>
+                      )}
 
-                    {analysis.startPoint && (
-                      <circle cx={analysis.startPoint.x} cy={analysis.startPoint.y} r={analysis.imageWidth / 50} fill="#10B981" />
-                    )}
-                    {analysis.destinationPoint && (
-                      <circle cx={analysis.destinationPoint.x} cy={analysis.destinationPoint.y} r={analysis.imageWidth / 50} fill="#F97316" />
-                    )}
+                      {/* Start Indicator */}
+                      {showRouteOverlay && analysis.effectiveStartPoint && (
+                        <g transform={`translate(${analysis.effectiveStartPoint.x}, ${analysis.effectiveStartPoint.y})`}>
+                          <circle r="7" fill="rgba(16, 185, 129, 0.15)" stroke="#10b981" strokeWidth="0.8" />
+                          <circle r="3.5" fill="#10b981" stroke="#ffffff" strokeWidth="1" />
+                          <text y="1.8" fill="#ffffff" fontSize="4.5" fontWeight="bold" textAnchor="middle">S</text>
+                        </g>
+                      )}
 
-                    {!currentRoute?.isBlocked && waypoints.length > 0 && currentWaypoint && (
-                      <circle cx={currentWaypoint.x} cy={currentWaypoint.y} r={analysis.imageWidth / 40} fill="#EAB308" className="animate-pulse" />
-                    )}
-                  </svg>
+                      {/* Destination Indicator */}
+                      {showRouteOverlay && analysis.effectiveDestinationPoint && (
+                        <g transform={`translate(${analysis.effectiveDestinationPoint.x}, ${analysis.effectiveDestinationPoint.y})`}>
+                          <circle r="7" fill="rgba(249, 115, 22, 0.15)" stroke="#f97316" strokeWidth="0.8" />
+                          <circle r="3.5" fill="#f97316" stroke="#ffffff" strokeWidth="1" />
+                          <text y="1.8" fill="#ffffff" fontSize="4.5" fontWeight="bold" textAnchor="middle">D</text>
+                        </g>
+                      )}
+
+                      {/* Rover Icon */}
+                      {showRouteOverlay && !currentRoute?.isBlocked && waypoints.length > 0 && (
+                        <g transform={`translate(${roverPos.x}, ${roverPos.y}) rotate(${roverPos.angle})`}>
+                          <MarsRoverIcon size={24} />
+                        </g>
+                      )}
+                    </svg>
+                  )}
                 </div>
 
                 <div className="w-full flex items-center justify-between text-[11px] text-slate-400">
-                  <span>Start Pin: {analysis.startPoint ? `(${Math.round(analysis.startPoint.x)}, ${Math.round(analysis.startPoint.y)})` : 'Unset'}</span>
-                  <span className="text-cyan-400 font-bold">Progress: {animProgress.toFixed(0)}%</span>
-                  <span>Goal Pin: {analysis.destinationPoint ? `(${Math.round(analysis.destinationPoint.x)}, ${Math.round(analysis.destinationPoint.y)})` : 'Unset'}</span>
+                  <span>Start Pin: {analysis.effectiveStartPoint ? `(${Math.round(analysis.effectiveStartPoint.x)}, ${Math.round(analysis.effectiveStartPoint.y)})` : 'Unset'}</span>
+                  <span className="text-cyan-400 font-bold">Progress: {traversalProgress.toFixed(0)}%</span>
+                  <span>Goal Pin: {analysis.effectiveDestinationPoint ? `(${Math.round(analysis.effectiveDestinationPoint.x)}, ${Math.round(analysis.effectiveDestinationPoint.y)})` : 'Unset'}</span>
                 </div>
               </div>
 
-              {/* Right: Playback & Quick Stats */}
+              {/* Right: Playback & Live Telemetry */}
               <div className="lg:col-span-2 bg-[#050813] border border-white/10 rounded-2xl p-5 flex flex-col justify-between space-y-4">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-white text-xs">Traversal Playback Controls</span>
-                    <span className="text-[10px] text-slate-400">Waypoint {currentWaypointIndex + 1} of {waypoints.length}</span>
+                    <span className="font-bold text-white text-xs uppercase tracking-wider">Traversal Playback &amp; Telemetry Control</span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Waypoint {currentWaypointIndex + 1} of {waypoints.length}
+                    </span>
                   </div>
 
                   <div className="flex items-center space-x-3">
                     <button
-                      onClick={() => setIsPlaying(!isPlaying)}
-                      disabled={currentRoute?.isBlocked || analysis.isLoading}
+                      onClick={() => isPlaying ? pauseTraversal() : startTraversal()}
+                      disabled={currentRoute?.isBlocked || analysis.isLoading || waypoints.length < 2}
                       className={`px-5 py-2.5 rounded-xl font-bold flex items-center space-x-2 transition cursor-pointer disabled:opacity-40 ${
-                        isPlaying ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg'
+                        isPlaying ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-600/20'
                       }`}
                     >
                       {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
@@ -370,7 +466,7 @@ export default function ConfigurationWorkspace() {
                     </button>
 
                     <button
-                      onClick={() => { setIsPlaying(false); setAnimProgress(0); }}
+                      onClick={resetTraversal}
                       className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 cursor-pointer flex items-center space-x-1"
                     >
                       <RotateCcw className="w-4 h-4" />
@@ -382,32 +478,35 @@ export default function ConfigurationWorkspace() {
                         type="range"
                         min="0"
                         max="100"
-                        step="1"
-                        value={animProgress}
-                        disabled={currentRoute?.isBlocked || analysis.isLoading}
-                        onChange={(e) => { setIsPlaying(false); setAnimProgress(parseFloat(e.target.value)); }}
+                        step="0.1"
+                        value={traversalProgress}
+                        disabled={currentRoute?.isBlocked || analysis.isLoading || waypoints.length < 2}
+                        onChange={(e) => setTraversalProgress(parseFloat(e.target.value))}
                         className="w-full accent-cyan-500 cursor-pointer disabled:opacity-40"
                       />
+                      <span className="text-xs font-mono font-bold text-cyan-300 w-12 text-right">
+                        {traversalProgress.toFixed(0)}%
+                      </span>
                     </div>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-white/10 text-[11px]">
                   <div className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-0.5">
-                    <div className="text-slate-400">Current Slope</div>
-                    <div className="text-cyan-400 font-bold">{currentRoute?.isBlocked ? 'N/A' : `${currentWaypoint.slope}°`}</div>
+                    <div className="text-slate-400">Rover Position</div>
+                    <div className="text-cyan-400 font-bold font-mono">({Math.round(roverPos.x)}, {Math.round(roverPos.y)})</div>
                   </div>
                   <div className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-0.5">
-                    <div className="text-slate-400">Texture Score</div>
-                    <div className="text-emerald-400 font-bold">{currentRoute?.isBlocked ? 'N/A' : currentWaypoint.roughness}</div>
+                    <div className="text-slate-400">Current Slope</div>
+                    <div className="text-emerald-400 font-bold font-mono">{currentRoute?.isBlocked ? 'N/A' : `${roverPos.currentSlope}°`}</div>
+                  </div>
+                  <div className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-0.5">
+                    <div className="text-slate-400">Traversed / Remaining</div>
+                    <div className="text-amber-400 font-bold font-mono">{roverPos.distanceTraveledM}m / {roverPos.remainingDistanceM}m</div>
                   </div>
                   <div className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-0.5">
                     <div className="text-slate-400">Wheel-Slip Factor</div>
-                    <div className="text-amber-400 font-bold">{currentRoute?.isBlocked ? 'N/A' : `${(currentWaypoint.slip * 100).toFixed(0)}%`}</div>
-                  </div>
-                  <div className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-0.5">
-                    <div className="text-slate-400">Segment Cost</div>
-                    <div className="text-orange-400 font-bold">{currentRoute?.isBlocked ? 'N/A' : `${Math.round(currentWaypoint.stepCost)} pts`}</div>
+                    <div className="text-orange-400 font-bold font-mono">{currentRoute?.isBlocked ? 'N/A' : `${(roverPos.currentSlip * 100).toFixed(0)}%`}</div>
                   </div>
                 </div>
               </div>

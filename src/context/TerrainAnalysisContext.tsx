@@ -9,6 +9,36 @@ import {
   GroundTruthRecord
 } from '../services/ai4marsDatasetService';
 
+export function logRouteDiagnostics(sourceModule: string, data: {
+  imageId: string;
+  imageWidth: number;
+  imageHeight: number;
+  viewBox: string;
+  waypointCount: number;
+  firstWaypoint: { x: number; y: number } | null;
+  lastWaypoint: { x: number; y: number } | null;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  startPt: { x: number; y: number } | null;
+  destPt: { x: number; y: number } | null;
+  totalLengthM: number;
+}) {
+  console.log(`[MARSNAV ROUTE DIAGNOSTICS :: ${sourceModule}]`, {
+    imageId: data.imageId,
+    imageDimensions: `${data.imageWidth}x${data.imageHeight}`,
+    svgViewBox: data.viewBox,
+    waypointCount: data.waypointCount,
+    firstWaypoint: data.firstWaypoint ? `(${data.firstWaypoint.x.toFixed(1)}, ${data.firstWaypoint.y.toFixed(1)})` : 'None',
+    lastWaypoint: data.lastWaypoint ? `(${data.lastWaypoint.x.toFixed(1)}, ${data.lastWaypoint.y.toFixed(1)})` : 'None',
+    routeBoundingBox: `X:[${data.minX.toFixed(1)} -> ${data.maxX.toFixed(1)}], Y:[${data.minY.toFixed(1)} -> ${data.maxY.toFixed(1)}]`,
+    startPoint: data.startPt ? `(${data.startPt.x.toFixed(1)}, ${data.startPt.y.toFixed(1)})` : 'None',
+    destinationPoint: data.destPt ? `(${data.destPt.x.toFixed(1)}, ${data.destPt.y.toFixed(1)})` : 'None',
+    totalLengthMeters: data.totalLengthM
+  });
+}
+
 export interface ObstacleNode {
   id: string;
   x: number;
@@ -115,6 +145,19 @@ export interface TerrainAnalysisResult {
   matchedGtRecord: GroundTruthRecord | null;
 }
 
+export interface RoverPosTelemetry {
+  x: number;
+  y: number;
+  angle: number;
+  waypointIndex: number;
+  distanceTraveledM: number;
+  remainingDistanceM: number;
+  currentSlope: number;
+  currentRoughness: number;
+  currentSlip: number;
+  currentStepCost: number;
+}
+
 interface TerrainAnalysisContextType {
   analysis: TerrainAnalysisResult;
   setStartPoint: (pt: { x: number; y: number }) => void;
@@ -126,6 +169,19 @@ interface TerrainAnalysisContextType {
   recalculateAnalysis: () => void;
   uploadCustomGroundTruthMask: (maskGrid: Uint8Array, title?: string) => void;
   clearCustomGroundTruthMask: () => void;
+
+  // Shared Traversal Animation State & Real-Time Controls
+  isPlaying: boolean;
+  traversalProgress: number; // 0 to 100%
+  simSpeed: number;
+  traversalStatus: 'STOPPED' | 'TRAVERSING' | 'PAUSED' | 'COMPLETED';
+  startTraversal: () => void;
+  pauseTraversal: () => void;
+  resumeTraversal: () => void;
+  resetTraversal: () => void;
+  setTraversalProgress: (progress: number) => void;
+  setSimSpeed: (speed: number) => void;
+  roverPos: RoverPosTelemetry;
 }
 
 const TerrainAnalysisContext = createContext<TerrainAnalysisContextType | undefined>(undefined);
@@ -457,14 +513,16 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
           confusionMatrix: supEval.confusionMatrix
         };
 
-        // Map clusters back to image space and filter for significant ones
+        // Map clusters back to image space and filter for high-confidence, spatially distinct ones
         const detectedObstacles: ObstacleNode[] = obstacleClusters
-          .filter(c => c.count > 15)
+          .filter(c => c.count > 25)
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 4)
           .map((c, i) => ({
             id: `auto-${i}`,
-            x: Math.round(c.x * (img.naturalWidth / 256)),
-            y: Math.round(c.y * (img.naturalHeight / 256)),
-            radius: Math.min(25, 6 + Math.sqrt(c.count) * 0.8),
+            x: Math.round(c.x),
+            y: Math.round(c.y),
+            radius: Math.min(6, Math.max(3, Math.round(Math.sqrt(c.count) * 0.4))),
             type: c.lum < 0.12 ? 'rock' : 'sand',
             blocked: true
           }));
@@ -492,10 +550,10 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
     const solver = new AStarGrid(256, 256);
     const results: RouteCandidate[] = [];
     
-    // Internal A* helpers using effective start and goal points
+    // Internal A* helpers using effective start and goal points in normalized 256x256 space
     const getGridCoord = (pt: { x: number; y: number }) => ({
-      x: Math.round((pt.x / imageDims.width) * 255),
-      y: Math.round((pt.y / imageDims.height) * 255)
+      x: Math.min(255, Math.max(0, Math.round((pt.x / 256) * 255))),
+      y: Math.min(255, Math.max(0, Math.round((pt.y / 256) * 255)))
     });
 
     const start = getGridCoord(effectiveStartPoint);
@@ -509,13 +567,13 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
         const idx = y * 256 + x;
         if (excludedNodes.has(idx)) return true;
         
-        // Combined obstacles: Auto-detected + Manual
+        // Combined obstacles: Auto-detected + Manual (all in 256x256 canvas space)
         const allObstacles = [...autoObstacles, ...manualObstacles];
         for (const obs of allObstacles) {
-          const gx = (obs.x / imageDims.width) * 255;
-          const gy = (obs.y / imageDims.height) * 255;
+          const gx = Math.round((obs.x / 256) * 255);
+          const gy = Math.round((obs.y / 256) * 255);
           const dist = Math.hypot(x - gx, y - gy);
-          if (dist < (obs.radius / imageDims.width) * 255 + (baseSafetyBuffer / 10)) {
+          if (dist < (obs.radius / 256) * 255 + (baseSafetyBuffer / 10)) {
             if (obs.blocked) return true;
           }
         }
@@ -534,7 +592,7 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
       const res = solver.findPath(start, goal, isBlocked, getCost);
       if (!res.path) return null;
 
-      // Transform grid path back to image path + compute metrics
+      // Transform grid path back to 256x256 image canvas path + compute metrics
       let cumDist = 0;
       let cumCost = 0;
       let maxSlope = 0;
@@ -543,8 +601,8 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
       const allObstacles = [...autoObstacles, ...manualObstacles];
 
       const pathWaypoints: RouteWaypoint[] = res.path.map((p, i) => {
-        const imgX = (p.x / 255) * imageDims.width;
-        const imgY = (p.y / 255) * imageDims.height;
+        const imgX = Number(((p.x / 255) * 256).toFixed(2));
+        const imgY = Number(((p.y / 255) * 256).toFixed(2));
         
         const prev = res.path[i - 1] || p;
         const segDistPx = Math.hypot(p.x - prev.x, p.y - prev.y);
@@ -567,9 +625,9 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
 
         let minObsDist = 100;
         for (const obs of allObstacles) {
-          const gx = (obs.x / imageDims.width) * 255;
-          const gy = (obs.y / imageDims.height) * 255;
-          const d = Math.hypot(p.x - gx, p.y - gy) - (obs.radius / imageDims.width) * 255;
+          const gx = Math.round((obs.x / 256) * 255);
+          const gy = Math.round((obs.y / 256) * 255);
+          const d = Math.hypot(p.x - gx, p.y - gy) - (obs.radius / 256) * 255;
           if (d < minObsDist) minObsDist = d;
         }
         const obstaclePenalty = Math.max(0, 10 - Math.max(0, minObsDist));
@@ -623,8 +681,8 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
       
       prevPath.waypoints.forEach((w, idx) => {
         if (idx > 3 && idx < prevPath.waypoints.length - 4) {
-          const gx = Math.round((w.x / imageDims.width) * 255);
-          const gy = Math.round((w.y / imageDims.height) * 255);
+          const gx = Math.min(255, Math.max(0, Math.round((w.x / 256) * 255)));
+          const gy = Math.min(255, Math.max(0, Math.round((w.y / 256) * 255)));
           for (let dx = -4; dx <= 4; dx++) {
             for (let dy = -4; dy <= 4; dy++) {
               activeExclusions.add((gy + dy) * 256 + (gx + dx));
@@ -639,6 +697,28 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
       } else {
         break;
       }
+    }
+
+    if (results.length > 0 && results[0].waypoints.length > 0) {
+      const wps = results[0].waypoints;
+      const xs = wps.map(w => w.x);
+      const ys = wps.map(w => w.y);
+      logRouteDiagnostics('TerrainAnalysisContext', {
+        imageId: activeImage.id,
+        imageWidth: imageDims.width,
+        imageHeight: imageDims.height,
+        viewBox: '0 0 256 256',
+        waypointCount: wps.length,
+        firstWaypoint: wps[0],
+        lastWaypoint: wps[wps.length - 1],
+        minX: Math.min(...xs),
+        maxX: Math.max(...xs),
+        minY: Math.min(...ys),
+        maxY: Math.max(...ys),
+        startPt: effectiveStartPoint,
+        destPt: effectiveDestinationPoint,
+        totalLengthM: results[0].totalLengthM
+      });
     }
 
     return results;
@@ -745,6 +825,224 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
     setRecalcTrigger(prev => prev + 1);
   }, []);
 
+  // ========================================================
+  // SHARED TRAVERSAL ANIMATION STATE & REAL-TIME CONTROLS
+  // ========================================================
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [traversalProgress, setTraversalProgressState] = useState<number>(0);
+  const [simSpeed, setSimSpeedState] = useState<number>(1.0);
+
+  const activeRouteIndex = Math.min(selectedRouteIndex, Math.max(0, candidates.length - 1));
+  const currentActiveRoute = candidates[activeRouteIndex] || null;
+  const activeWaypoints = currentActiveRoute?.waypoints || [];
+
+  // Reset traversal progress when active route or active image changes
+  const prevRouteKeyRef = useRef<string>('');
+  useEffect(() => {
+    const key = `${activeImage.id}_${activeRouteIndex}_${activeWaypoints.length}`;
+    if (prevRouteKeyRef.current !== key) {
+      prevRouteKeyRef.current = key;
+      setIsPlaying(false);
+      setTraversalProgressState(0);
+    }
+  }, [activeImage.id, activeRouteIndex, activeWaypoints.length]);
+
+  // Shared Animation Loop using requestAnimationFrame
+  const animRef = useRef<number | null>(null);
+  const lastTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isPlaying || !currentActiveRoute || currentActiveRoute.isBlocked || activeWaypoints.length < 2) {
+      if (animRef.current) cancelAnimationFrame(animRef.current);
+      lastTimeRef.current = null;
+      return;
+    }
+
+    const animate = (time: number) => {
+      if (lastTimeRef.current === null) lastTimeRef.current = time;
+      const dt = (time - lastTimeRef.current) / 1000;
+      lastTimeRef.current = time;
+
+      setTraversalProgressState((prev) => {
+        // Complete route traversal takes 14 seconds at 1x simSpeed
+        const speedPct = (100 / 14) * simSpeed * dt;
+        const next = prev + speedPct;
+        if (next >= 100) {
+          setIsPlaying(false);
+          return 100;
+        }
+        return next;
+      });
+
+      animRef.current = requestAnimationFrame(animate);
+    };
+
+    animRef.current = requestAnimationFrame(animate);
+    return () => {
+      if (animRef.current) cancelAnimationFrame(animRef.current);
+    };
+  }, [isPlaying, currentActiveRoute, activeWaypoints.length, simSpeed]);
+
+  // Compute rover position telemetry interpolated along activeWaypoints
+  const roverPos: RoverPosTelemetry = useMemo(() => {
+    const startPt = effectiveStartPoint;
+    if (activeWaypoints.length === 0) {
+      return {
+        x: startPt.x,
+        y: startPt.y,
+        angle: 0,
+        waypointIndex: 0,
+        distanceTraveledM: 0,
+        remainingDistanceM: 0,
+        currentSlope: 0,
+        currentRoughness: 0,
+        currentSlip: 0,
+        currentStepCost: 0
+      };
+    }
+
+    if (activeWaypoints.length === 1) {
+      const w0 = activeWaypoints[0];
+      return {
+        x: w0.x,
+        y: w0.y,
+        angle: 0,
+        waypointIndex: 0,
+        distanceTraveledM: 0,
+        remainingDistanceM: 0,
+        currentSlope: w0.slope,
+        currentRoughness: w0.roughness,
+        currentSlip: w0.slip,
+        currentStepCost: w0.stepCost
+      };
+    }
+
+    // Cumulative distance along pixel path
+    let totalPixelDist = 0;
+    const segDistances: number[] = [];
+    for (let i = 0; i < activeWaypoints.length - 1; i++) {
+      const p1 = activeWaypoints[i];
+      const p2 = activeWaypoints[i + 1];
+      const d = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      segDistances.push(d);
+      totalPixelDist += d;
+    }
+
+    if (totalPixelDist === 0) {
+      const w0 = activeWaypoints[0];
+      return {
+        x: w0.x,
+        y: w0.y,
+        angle: 0,
+        waypointIndex: 0,
+        distanceTraveledM: 0,
+        remainingDistanceM: currentActiveRoute?.totalLengthM || 0,
+        currentSlope: w0.slope,
+        currentRoughness: w0.roughness,
+        currentSlip: w0.slip,
+        currentStepCost: w0.stepCost
+      };
+    }
+
+    const targetPixelDist = (traversalProgress / 100) * totalPixelDist;
+    let accumulated = 0;
+
+    for (let i = 0; i < activeWaypoints.length - 1; i++) {
+      const p1 = activeWaypoints[i];
+      const p2 = activeWaypoints[i + 1];
+      const segLen = segDistances[i];
+
+      if (accumulated + segLen >= targetPixelDist || i === activeWaypoints.length - 2) {
+        const remain = Math.max(0, targetPixelDist - accumulated);
+        const ratio = segLen > 0 ? Math.min(1, remain / segLen) : 0;
+
+        const rx = p1.x + (p2.x - p1.x) * ratio;
+        const ry = p1.y + (p2.y - p1.y) * ratio;
+
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+
+        const totalM = currentActiveRoute?.totalLengthM || 0;
+        const distTraveledM = Math.round((traversalProgress / 100) * totalM);
+        const remainingM = Math.max(0, totalM - distTraveledM);
+
+        const currentSlope = Math.round(p1.slope + ratio * (p2.slope - p1.slope));
+        const currentRoughness = Number((p1.roughness + ratio * (p2.roughness - p1.roughness)).toFixed(2));
+        const currentSlip = Number((p1.slip + ratio * (p2.slip - p1.slip)).toFixed(2));
+        const currentStepCost = Math.round(p1.stepCost + ratio * (p2.stepCost - p1.stepCost));
+
+        return {
+          x: rx,
+          y: ry,
+          angle: angleDeg,
+          waypointIndex: i,
+          distanceTraveledM: distTraveledM,
+          remainingDistanceM: remainingM,
+          currentSlope,
+          currentRoughness,
+          currentSlip,
+          currentStepCost
+        };
+      }
+      accumulated += segLen;
+    }
+
+    const lastW = activeWaypoints[activeWaypoints.length - 1];
+    const totalM = currentActiveRoute?.totalLengthM || 0;
+    return {
+      x: lastW.x,
+      y: lastW.y,
+      angle: 0,
+      waypointIndex: activeWaypoints.length - 1,
+      distanceTraveledM: totalM,
+      remainingDistanceM: 0,
+      currentSlope: lastW.slope,
+      currentRoughness: lastW.roughness,
+      currentSlip: lastW.slip,
+      currentStepCost: lastW.stepCost
+    };
+  }, [activeWaypoints, traversalProgress, effectiveStartPoint, currentActiveRoute]);
+
+  const traversalStatus: 'STOPPED' | 'TRAVERSING' | 'PAUSED' | 'COMPLETED' = useMemo(() => {
+    if (traversalProgress >= 100) return 'COMPLETED';
+    if (isPlaying) return 'TRAVERSING';
+    if (traversalProgress > 0) return 'PAUSED';
+    return 'STOPPED';
+  }, [isPlaying, traversalProgress]);
+
+  const startTraversal = useCallback(() => {
+    if (traversalProgress >= 100) {
+      setTraversalProgressState(0);
+    }
+    setIsPlaying(true);
+  }, [traversalProgress]);
+
+  const pauseTraversal = useCallback(() => {
+    setIsPlaying(false);
+  }, []);
+
+  const resumeTraversal = useCallback(() => {
+    if (traversalProgress >= 100) {
+      setTraversalProgressState(0);
+    }
+    setIsPlaying(true);
+  }, [traversalProgress]);
+
+  const resetTraversal = useCallback(() => {
+    setIsPlaying(false);
+    setTraversalProgressState(0);
+  }, []);
+
+  const setTraversalProgress = useCallback((progress: number) => {
+    setIsPlaying(false);
+    setTraversalProgressState(Math.max(0, Math.min(100, progress)));
+  }, []);
+
+  const setSimSpeed = useCallback((speed: number) => {
+    setSimSpeedState(speed);
+  }, []);
+
   return (
     <TerrainAnalysisContext.Provider value={{
       analysis,
@@ -756,7 +1054,18 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
       clearObstacles,
       recalculateAnalysis,
       uploadCustomGroundTruthMask,
-      clearCustomGroundTruthMask
+      clearCustomGroundTruthMask,
+      isPlaying,
+      traversalProgress,
+      simSpeed,
+      traversalStatus,
+      startTraversal,
+      pauseTraversal,
+      resumeTraversal,
+      resetTraversal,
+      setTraversalProgress,
+      setSimSpeed,
+      roverPos
     }}>
       {children}
     </TerrainAnalysisContext.Provider>

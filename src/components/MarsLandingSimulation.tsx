@@ -155,6 +155,22 @@ export const LANDING_STAGES: StageInfo[] = [
   }
 ];
 
+function getElevation(x: number, z: number): number {
+  const distFromCenter = Math.hypot(x, z);
+  const flatFactor = Math.min(1.0, Math.max(0.0, (distFromCenter - 12) / 32));
+
+  let y = Math.sin(x * 0.035) * Math.cos(z * 0.032) * 3.6;
+  y += Math.cos(x * 0.018 - z * 0.022) * 2.4;
+  y += Math.sin(x * 0.09 + z * 0.065) * 0.8;
+
+  const craterDist = Math.hypot(x + 45, z - 35);
+  if (craterDist < 26) {
+    const t = craterDist / 26;
+    y -= (Math.cos(t * Math.PI) + 1.0) * 3.2;
+  }
+  return y * flatFactor;
+}
+
 export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLandingSimulationProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -203,8 +219,8 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
     latchUnlocked: false,
 
     // Rover Kinematics (Stowed inside cargo bay at starting transform)
-    roverZ: 0.2, // Stowed completely behind closed gate at Z = -1.86m
-    roverY: 1.62 + 0.13,
+    roverZ: 0.2, // Stowed completely behind closed gate at Z = 0.2
+    roverY: 1.62 - 0.22,
     roverPitch: 0.0,
     roverHeadlightsOn: false,
     wheelRotations: 0,
@@ -237,9 +253,11 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
     setCurrentStage(stage);
 
     const rampTarget = s.finalRampAngle;
+    const settledY = s.settledLanderY;
+    const yOffset = settledY - 1.62;
 
     if (stage <= 1) {
-      s.landerY = 65.0;
+      s.landerY = 65.0 + yOffset;
       s.legCompressions = [0, 0, 0, 0];
       s.thrustersOn = true;
       s.thrusterLevel = 1.0;
@@ -248,11 +266,11 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.rampLocked = false;
       s.latchUnlocked = false;
       s.roverZ = 0.2;
-      s.roverY = 65.0 + 0.13;
+      s.roverY = s.landerY - 0.22;
       s.roverPitch = 0.0;
       s.roverHeadlightsOn = false;
     } else if (stage === 2) {
-      s.landerY = 28.0;
+      s.landerY = 28.0 + yOffset;
       s.legCompressions = [0, 0, 0, 0];
       s.thrustersOn = true;
       s.thrusterLevel = 0.85;
@@ -261,11 +279,11 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.rampLocked = false;
       s.latchUnlocked = false;
       s.roverZ = 0.2;
-      s.roverY = 28.0 + 0.13;
+      s.roverY = s.landerY - 0.22;
       s.roverPitch = 0.0;
       s.roverHeadlightsOn = false;
     } else if (stage === 3) {
-      s.landerY = 10.0;
+      s.landerY = 10.0 + yOffset;
       s.legCompressions = [0, 0, 0, 0];
       s.thrustersOn = true;
       s.thrusterLevel = 0.7;
@@ -274,11 +292,11 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.rampLocked = false;
       s.latchUnlocked = false;
       s.roverZ = 0.2;
-      s.roverY = 10.0 + 0.13;
+      s.roverY = s.landerY - 0.22;
       s.roverPitch = 0.0;
       s.roverHeadlightsOn = false;
     } else if (stage === 4) {
-      s.landerY = 2.2;
+      s.landerY = 2.2 + yOffset;
       s.legCompressions = [0.03, 0.02, 0.04, 0.03];
       s.thrustersOn = true;
       s.thrusterLevel = 0.45;
@@ -287,11 +305,11 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.rampLocked = false;
       s.latchUnlocked = false;
       s.roverZ = 0.2;
-      s.roverY = 2.2 + 0.13;
+      s.roverY = s.landerY - 0.22;
       s.roverPitch = 0.0;
       s.roverHeadlightsOn = false;
     } else if (stage === 5) {
-      s.landerY = 1.75;
+      s.landerY = 1.75 + yOffset;
       s.legCompressions = [0.15, 0.14, 0.16, 0.15];
       s.thrustersOn = true;
       s.thrusterLevel = 0.2;
@@ -300,11 +318,11 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.rampLocked = false;
       s.latchUnlocked = false;
       s.roverZ = 0.2;
-      s.roverY = 1.75 + 0.13;
+      s.roverY = s.landerY - 0.22;
       s.roverPitch = 0.0;
       s.roverHeadlightsOn = false;
     } else if (stage === 6) {
-      s.landerY = s.settledLanderY;
+      s.landerY = settledY;
       s.legCompressions = [0.24, 0.23, 0.25, 0.24];
       s.thrustersOn = true;
       s.thrusterLevel = 0.05;
@@ -313,11 +331,11 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.rampLocked = false;
       s.latchUnlocked = false;
       s.roverZ = 0.2;
-      s.roverY = s.settledLanderY + 0.13;
+      s.roverY = settledY - 0.22;
       s.roverPitch = 0.0;
       s.roverHeadlightsOn = false;
     } else if (stage === 7) {
-      s.landerY = s.settledLanderY;
+      s.landerY = settledY;
       s.legCompressions = [0.24, 0.23, 0.25, 0.24];
       s.thrustersOn = false;
       s.thrusterLevel = 0.0;
@@ -326,11 +344,11 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.rampLocked = false;
       s.latchUnlocked = false;
       s.roverZ = 0.2;
-      s.roverY = s.settledLanderY + 0.13;
+      s.roverY = settledY - 0.22;
       s.roverPitch = 0.0;
       s.roverHeadlightsOn = false;
     } else if (stage === 8) {
-      s.landerY = s.settledLanderY;
+      s.landerY = settledY;
       s.legCompressions = [0.24, 0.23, 0.25, 0.24];
       s.thrustersOn = false;
       s.thrusterLevel = 0.0;
@@ -339,24 +357,24 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.rampLocked = false;
       s.latchUnlocked = true;
       s.roverZ = 0.2;
-      s.roverY = s.settledLanderY + 0.13;
+      s.roverY = settledY - 0.22;
       s.roverPitch = 0.0;
       s.roverHeadlightsOn = false;
     } else if (stage === 9) {
-      s.landerY = s.settledLanderY;
+      s.landerY = settledY;
       s.legCompressions = [0.24, 0.23, 0.25, 0.24];
       s.thrustersOn = false;
       s.thrusterLevel = 0.0;
       s.dustLevel = 0.0;
-      s.gateAngle = rampTarget * 0.5;
+      s.gateAngle = Math.PI / 2 + (rampTarget - Math.PI / 2) * 0.5;
       s.rampLocked = false;
       s.latchUnlocked = true;
       s.roverZ = 0.2;
-      s.roverY = s.settledLanderY + 0.13;
+      s.roverY = settledY - 0.22;
       s.roverPitch = 0.0;
       s.roverHeadlightsOn = false;
     } else if (stage === 10) {
-      s.landerY = s.settledLanderY;
+      s.landerY = settledY;
       s.legCompressions = [0.24, 0.23, 0.25, 0.24];
       s.thrustersOn = false;
       s.thrusterLevel = 0.0;
@@ -365,11 +383,11 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.rampLocked = false;
       s.latchUnlocked = true;
       s.roverZ = 0.2;
-      s.roverY = s.settledLanderY + 0.13;
+      s.roverY = settledY - 0.22;
       s.roverPitch = 0.0;
       s.roverHeadlightsOn = false;
     } else if (stage === 11) {
-      s.landerY = s.settledLanderY;
+      s.landerY = settledY;
       s.legCompressions = [0.24, 0.23, 0.25, 0.24];
       s.thrustersOn = false;
       s.thrusterLevel = 0.0;
@@ -378,11 +396,11 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.rampLocked = true;
       s.latchUnlocked = true;
       s.roverZ = 0.2;
-      s.roverY = s.settledLanderY + 0.13;
+      s.roverY = settledY - 0.22;
       s.roverPitch = 0.0;
       s.roverHeadlightsOn = false;
     } else if (stage === 12) {
-      s.landerY = s.settledLanderY;
+      s.landerY = settledY;
       s.legCompressions = [0.24, 0.23, 0.25, 0.24];
       s.thrustersOn = false;
       s.thrusterLevel = 0.0;
@@ -391,11 +409,11 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.rampLocked = true;
       s.latchUnlocked = true;
       s.roverZ = 0.2;
-      s.roverY = s.settledLanderY + 0.13;
+      s.roverY = settledY - 0.22;
       s.roverPitch = 0.0;
       s.roverHeadlightsOn = true;
     } else if (stage === 13) {
-      s.landerY = s.settledLanderY;
+      s.landerY = settledY;
       s.legCompressions = [0.24, 0.23, 0.25, 0.24];
       s.thrustersOn = false;
       s.thrusterLevel = 0.0;
@@ -403,11 +421,11 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.gateAngle = rampTarget;
       s.rampLocked = true;
       s.latchUnlocked = true;
-      s.roverZ = -3.2;
+      s.roverZ = -2.5;
       s.roverPitch = rampTarget;
       s.roverHeadlightsOn = true;
     } else if (stage === 14) {
-      s.landerY = s.settledLanderY;
+      s.landerY = settledY;
       s.legCompressions = [0.24, 0.23, 0.25, 0.24];
       s.thrustersOn = false;
       s.thrusterLevel = 0.0;
@@ -415,11 +433,11 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.gateAngle = rampTarget;
       s.rampLocked = true;
       s.latchUnlocked = true;
-      s.roverZ = -6.5;
-      s.roverPitch = -0.08;
+      s.roverZ = -5.0;
+      s.roverPitch = 0.0;
       s.roverHeadlightsOn = true;
     } else if (stage === 15) {
-      s.landerY = s.settledLanderY;
+      s.landerY = settledY;
       s.legCompressions = [0.24, 0.23, 0.25, 0.24];
       s.thrustersOn = false;
       s.thrusterLevel = 0.0;
@@ -427,8 +445,8 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       s.gateAngle = rampTarget;
       s.rampLocked = true;
       s.latchUnlocked = true;
-      s.roverZ = -11.8;
-      s.roverY = 0.0;
+      s.roverZ = -10.0;
+      s.roverY = getElevation(0, -10.0);
       s.roverPitch = 0.0;
       s.roverHeadlightsOn = true;
     }
@@ -504,22 +522,6 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
     const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
     terrainGeo.rotateX(-Math.PI / 2);
 
-    function getElevation(x: number, z: number): number {
-      const distFromCenter = Math.hypot(x, z);
-      const flatFactor = Math.min(1.0, Math.max(0.0, (distFromCenter - 12) / 32));
-
-      let y = Math.sin(x * 0.035) * Math.cos(z * 0.032) * 3.6;
-      y += Math.cos(x * 0.018 - z * 0.022) * 2.4;
-      y += Math.sin(x * 0.09 + z * 0.065) * 0.8;
-
-      const craterDist = Math.hypot(x + 45, z - 35);
-      if (craterDist < 26) {
-        const t = craterDist / 26;
-        y -= (Math.cos(t * Math.PI) + 1.0) * 3.2;
-      }
-      return y * flatFactor;
-    }
-
     const pos = terrainGeo.attributes.position;
     const colors: number[] = [];
     const colLow = new THREE.Color(0x6e210b);
@@ -580,6 +582,8 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       return getElevation(leg.localPadPos.x, leg.localPadPos.z);
     });
     const avgFootpadTerrainY = footpadGroundHeights.reduce((a, b) => a + b, 0) / footpadGroundHeights.length;
+    // Settled height should allow the 3.2m ramp to reach the ground comfortably.
+    // At sillHeight = 1.34m, ramp angle is ~24 deg.
     const nominalSettledY = avgFootpadTerrainY + 1.62;
     animStateRef.current.settledLanderY = nominalSettledY;
 
@@ -587,10 +591,15 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
     const panelL = landerAssembly.gateRamp.panelLength;
     const sillWorldY = nominalSettledY - 0.28;
     const sillWorldZ = -1.86;
-    const approxToeZ = sillWorldZ - panelL * Math.cos(19 * (Math.PI / 180));
-    const terrainAtToe = getElevation(0, approxToeZ);
-    const exactDeployedAngle = -Math.asin(Math.min(0.9, Math.max(0.1, (sillWorldY - terrainAtToe) / panelL)));
-    animStateRef.current.finalRampAngle = exactDeployedAngle;
+    
+    // Iterate slightly to find best contact angle on potentially uneven terrain
+    let bestAngle = -0.42; // default ~24 deg
+    for (let i = 0; i < 5; i++) {
+      const currentToeZ = sillWorldZ - panelL * Math.cos(bestAngle);
+      const terrainAtToe = getElevation(0, currentToeZ);
+      bestAngle = -Math.asin(Math.min(0.9, Math.max(0.1, (sillWorldY - terrainAtToe) / panelL)));
+    }
+    animStateRef.current.finalRampAngle = bestAngle;
 
     // 5. NASA MARS 2020 PERSEVERANCE ROVER MODEL
     const { roverRoot, wheels, mastHead } = createDetailedMarsRover();
@@ -768,6 +777,12 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
 
         const settledY = state.settledLanderY;
         const rampContactAngle = state.finalRampAngle;
+
+        // Pre-calculate current ramp geometry for use in state machine
+        const sillZ = -1.86;
+        const currentPanelAngle = state.gateAngle;
+        const panelL = landerAssembly.gateRamp.panelLength;
+        const toeZ = sillZ - panelL * Math.cos(currentPanelAngle);
 
         // --- 15-STAGE STATE MACHINE ---
         switch (state.currentStage) {
@@ -1014,15 +1029,14 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
           }
           case 13: {
             // 13. ROVER DESCENT
-            // Rover rolls down the single ramp panel: Z: 0.2 -> -5.2m.
-            // Continuous physical contact: wheels touch ramp surface, pitch locked to ramp angle.
+            // Rover rolls down the single ramp panel: Z: 0.2 -> toeZ.
             const t = Math.min(1.0, state.stageProgress);
             state.gateAngle = rampContactAngle;
             state.rampLocked = true;
             state.roverHeadlightsOn = true;
 
             const startZ = 0.2;
-            const endZ = -5.2;
+            const endZ = toeZ + 0.5; // Offset to ensure front wheels are near ground
             const curZ = THREE.MathUtils.lerp(startZ, endZ, t);
             state.roverZ = curZ;
 
@@ -1042,14 +1056,14 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
           }
           case 14: {
             // 14. GROUND CONTACT
-            // Rocker-bogie wheels transition off the ramp panel onto Martian terrain (Z: -5.2 -> -7.8m)
+            // Rocker-bogie wheels transition off the ramp panel onto Martian terrain
             const t = Math.min(1.0, state.stageProgress);
             state.gateAngle = rampContactAngle;
             state.rampLocked = true;
             state.roverHeadlightsOn = true;
 
-            const startZ = -5.2;
-            const endZ = -7.8;
+            const startZ = toeZ + 0.5;
+            const endZ = toeZ - 2.5;
             const curZ = THREE.MathUtils.lerp(startZ, endZ, t);
             state.roverZ = curZ;
 
@@ -1115,16 +1129,20 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       const curLanderY = state.landerY;
       const sillY = curLanderY - 0.28;
       const sillZ = -1.86;
-      const toeZ = sillZ - landerAssembly.gateRamp.panelLength * Math.cos(state.gateAngle);
-      const toeY = sillY + landerAssembly.gateRamp.panelLength * Math.sin(state.gateAngle);
+      const currentPanelAngle = state.gateAngle;
+      const panelL = landerAssembly.gateRamp.panelLength;
+      
+      const toeZ = sillZ - panelL * Math.cos(currentPanelAngle);
+      const toeY = sillY + panelL * Math.sin(currentPanelAngle);
 
       function getPhysicalSurfaceHeightAtZ(z: number): number {
         if (z >= sillZ) {
           // Inside cargo bay floor
           return sillY + 0.06;
-        } else if (z >= toeZ && state.currentStage >= 9) {
-          // On the single ramp panel
+        } else if (z >= toeZ) {
+          // On the single ramp panel (only valid if gate is opening/open)
           const t = (z - sillZ) / (toeZ - sillZ);
+          // Add a tiny offset (0.02) to prevent wheel clipping through panel
           return THREE.MathUtils.lerp(sillY + 0.06, toeY + 0.02, t);
         } else {
           // On Martian terrain
@@ -1141,16 +1159,19 @@ export default function MarsLandingSimulation({ onSwitchToNavigation }: MarsLand
       // Chassis height and pitch calculated from physical contact points
       if (state.currentStage <= 12) {
         // While stowed inside the lander compartment
-        state.roverY = sillY + 0.06 + 0.35;
+        state.roverY = sillY + 0.06; // Bottom of wheels at floor
         state.roverPitch = 0.0;
       } else {
         // While rolling down ramp and transitioning onto terrain
-        const axleDeltaZ = rearAxleZ - frontAxleZ; // 2.32m
+        const axleDeltaZ = rearAxleZ - frontAxleZ; 
         const axleDeltaY = frontSurfaceY - rearSurfaceY;
         state.roverPitch = Math.atan2(axleDeltaY, axleDeltaZ);
-        state.roverY = (frontSurfaceY + rearSurfaceY) / 2 + 0.35;
+        state.roverY = (frontSurfaceY + rearSurfaceY) / 2; // roverRoot is at wheel bottom
       }
 
+      // Adjustment: The roverRoot position in its model is at the bottom of the wheels (y=0).
+      // But the chassis center is at y=0.82.
+      // So setting roverRoot.position.y to the surface height puts wheels on surface.
       roverRoot.position.set(0, state.roverY, state.roverZ);
       roverRoot.rotation.x = state.roverPitch;
       roverRoot.rotation.y = 0;

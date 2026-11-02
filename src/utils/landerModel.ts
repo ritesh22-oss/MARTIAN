@@ -155,7 +155,7 @@ export function createDetailedMarsLander(): DetailedMarsLanderAssembly {
     const z2 = Math.sin(nextAngle) * trussRadius;
 
     // Leave the front cargo bay opening unobstructed (facing -Z)
-    const isFrontOpening = Math.abs((z1 + z2) / 2 - -trussRadius * 0.9) < 1.2;
+    const isFrontOpening = Math.abs((z1 + z2) / 2 - -trussRadius * 1.0) < 1.5;
 
     if (!isFrontOpening) {
       const lowerChord = createTubeBetween(
@@ -372,6 +372,14 @@ export function createDetailedMarsLander(): DetailedMarsLanderAssembly {
   bayCeiling.position.set(0, 1.7, 0.4);
   hullGroup.add(bayCeiling);
 
+  // Rear Wall for the cargo bay
+  const bayRearWall = new THREE.Mesh(
+    new THREE.BoxGeometry(bayWidth, 1.9, 0.1),
+    darkTitaniumMat
+  );
+  bayRearWall.position.set(0, 0.72, bayLength / 2 + 0.2);
+  hullGroup.add(bayRearWall);
+
   const cargoBayLight = new THREE.PointLight(0xffb84d, 1.8, 8);
   cargoBayLight.position.set(0, 1.55, 0.3);
   hullGroup.add(cargoBayLight);
@@ -389,8 +397,8 @@ export function createDetailedMarsLander(): DetailedMarsLanderAssembly {
   // Lander Body (hullGroup)
   //   └── Gate Hinge (gatePivot at sill edge: x=0, y=-0.28, z=-1.86)
   //        └── Single Gate/Ramp Panel (singleRampPanel)
-  // Length is 4.2m, reaching from the sill to the Martian terrain at a gentle driving slope of ~19 deg.
-  const panelLength = 4.2;
+  // Length is 3.2m, fitting within the lander body height (~2.4m) when closed with a small overlap.
+  const panelLength = 3.2;
   const panelWidth = 2.6;
   const panelThickness = 0.12;
   const sillLocalPos = new THREE.Vector3(0, -0.28, -1.86);
@@ -632,20 +640,21 @@ export function createDetailedMarsLander(): DetailedMarsLanderAssembly {
   const setLegFootpadWorldY = (legIndex: number, targetWorldY: number, landerWorldY: number) => {
     if (legs[legIndex]) {
       const leg = legs[legIndex];
+      // Nominal uncompressed pad height in world space
       const nominalPadWorldY = landerWorldY + leg.localPadPos.y;
-
-      if (nominalPadWorldY >= targetWorldY) {
-        // Free in air: uncompressed
-        leg.telescopingAssembly.position.y = 0;
-        leg.currentExtension = 0;
-      } else {
-        // Contact: compress shock absorber along its hydraulic cylinder axis
-        const verticalDelta = targetWorldY - nominalPadWorldY;
-        // Cylinder angle is ~0.58 rad from vertical (cos(0.58) ≈ 0.836)
-        const strutCompress = Math.max(0, Math.min(0.38, verticalDelta / 0.836));
-        leg.telescopingAssembly.position.y = strutCompress;
-        leg.currentExtension = strutCompress;
-      }
+      
+      // Calculate how much we need to adjust the telescoping assembly
+      // targetWorldY - nominalPadWorldY gives the vertical displacement needed.
+      // We convert this vertical displacement into movement along the slanted strut axis (~0.58 rad).
+      // cos(0.58) ≈ 0.836.
+      const verticalDelta = targetWorldY - nominalPadWorldY;
+      const strutAdjustment = verticalDelta / 0.836;
+      
+      // Limit adjustment to mechanical travel limits (e.g., -0.2m extension to 0.5m compression)
+      const clampedAdjustment = Math.max(-0.45, Math.min(0.65, strutAdjustment));
+      
+      leg.telescopingAssembly.position.y = clampedAdjustment;
+      leg.currentExtension = clampedAdjustment;
     }
   };
 

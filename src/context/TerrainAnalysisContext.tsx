@@ -160,8 +160,11 @@ export interface RoverPosTelemetry {
 
 interface TerrainAnalysisContextType {
   analysis: TerrainAnalysisResult;
-  setStartPoint: (pt: { x: number; y: number }) => void;
-  setDestinationPoint: (pt: { x: number; y: number }) => void;
+  setStartPoint: (pt: { x: number; y: number } | null) => void;
+  setDestinationPoint: (pt: { x: number; y: number } | null) => void;
+  clearStartPoint: () => void;
+  clearDestinationPoint: () => void;
+  swapStartAndDestination: () => void;
   setSelectedRouteIndex: (idx: number) => void;
   addObstacle: (obs: ObstacleNode) => void;
   removeObstacle: (id: string) => void;
@@ -245,18 +248,16 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
     sharedSession?.imageProvenance?.source
   ]);
 
-  // Effective Start and Destination Points for immediate path computation
+  // Effective Start and Destination Points for path computation (normalized 256x256 coordinate space)
   const effectiveStartPoint = useMemo(() => {
     if (startPoint) return startPoint;
-    if (!imageDims.width || !imageDims.height) return { x: 45, y: 215 };
-    return { x: Math.round(imageDims.width * 0.15), y: Math.round(imageDims.height * 0.85) };
-  }, [startPoint, imageDims]);
+    return { x: 38, y: 218 };
+  }, [startPoint]);
 
   const effectiveDestinationPoint = useMemo(() => {
     if (destinationPoint) return destinationPoint;
-    if (!imageDims.width || !imageDims.height) return { x: 255, y: 35 };
-    return { x: Math.round(imageDims.width * 0.85), y: Math.round(imageDims.height * 0.15) };
-  }, [destinationPoint, imageDims]);
+    return { x: 218, y: 38 };
+  }, [destinationPoint]);
 
   // Load and decode image + generate baseline traversability grid & class stats
   useEffect(() => {
@@ -779,18 +780,58 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
     effectiveDestinationPoint,
     obstacles: [...autoObstacles, ...manualObstacles],
     selectedRouteIndex: Math.min(selectedRouteIndex, Math.max(0, candidates.length - 1)),
-    routes: candidates,
+    routes: candidates.length > 0 ? candidates : (sharedSession?.activeSyncRoute?.waypoints?.length ? [{
+      id: sharedSession.activeSyncRoute.routeId,
+      name: sharedSession.activeSyncRoute.name,
+      waypoints: sharedSession.activeSyncRoute.waypoints.map(w => ({
+        index: w.index,
+        x: w.x,
+        y: w.y,
+        distanceM: w.distanceM,
+        slope: w.slope,
+        roughness: w.roughness,
+        slip: w.slip,
+        obstaclePenalty: (w as any).obstaclePenalty || 0,
+        isUnsafe: Boolean(w.isUnsafe),
+        isBlockedCell: Boolean(w.isBlockedCell),
+        stepCost: w.stepCost,
+        cumulativeCost: w.cumulativeCost
+      })),
+      totalCost: sharedSession.activeSyncRoute.totalCost || 0,
+      totalLengthM: sharedSession.activeSyncRoute.totalDistanceM,
+      maxSlope: 8,
+      unsafeCount: 0,
+      isBlocked: false,
+      difficulty: 'Safe',
+      explanation: 'Walk Ops Synchronized Route'
+    }] : []),
     lastAnalyzedTime,
     classStats,
     matchedGtRecord
   };
 
-  const setPoints = useCallback((start?: { x: number; y: number }, dest?: { x: number; y: number }) => {
-    updateSharedSession({
-      ...(start && { startPoint: start }),
-      ...(dest && { destinationPoint: dest })
-    });
+  const setStartPoint = useCallback((pt: { x: number; y: number } | null) => {
+    updateSharedSession({ startPoint: pt });
   }, [updateSharedSession]);
+
+  const setDestinationPoint = useCallback((pt: { x: number; y: number } | null) => {
+    updateSharedSession({ destinationPoint: pt });
+  }, [updateSharedSession]);
+
+  const clearStartPoint = useCallback(() => {
+    updateSharedSession({ startPoint: null });
+  }, [updateSharedSession]);
+
+  const clearDestinationPoint = useCallback(() => {
+    updateSharedSession({ destinationPoint: null });
+  }, [updateSharedSession]);
+
+  const swapStartAndDestination = useCallback(() => {
+    updateSharedSession({
+      startPoint: sharedSession.destinationPoint,
+      destinationPoint: sharedSession.startPoint
+    });
+  }, [sharedSession.destinationPoint, sharedSession.startPoint, updateSharedSession]);
 
   const addObstacle = useCallback((obs: ObstacleNode) => {
     updateSharedSession({
@@ -833,7 +874,31 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
   const [simSpeed, setSimSpeedState] = useState<number>(1.0);
 
   const activeRouteIndex = Math.min(selectedRouteIndex, Math.max(0, candidates.length - 1));
-  const currentActiveRoute = candidates[activeRouteIndex] || null;
+  const currentActiveRoute = candidates[activeRouteIndex] || (sharedSession?.activeSyncRoute?.waypoints?.length ? {
+    id: sharedSession.activeSyncRoute.routeId,
+    name: sharedSession.activeSyncRoute.name,
+    waypoints: sharedSession.activeSyncRoute.waypoints.map(w => ({
+      index: w.index,
+      x: w.x,
+      y: w.y,
+      distanceM: w.distanceM,
+      slope: w.slope,
+      roughness: w.roughness,
+      slip: w.slip,
+      obstaclePenalty: (w as any).obstaclePenalty || 0,
+      isUnsafe: Boolean(w.isUnsafe),
+      isBlockedCell: Boolean(w.isBlockedCell),
+      stepCost: w.stepCost,
+      cumulativeCost: w.cumulativeCost
+    })),
+    totalCost: sharedSession.activeSyncRoute.totalCost || 0,
+    totalLengthM: sharedSession.activeSyncRoute.totalDistanceM,
+    maxSlope: 8,
+    unsafeCount: 0,
+    isBlocked: false,
+    difficulty: 'Safe',
+    explanation: 'Walk Ops Synchronized Route'
+  } : null);
   const activeWaypoints = currentActiveRoute?.waypoints || [];
 
   // Reset traversal progress when active route or active image changes
@@ -1046,8 +1111,11 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
   return (
     <TerrainAnalysisContext.Provider value={{
       analysis,
-      setStartPoint: (pt) => setPoints(pt, undefined),
-      setDestinationPoint: (pt) => setPoints(undefined, pt),
+      setStartPoint,
+      setDestinationPoint,
+      clearStartPoint,
+      clearDestinationPoint,
+      swapStartAndDestination,
       setSelectedRouteIndex,
       addObstacle,
       removeObstacle,

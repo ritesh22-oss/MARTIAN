@@ -90,6 +90,7 @@ export interface ActiveSyncRouteWaypoint {
   slip: number;
   stepCost: number;
   cumulativeCost: number;
+  obstaclePenalty?: number;
   isUnsafe?: boolean;
   isBlockedCell?: boolean;
 }

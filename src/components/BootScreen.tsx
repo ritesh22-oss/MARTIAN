@@ -5,6 +5,7 @@ import {
   runIntelligentInitialization,
   INITIALIZATION_STAGES
 } from '../services/appInitializer';
+import { RoverLoadingScene } from './RoverLoadingScene';
 
 interface BootScreenProps {
   onComplete: () => void;
@@ -140,7 +141,7 @@ export const BootScreen: React.FC<BootScreenProps> = ({ onComplete }) => {
     };
   }, []);
 
-  // Frame-Rate Independent Smooth Progress Interpolator (Fast & Smooth ~3.2 second pace)
+      // Frame-Rate Independent Smooth Progress Interpolator (Slowed to 6.0 second pace)
   useEffect(() => {
     let animId: number;
     let lastTime = performance.now();
@@ -151,8 +152,8 @@ export const BootScreen: React.FC<BootScreenProps> = ({ onComplete }) => {
       const dt = Math.min(0.1, (now - lastTime) / 1000);
       lastTime = now;
 
-      // Fast cinematic floor duration: 3.2 seconds
-      const CINEMATIC_DURATION = 3.2;
+      // Realistic cinematic duration: 6.0 seconds
+      const CINEMATIC_DURATION = 6.0;
       const rawRatio = Math.min(1.0, totalElapsedSec / CINEMATIC_DURATION);
       
       // Smooth cubic ease-in-out curve
@@ -174,7 +175,7 @@ export const BootScreen: React.FC<BootScreenProps> = ({ onComplete }) => {
       }
 
       setDisplayedPercent((prev) => {
-        const speed = 6.0;
+        const speed = 4.0; // Slightly reduced adjustment speed for smoother feel
         const next = prev + (target - prev) * Math.min(1.0, dt * speed);
         
         if (target >= 99.8 && next >= 99.2) {
@@ -208,9 +209,9 @@ export const BootScreen: React.FC<BootScreenProps> = ({ onComplete }) => {
         }
       `}</style>
 
-      {/* 1. Photorealistic 3D Mars Planet & Rover Surface Traversal */}
+      {/* 1. Photorealistic 3D Mars Planet & Horizon Traversal (Rover hidden to focus on 3D UI rover) */}
       <div className="absolute inset-0 z-0 pointer-events-none">
-        <CinematicBackground mode="horizon" showRover={hudStep >= 1} glowOpacity={0.8} />
+        <CinematicBackground mode="horizon" showRover={false} glowOpacity={0.8} />
       </div>
 
       {/* 2. Scanning Lines & Vignette Contrast Overlay */}
@@ -252,29 +253,36 @@ export const BootScreen: React.FC<BootScreenProps> = ({ onComplete }) => {
             <div className="h-[1px] flex-1 bg-gradient-to-l from-transparent via-orange-500/50 to-orange-400/80" />
           </div>
 
-          {/* 4. ONE SINGLE SLIM HORIZONTAL ANIMATED LOADING BAR */}
-          <div className="mt-6 sm:mt-8 w-full max-w-xs sm:max-w-md flex flex-col items-center pointer-events-auto">
-            <div className="relative w-full h-2 bg-slate-950/90 rounded-full border border-orange-500/35 overflow-hidden shadow-[0_0_16px_rgba(255,90,54,0.45)]">
-              {/* Animated Progress Fill */}
+          {/* 4. REALISTIC 3D ROVER LOADING TRACK */}
+          <div className="mt-2 sm:mt-4 w-full max-w-sm sm:max-w-xl h-40 relative pointer-events-auto flex flex-col items-center">
+            {/* 3D Scene Layer */}
+            <div className="absolute inset-0 z-10 overflow-visible">
+              <RoverLoadingScene progress={displayedPercent} />
+            </div>
+
+            {/* Underlying Track Visualization (Physical Alignment) */}
+            <div className="absolute bottom-10 w-full h-1.5 bg-slate-900/60 rounded-full border border-white/5 overflow-hidden">
+              {/* Progress Fill trailing the rover - mapped to align with 3D model center at scale 0.4 */}
+              {/* 
+                  Track range: -4 to 4 (8 units)
+                  Rover boundaryOffset: 0.5 units
+                  Start center rel%: 0.5 / 8 = 6.25%
+                  End center rel%: 7.5 / 8 = 93.75%
+                  Delta: 87.5%
+              */}
               <div
-                className="relative h-full rounded-full bg-gradient-to-r from-orange-600 via-amber-400 to-orange-500 shadow-[0_0_12px_rgba(255,140,50,0.9)] transition-all duration-75 ease-out overflow-hidden"
-                style={{ width: `${Math.min(100, Math.max(0, displayedPercent))}%` }}
-              >
-                {/* Moving Light Reflection / Shimmer Sweep */}
-                <div
-                  className="absolute inset-0 w-full h-full bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.65)_50%,transparent_100%)]"
-                  style={{
-                    animation: 'marsBarShimmer 2.2s infinite linear'
-                  }}
-                />
-              </div>
+                className="h-full bg-gradient-to-r from-orange-600/40 via-orange-500/80 to-amber-400 shadow-[0_0_15px_rgba(255,100,20,0.6)] transition-all duration-75 ease-out"
+                style={{ 
+                  width: `${6.25 + (displayedPercent / 100) * 87.5}%` 
+                }}
+              />
             </div>
             
-            {/* Minimal Progress Readout */}
-            <div className="mt-2.5 text-[10px] font-mono tracking-[0.2em] text-slate-300/80 uppercase select-none">
+            {/* Progress Readout shifted below the track */}
+            <div className="absolute bottom-2 text-[10px] font-mono tracking-[0.2em] text-orange-200/60 uppercase select-none">
               {displayedPercent >= 99.5
-                ? 'SYSTEM READY • 100%'
-                : `PRELOADING ASSETS • ${Math.floor(displayedPercent)}%`}
+                ? 'INITIALIZATION COMPLETE • 100%'
+                : `TRAVERSING INITIALIZATION SECTORS • ${Math.floor(displayedPercent)}%`}
             </div>
           </div>
         </div>

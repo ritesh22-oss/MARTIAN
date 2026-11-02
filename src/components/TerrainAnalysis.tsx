@@ -30,10 +30,10 @@ import { apiGet, apiPost } from '../utils/apiClient';
 // ... (imports remain)
 
 const AI4MARS_CLASSES = [
-  { id: 0, key: 'soil', label: 'Soil / Regolith', colorHex: '#FF0000', twBg: 'bg-red-500', twBorder: 'border-red-500', twText: 'text-red-400' },
-  { id: 1, key: 'bedrock', label: 'Bedrock Outcrop', colorHex: '#00FF00', twBg: 'bg-green-500', twBorder: 'border-green-500', twText: 'text-green-400' },
-  { id: 2, key: 'sand', label: 'Sand / Dunes', colorHex: '#0000FF', twBg: 'bg-blue-500', twBorder: 'border-blue-500', twText: 'text-blue-400' },
-  { id: 3, key: 'big_rock', label: 'Big Rock / Boulder Hazard', colorHex: '#FFFF00', twBg: 'bg-yellow-400', twBorder: 'border-yellow-400', twText: 'text-yellow-400' }
+  { id: 0, key: 'soil', label: 'Soil / Regolith', colorHex: '#FF4D4F', twBg: 'bg-red-500', twBorder: 'border-red-500', twText: 'text-red-400' },
+  { id: 1, key: 'bedrock', label: 'Bedrock Outcrop', colorHex: '#22C55E', twBg: 'bg-green-500', twBorder: 'border-green-500', twText: 'text-green-400' },
+  { id: 2, key: 'sand', label: 'Sand / Dunes', colorHex: '#06B6D4', twBg: 'bg-cyan-500', twBorder: 'border-cyan-500', twText: 'text-cyan-400' },
+  { id: 3, key: 'big_rock', label: 'Big Rock / Boulder Hazard', colorHex: '#FACC15', twBg: 'bg-yellow-400', twBorder: 'border-yellow-400', twText: 'text-yellow-400' }
 ];
 
 export default function TerrainAnalysis() {
@@ -59,6 +59,10 @@ export default function TerrainAnalysis() {
 
   // Display mode: 'overlay' | 'side-by-side' | 'mask-only'
   const [displayMode, setDisplayMode] = useState<'overlay' | 'side-by-side' | 'mask-only'>('overlay');
+
+  // Real Object-Level Instance Segmentation states
+  const [segmentationViewMode, setSegmentationViewMode] = useState<'semantic' | 'instance' | 'combined'>('semantic');
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
 
   // Diagnostics test state
   const [diagnosticResults, setDiagnosticResults] = useState<any[]>([]);
@@ -328,24 +332,24 @@ export default function TerrainAnalysis() {
         }
       }
 
-      // Pass 3: Spatial Modal (3x3 Majority) Smoothing Filter
+      // Pass 3: Spatial Modal (5x5 Majority) Smoothing Filter for Clean Region Boundaries & Noise Removal
       const smoothedGrid = new Uint8Array(totalPixels);
       for (let y = 0; y < size; y++) {
         for (let x = 0; x < size; x++) {
           const idx = y * size + x;
           let maxC = classGrid[idx];
-          if (y > 0 && y < size - 1 && x > 0 && x < size - 1) {
-            const counts3x3 = [0, 0, 0, 0];
-            for (let dy = -1; dy <= 1; dy++) {
-              for (let dx = -1; dx <= 1; dx++) {
+          if (y > 1 && y < size - 2 && x > 1 && x < size - 2) {
+            const counts5x5 = [0, 0, 0, 0];
+            for (let dy = -2; dy <= 2; dy++) {
+              for (let dx = -2; dx <= 2; dx++) {
                 const c = classGrid[(y + dy) * size + (x + dx)];
-                if (c < 4) counts3x3[c]++;
+                if (c < 4) counts5x5[c]++;
               }
             }
             let maxCount = 0;
             for (let c = 0; c < 4; c++) {
-              if (counts3x3[c] > maxCount) {
-                maxCount = counts3x3[c];
+              if (counts5x5[c] > maxCount) {
+                maxCount = counts5x5[c];
                 maxC = c;
               }
             }
@@ -357,10 +361,10 @@ export default function TerrainAnalysis() {
       // Render Smoothed Masks onto Canvases
       const counts = { soil: 0, bedrock: 0, sand: 0, big_rock: 0 };
       const COLOR_MAP: Record<number, [number, number, number]> = {
-        0: [255, 0, 0],   // Soil: Red
-        1: [0, 255, 0],   // Bedrock: Green
-        2: [0, 0, 255],   // Sand: Blue
-        3: [255, 255, 0]  // Big Rock: Yellow
+        0: [255, 77, 79],   // Soil / Regolith: Red (#FF4D4F)
+        1: [34, 197, 94],   // Bedrock Outcrop: Green (#22C55E)
+        2: [6, 182, 212],   // Sand / Dunes: Cyan (#06B6D4)
+        3: [250, 204, 21]   // Big Rock / Boulder: Yellow (#FACC15)
       };
       const KEY_MAP: Record<number, 'soil' | 'bedrock' | 'sand' | 'big_rock'> = {
         0: 'soil',
@@ -397,6 +401,116 @@ export default function TerrainAnalysis() {
       maskCtx.putImageData(maskImgData, 0, 0);
       overlayCtx.putImageData(overlayImgData, 0, 0);
 
+      // Connected Component Labeling for Instance Segmentation of Rocks & Bedrock
+      const visited = new Uint8Array(totalPixels);
+      const instances: any[] = [];
+      let instanceCounter = 1;
+
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const idx = y * size + x;
+          const cls = smoothedGrid[idx];
+          if ((cls === 3 || cls === 1) && !visited[idx]) {
+            const queue: [number, number][] = [[x, y]];
+            visited[idx] = 1;
+            const compPixels: [number, number][] = [];
+            let xMin = x, xMax = x, yMin = y, yMax = y;
+
+            while (queue.length > 0) {
+              const [cx, cy] = queue.pop()!;
+              compPixels.push([cx, cy]);
+              if (cx < xMin) xMin = cx;
+              if (cx > xMax) xMax = cx;
+              if (cy < yMin) yMin = cy;
+              if (cy > yMax) yMax = cy;
+
+              const neighbors = [[cx+1, cy], [cx-1, cy], [cx, cy+1], [cx, cy-1]];
+              for (const [nx, ny] of neighbors) {
+                if (nx >= 0 && nx < size && ny >= 0 && ny < size) {
+                  const nIdx = ny * size + nx;
+                  if (!visited[nIdx] && smoothedGrid[nIdx] === cls) {
+                    visited[nIdx] = 1;
+                    queue.push([nx, ny]);
+                  }
+                }
+              }
+            }
+
+            const minArea = cls === 3 ? 10 : 40;
+            if (compPixels.length >= minArea) {
+              const idStr = cls === 3 ? `ROCK-${String(instanceCounter).padStart(2, '0')}` : `BEDROCK-${String(instanceCounter).padStart(2, '0')}`;
+              const className = cls === 3 ? 'Big Rock / Boulder Hazard' : 'Bedrock Outcrop';
+              
+              let sumX = 0, sumY = 0;
+              for (const [px, py] of compPixels) {
+                sumX += px;
+                sumY += py;
+              }
+              const centroid = { x: Math.round(sumX / compPixels.length), y: Math.round(sumY / compPixels.length) };
+              const hue = (instanceCounter * 137.5) % 360;
+              const instanceColorHex = `hsl(${hue}, 90%, 55%)`;
+
+              instances.push({
+                id: idStr,
+                numericId: instanceCounter,
+                classId: cls,
+                className,
+                pixelArea: compPixels.length,
+                bbox: { xMin, yMin, xMax, yMax, width: xMax - xMin + 1, height: yMax - yMin + 1 },
+                centroid,
+                colorHex: instanceColorHex,
+                pixels: compPixels
+              });
+              instanceCounter++;
+            }
+          }
+        }
+      }
+
+      // Render Instance Mask Canvas
+      const instanceCanvas = document.createElement('canvas');
+      instanceCanvas.width = size;
+      instanceCanvas.height = size;
+      const instanceCtx = instanceCanvas.getContext('2d')!;
+      instanceCtx.fillStyle = '#050813';
+      instanceCtx.fillRect(0, 0, size, size);
+
+      for (const inst of instances) {
+        instanceCtx.fillStyle = inst.colorHex;
+        for (const [px, py] of inst.pixels) {
+          instanceCtx.fillRect(px, py, 1, 1);
+        }
+        instanceCtx.strokeStyle = '#FFFFFF';
+        instanceCtx.lineWidth = 1;
+        instanceCtx.strokeRect(inst.bbox.xMin, inst.bbox.yMin, inst.bbox.width, inst.bbox.height);
+
+        instanceCtx.fillStyle = '#FFFFFF';
+        instanceCtx.font = '8px monospace';
+        instanceCtx.fillText(inst.id, inst.bbox.xMin, Math.max(8, inst.bbox.yMin - 2));
+      }
+
+      // Render Combined Canvas
+      const combinedCanvas = document.createElement('canvas');
+      combinedCanvas.width = size;
+      combinedCanvas.height = size;
+      const combinedCtx = combinedCanvas.getContext('2d')!;
+      combinedCtx.drawImage(decodedImg, 0, 0, size, size);
+      combinedCtx.globalAlpha = 0.45;
+      combinedCtx.drawImage(maskCanvas, 0, 0, size, size);
+      combinedCtx.globalAlpha = 1.0;
+
+      for (const inst of instances) {
+        combinedCtx.strokeStyle = inst.classId === 3 ? '#FACC15' : '#22C55E';
+        combinedCtx.lineWidth = 1.5;
+        combinedCtx.strokeRect(inst.bbox.xMin, inst.bbox.yMin, inst.bbox.width, inst.bbox.height);
+
+        combinedCtx.fillStyle = '#000000';
+        combinedCtx.fillRect(inst.bbox.xMin, Math.max(0, inst.bbox.yMin - 10), inst.id.length * 5.5 + 4, 10);
+        combinedCtx.fillStyle = inst.classId === 3 ? '#FACC15' : '#22C55E';
+        combinedCtx.font = 'bold 8px monospace';
+        combinedCtx.fillText(inst.id, inst.bbox.xMin + 2, Math.max(8, inst.bbox.yMin - 2));
+      }
+
       const classDistribution = {
         soil: Number(((counts.soil / totalPixels) * 100).toFixed(2)),
         bedrock: Number(((counts.bedrock / totalPixels) * 100).toFixed(2)),
@@ -409,7 +523,7 @@ export default function TerrainAnalysis() {
       const finalResult = {
         status: 'success',
         checkpointUsed: apiResponse?.checkpointUsed || 'outputs/best_model.pth (ResNet34-UNet AI4Mars)',
-        modelArchitecture: 'ResNet34-U-Net (AI4Mars NavSegmenter v1.0)',
+        modelArchitecture: 'ResNet34-U-Net + Connected Component Instance Segmenter',
         inputDimensions: { width: origW, height: origH, processedSize: size },
         inferenceDurationMs: durationMs,
         preprocessing: {
@@ -419,8 +533,11 @@ export default function TerrainAnalysis() {
         },
         classDistribution,
         classPixelCounts: counts,
+        instances,
         maskDataUrl: maskCanvas.toDataURL('image/png'),
         overlayDataUrl: overlayCanvas.toDataURL('image/png'),
+        instanceDataUrl: instanceCanvas.toDataURL('image/png'),
+        combinedDataUrl: combinedCanvas.toDataURL('image/png'),
         originalDataUrl: inputDataUrl
       };
 
@@ -1162,36 +1279,90 @@ export default function TerrainAnalysis() {
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-white flex items-center space-x-2">
                 <Layers className="w-4 h-4 text-orange-400" />
-                <span>Segmentation Mask & Overlay</span>
+                <span>Segmentation & Object Instance Inspector</span>
               </h3>
               {inferenceResult && (
                 <div className="flex items-center space-x-2">
                   <span className="text-xs font-mono text-emerald-400 flex items-center space-x-1">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Inference Succeeded</span>
+                    <span>{inferenceResult.instances?.length || 0} Objects Detected</span>
                   </span>
                 </div>
               )}
             </div>
 
+            {/* View Mode Selector Tabs (Semantic | Instance | Combined) */}
+            {inferenceResult && (
+              <div className="flex items-center p-1 rounded-xl bg-black/50 border border-white/10 font-mono text-xs">
+                <button
+                  onClick={() => setSegmentationViewMode('semantic')}
+                  className={`flex-1 py-2 rounded-lg font-bold transition-all cursor-pointer ${
+                    segmentationViewMode === 'semantic'
+                      ? 'bg-cyan-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Semantic View
+                </button>
+                <button
+                  onClick={() => setSegmentationViewMode('instance')}
+                  className={`flex-1 py-2 rounded-lg font-bold transition-all cursor-pointer ${
+                    segmentationViewMode === 'instance'
+                      ? 'bg-orange-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Instance View ({inferenceResult.instances?.length || 0})
+                </button>
+                <button
+                  onClick={() => setSegmentationViewMode('combined')}
+                  className={`flex-1 py-2 rounded-lg font-bold transition-all cursor-pointer ${
+                    segmentationViewMode === 'combined'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Combined View
+                </button>
+              </div>
+            )}
+
             {/* Display Area */}
             <div className="relative w-full aspect-square rounded-2xl bg-black/80 border border-white/10 overflow-hidden flex items-center justify-center">
               {uploadedImage ? (
                 <div className="relative w-full h-full">
-                  {/* Raw uploaded image */}
+                  {/* Base Image */}
                   <img
                     src={uploadedImage}
                     alt="Source Input"
                     className="w-full h-full object-cover"
                   />
 
-                  {/* Inference Mask Overlay if succeeded */}
-                  {inferenceResult?.overlayDataUrl && (
+                  {/* Semantic Overlay View */}
+                  {segmentationViewMode === 'semantic' && inferenceResult?.overlayDataUrl && (
                     <img
                       src={inferenceResult.overlayDataUrl}
-                      alt="Segmented Mask"
+                      alt="Semantic Mask"
                       className="absolute inset-0 w-full h-full object-cover"
                       style={{ opacity: maskOpacity / 100 }}
+                    />
+                  )}
+
+                  {/* Instance View */}
+                  {segmentationViewMode === 'instance' && inferenceResult?.instanceDataUrl && (
+                    <img
+                      src={inferenceResult.instanceDataUrl}
+                      alt="Instance Mask"
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  )}
+
+                  {/* Combined View */}
+                  {segmentationViewMode === 'combined' && inferenceResult?.combinedDataUrl && (
+                    <img
+                      src={inferenceResult.combinedDataUrl}
+                      alt="Combined Overlay"
+                      className="absolute inset-0 w-full h-full object-cover"
                     />
                   )}
 
@@ -1217,6 +1388,82 @@ export default function TerrainAnalysis() {
                 </div>
               )}
             </div>
+
+            {/* Detected Object Instances List & Inspector */}
+            {inferenceResult?.instances && inferenceResult.instances.length > 0 && (
+              <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3 font-mono text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300 font-bold uppercase tracking-wider block">
+                    Detected Individual Object Instances ({inferenceResult.instances.length}):
+                  </span>
+                  <span className="text-[10px] text-cyan-400 font-mono">Click to inspect mask & bbox</span>
+                </div>
+
+                <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+                  {inferenceResult.instances.map((inst: any) => {
+                    const isSelected = selectedInstanceId === inst.id;
+                    return (
+                      <div
+                        key={inst.id}
+                        onClick={() => setSelectedInstanceId(isSelected ? null : inst.id)}
+                        className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                          isSelected
+                            ? 'bg-cyan-500/20 border-cyan-400 text-white'
+                            : 'bg-black/40 border-white/10 hover:border-white/30 text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2.5">
+                          <span
+                            className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm"
+                            style={{ backgroundColor: inst.colorHex }}
+                          />
+                          <div>
+                            <div className="font-bold text-white flex items-center space-x-2">
+                              <span>{inst.id}</span>
+                              <span className="text-[10px] text-slate-400 font-normal">({inst.className})</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              Area: <span className="text-cyan-300 font-semibold">{inst.pixelArea} px</span> · Bbox: [{inst.bbox.xMin}, {inst.bbox.yMin}, {inst.bbox.xMax}, {inst.bbox.yMax}]
+                            </div>
+                          </div>
+                        </div>
+                        <span className="px-2 py-0.5 rounded bg-white/5 text-[10px] text-slate-300 font-bold">
+                          {inst.classId === 3 ? 'Hazard' : 'Bedrock'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Selected Object Inspector Card */}
+                {selectedInstanceId && (() => {
+                  const inst = inferenceResult.instances.find((i: any) => i.id === selectedInstanceId);
+                  if (!inst) return null;
+                  return (
+                    <div className="p-3 rounded-xl bg-[#070A14] border border-cyan-500/40 space-y-2 animate-fade-in text-xs">
+                      <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+                        <span className="font-bold text-cyan-300 flex items-center space-x-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Object Inspector: {inst.id}</span>
+                        </span>
+                        <button
+                          onClick={() => setSelectedInstanceId(null)}
+                          className="text-slate-400 hover:text-white text-[10px]"
+                        >
+                          Close &times;
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div>Class: <span className="text-white font-bold">{inst.className}</span></div>
+                        <div>Pixel Area: <span className="text-cyan-300 font-bold">{inst.pixelArea} pixels</span></div>
+                        <div>Centroid: <span className="text-white font-mono">({inst.centroid.x}, {inst.centroid.y})</span></div>
+                        <div>Bbox Size: <span className="text-white font-mono">{inst.bbox.width}×{inst.bbox.height} px</span></div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* Class distribution breakdown & Download Menu if real inference completed */}
             {inferenceResult?.classDistribution && (

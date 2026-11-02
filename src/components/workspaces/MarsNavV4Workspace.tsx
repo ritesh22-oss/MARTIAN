@@ -64,7 +64,9 @@ import {
   Edit3,
   AlertCircle,
   Loader2,
-  Search
+  Search,
+  ArrowLeftRight,
+  Hand
 } from 'lucide-react';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import NASAImageFeed from '../NASAImageFeed';
@@ -226,6 +228,10 @@ export default function MarsNavV4Workspace() {
     analysis,
     setStartPoint,
     setDestinationPoint,
+    clearStartPoint,
+    clearDestinationPoint,
+    swapStartAndDestination,
+    recalculateAnalysis,
     setSelectedRouteIndex,
     addObstacle: addContextObstacle,
     removeObstacle: removeContextObstacle,
@@ -242,6 +248,13 @@ export default function MarsNavV4Workspace() {
     setSimSpeed: setContextSimSpeed,
     roverPos
   } = useTerrainAnalysis();
+
+  // Active Tool Selection (Section 1)
+  // 'select' (IDLE) | 'start' | 'destination' | 'checkpoint' | 'science' | 'hazard' | 'measure' | 'note' | 'inspect' | 'pan'
+  const [activeTool, setActiveTool] = useState<
+    'select' | 'start' | 'destination' | 'checkpoint' | 'science' | 'hazard' | 'measure' | 'note' | 'inspect' | 'pan'
+  >('select');
+  const [inspectedCoords, setInspectedCoords] = useState<{ x: number; y: number } | null>(null);
 
   // NASA Feed Modal
   const [nasaImages, setNasaImages] = useState<any[]>([]);
@@ -280,9 +293,6 @@ export default function MarsNavV4Workspace() {
   const [showLegend, setShowLegend] = useState<boolean>(true);
   const [routeMenuOpen, setRouteMenuOpen] = useState<boolean>(false);
 
-  // Active Tool Selection (Section 1)
-  // 'select' | 'start' | 'destination' | 'checkpoint' | 'science' | 'hazard' | 'measure' | 'note'
-  const [activeTool, setActiveTool] = useState<'select' | 'start' | 'destination' | 'checkpoint' | 'science' | 'hazard' | 'measure' | 'note'>('select');
 
   // Multi-waypoint nodes & annotations
   const [checkpointsList, setCheckpointsList] = useState<CheckpointNode[]>([]);
@@ -454,6 +464,7 @@ export default function MarsNavV4Workspace() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const activeBlobUrlRef = useRef<string | null>(null);
   const uploadSeqRef = useRef<number>(0);
@@ -580,10 +591,13 @@ export default function MarsNavV4Workspace() {
     };
   }, []);
 
-  // Keyboard shortcut listener (ESC to cancel drawing)
+  // Keyboard shortcut listener (ESC to cancel active tool/drawing)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        setActiveTool('select');
+        setDraggingWaypoint(null);
+        setInspectedCoords(null);
         if (activeMeasureStart) {
           setActiveMeasureStart(null);
           addTimelineEvent('checkpoint', 'Ruler Cancelled', 'Cancelled active ruler measurement.');
@@ -757,6 +771,10 @@ export default function MarsNavV4Workspace() {
     const nh = img.naturalHeight || 256;
     setNaturalDimensions({ width: nw, height: nh });
 
+    setTimeout(() => {
+      handleFitToWorkspace();
+    }, 10);
+
     computeCanvasStats(img);
   };
 
@@ -876,9 +894,25 @@ export default function MarsNavV4Workspace() {
   // Mouse Wheel Zoom Centered Around Cursor
   const handleWheelZoom = (e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
+    const container = viewportRef.current;
+    if (!container) return;
+
     const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
-    setZoomLevel(prev => {
-      const nextZoom = Math.min(4.0, Math.max(0.25, Number((prev * zoomFactor).toFixed(2))));
+    const rect = container.getBoundingClientRect();
+    
+    // Mouse position relative to container center (because of flex justify-center items-center)
+    const mouseX = e.clientX - (rect.left + rect.width / 2);
+    const mouseY = e.clientY - (rect.top + rect.height / 2);
+
+    setZoomLevel(prevZoom => {
+      const nextZoom = Math.min(10.0, Math.max(0.01, Number((prevZoom * zoomFactor).toFixed(4))));
+      const scaleChange = nextZoom / prevZoom;
+
+      setPanOffset(prevPan => ({
+        x: mouseX - (mouseX - prevPan.x) * scaleChange,
+        y: mouseY - (mouseY - prevPan.y) * scaleChange
+      }));
+
       return nextZoom;
     });
   };
@@ -902,58 +936,207 @@ export default function MarsNavV4Workspace() {
     addTimelineEvent('hazard', 'Restricted Polygon Completed', `Enclosed polygon hazard with ${newPoly.vertices.length} vertices.`);
   };
 
-  // Canvas Mouse Click & Dragging Tools (Section 1)
+  // Navigation Action Handlers (Sections 2, 4, 5)
+  const handleClearStart = () => {
+    saveStateToHistory();
+    clearStartPoint();
+    setActivePath([]);
+    setShowSelectedRoute(false);
+    addTimelineEvent('checkpoint', 'Start Point Cleared', 'Removed Start Base location.');
+  };
+
+  const handleClearDestination = () => {
+    saveStateToHistory();
+    clearDestinationPoint();
+    setActivePath([]);
+    setShowSelectedRoute(false);
+    addTimelineEvent('checkpoint', 'Destination Cleared', 'Removed Destination target location.');
+  };
+
+  const handleSwapPoints = () => {
+    if (!startPoint && !destinationPoint) return;
+    saveStateToHistory();
+    swapStartAndDestination();
+    addTimelineEvent('checkpoint', 'Swapped Start and Destination', 'Inverted navigation route direction.');
+  };
+
+  const handleGenerateRoute = () => {
+    if (!startPoint || !destinationPoint) {
+      if (!startPoint && !destinationPoint) {
+        setActiveTool('start');
+        addTimelineEvent('route', 'Select Start Point', 'Click on the terrain image to place Start Base.');
+      } else if (!destinationPoint) {
+        setActiveTool('destination');
+        addTimelineEvent('route', 'Select Destination Point', 'Click on the terrain image to place Destination target.');
+      } else {
+        setActiveTool('start');
+        addTimelineEvent('route', 'Select Start Point', 'Click on the terrain image to place Start Base.');
+      }
+      return;
+    }
+    setDisplayMode('route');
+    setShowSelectedRoute(true);
+    setShowWaypoints(true);
+    recalculateAnalysis();
+    addTimelineEvent('route', 'Route Generated', 'Calculated optimal navigation traverse between Start and Destination.');
+  };
+
+  const handleRecalculateRoute = () => {
+    recalculateAnalysis();
+    setShowSelectedRoute(true);
+    addTimelineEvent('route', 'Route Recalculated', 'Re-executed A* pathfinding solver with current terrain data.');
+  };
+
+  const handleClearRoute = () => {
+    setShowSelectedRoute(false);
+    setActivePath([]);
+    addTimelineEvent('route', 'Route Cleared', 'Cleared active computed route overlay.');
+  };
+
+  const handleResetView = () => {
+    setZoomLevel(1.0);
+    setPanOffset({ x: 0, y: 0 });
+    addTimelineEvent('image', 'View Reset', 'Reset zoom to 100% and centered viewport.');
+  };
+
+  const handleFitToWorkspace = useCallback(() => {
+    const container = viewportRef.current;
+    if (!container) return;
+
+    const nw = naturalDimensions.width || 256;
+    const nh = naturalDimensions.height || 256;
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+
+    if (cw > 0 && ch > 0) {
+      const margin = 32;
+      const scaleX = (cw - margin) / nw;
+      const scaleY = (ch - margin) / nh;
+      const fitScale = Math.min(scaleX, scaleY);
+      
+      setZoomLevel(Math.min(8.0, Math.max(0.01, Number(fitScale.toFixed(4)))));
+      setPanOffset({ x: 0, y: 0 });
+      addTimelineEvent('image', 'Fit to Workspace', `Fitted image (${nw}x${nh} px) to workspace ${cw}x${ch} at ${(fitScale * 100).toFixed(1)}% zoom.`);
+    }
+  }, [naturalDimensions, addTimelineEvent]);
+
+  // Automatically fit image to workspace on container resize or UI layout shifts
+  useEffect(() => {
+    const container = viewportRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver(() => {
+      // Small delay to ensure layout is stable
+      setTimeout(handleFitToWorkspace, 10);
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [handleFitToWorkspace, isFullscreen, rightInspectorOpen]);
+
+  // Cursor style matching active tool
+  const getCursorClass = () => {
+    if (isPanning) return 'cursor-grabbing';
+    if (draggingWaypoint) return 'cursor-grabbing';
+    switch (activeTool) {
+      case 'start':
+      case 'destination':
+      case 'checkpoint':
+      case 'science':
+      case 'hazard':
+      case 'measure':
+        return 'cursor-crosshair';
+      case 'inspect':
+        return 'cursor-help';
+      case 'pan':
+        return 'cursor-grab';
+      case 'select':
+      default:
+        return 'cursor-default';
+    }
+  };
+
+  // Canvas Mouse Click & Dragging Tools (Section 1 & 2)
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (imageStatus !== 'loaded' || isPanning) return;
+    e.stopPropagation();
+    if (imageStatus !== 'loaded') return;
+
+    // Secondary click (right click) cancels active tool
+    if (e.button === 2) {
+      e.preventDefault();
+      setActiveTool('select');
+      setActiveMeasureStart(null);
+      setActiveDrawingPolygon([]);
+      setDraggingWaypoint(null);
+      return;
+    }
+
+    // Middle click or Pan tool: initiate viewport pan
+    if (e.button === 1 || activeTool === 'pan') {
+      setIsPanning(true);
+      setDragStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
+      return;
+    }
+
+    if (e.button !== 0) return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
     const clickX = Math.max(0, Math.min(256, Math.round((e.clientX - rect.left) * (256 / rect.width))));
     const clickY = Math.max(0, Math.min(256, Math.round((e.clientY - rect.top) * (256 / rect.height))));
 
-    // Check if clicking directly on a waypoint/marker for dragging
-    if (analysis.startPoint && Math.hypot(analysis.startPoint.x - clickX, analysis.startPoint.y - clickY) < 10) {
-      setDraggingWaypoint({ type: 'start', id: 'start' });
-      setSelectedItem({ type: 'start', id: 'start' });
-      return;
-    }
-    if (analysis.destinationPoint && Math.hypot(analysis.destinationPoint.x - clickX, analysis.destinationPoint.y - clickY) < 10) {
-      setDraggingWaypoint({ type: 'dest', id: 'dest' });
-      setSelectedItem({ type: 'dest', id: 'dest' });
-      return;
-    }
+    // Select mode: check if clicking directly on a waypoint/marker for dragging
+    if (activeTool === 'select') {
+      if (startPoint && Math.hypot(startPoint.x - clickX, startPoint.y - clickY) < 14) {
+        setDraggingWaypoint({ type: 'start', id: 'start' });
+        setSelectedItem({ type: 'start', id: 'start' });
+        return;
+      }
+      if (destinationPoint && Math.hypot(destinationPoint.x - clickX, destinationPoint.y - clickY) < 14) {
+        setDraggingWaypoint({ type: 'dest', id: 'dest' });
+        setSelectedItem({ type: 'dest', id: 'dest' });
+        return;
+      }
 
-    const hitCp = checkpointsList.find(c => Math.hypot(c.x - clickX, c.y - clickY) < 10);
-    if (hitCp) {
-      setDraggingWaypoint({ type: 'checkpoint', id: hitCp.id });
-      setSelectedItem({ type: 'checkpoint', id: hitCp.id });
-      return;
-    }
+      const hitCp = checkpointsList.find(c => Math.hypot(c.x - clickX, c.y - clickY) < 12);
+      if (hitCp) {
+        setDraggingWaypoint({ type: 'checkpoint', id: hitCp.id });
+        setSelectedItem({ type: 'checkpoint', id: hitCp.id });
+        return;
+      }
 
-    const hitSci = scienceStopsList.find(s => Math.hypot(s.x - clickX, s.y - clickY) < 10);
-    if (hitSci) {
-      setDraggingWaypoint({ type: 'science', id: hitSci.id });
-      setSelectedItem({ type: 'science', id: hitSci.id });
-      return;
-    }
+      const hitSci = scienceStopsList.find(s => Math.hypot(s.x - clickX, s.y - clickY) < 12);
+      if (hitSci) {
+        setDraggingWaypoint({ type: 'science', id: hitSci.id });
+        setSelectedItem({ type: 'science', id: hitSci.id });
+        return;
+      }
 
-    const hitHaz = manualHazards.find(h => Math.hypot(h.x - clickX, h.y - clickY) < h.radius + 4);
-    if (hitHaz) {
-      setDraggingWaypoint({ type: 'hazard', id: hitHaz.id });
-      setSelectedItem({ type: 'hazard', id: hitHaz.id });
-      return;
-    }
+      const hitHaz = manualHazards.find(h => Math.hypot(h.x - clickX, h.y - clickY) < h.radius + 6);
+      if (hitHaz) {
+        setDraggingWaypoint({ type: 'hazard', id: hitHaz.id });
+        setSelectedItem({ type: 'hazard', id: hitHaz.id });
+        return;
+      }
 
-    const hitNote = notesList.find(n => Math.hypot(n.x - clickX, n.y - clickY) < 12);
-    if (hitNote) {
-      setSelectedItem({ type: 'note', id: hitNote.id });
-      return;
-    }
+      const hitNote = notesList.find(n => Math.hypot(n.x - clickX, n.y - clickY) < 14);
+      if (hitNote) {
+        setSelectedItem({ type: 'note', id: hitNote.id });
+        return;
+      }
 
-    const hitPoly = restrictedPolygons.find(p => isPointInPolygon({ x: clickX, y: clickY }, p.vertices));
-    if (hitPoly && activeTool === 'select') {
-      setSelectedItem({ type: 'polygon', id: hitPoly.id });
+      const hitPoly = restrictedPolygons.find(p => isPointInPolygon({ x: clickX, y: clickY }, p.vertices));
+      if (hitPoly) {
+        setSelectedItem({ type: 'polygon', id: hitPoly.id });
+        return;
+      }
+
+      // If clicked on empty space in select mode, allow panning
+      setIsPanning(true);
+      setDragStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
       return;
     }
 
@@ -961,14 +1144,28 @@ export default function MarsNavV4Workspace() {
     if (activeTool === 'start') {
       saveStateToHistory();
       setStartPoint({ x: clickX, y: clickY });
+      setShowWaypoints(true);
       setActiveTool('select');
       addTimelineEvent('checkpoint', 'Start Base Placed', `Set Start Base at X:${clickX}, Y:${clickY}`);
-    } else if (activeTool === 'destination') {
+      return;
+    }
+
+    if (activeTool === 'destination') {
       saveStateToHistory();
       setDestinationPoint({ x: clickX, y: clickY });
+      setShowWaypoints(true);
       setActiveTool('select');
       addTimelineEvent('checkpoint', 'Destination Placed', `Set Destination target at X:${clickX}, Y:${clickY}`);
-    } else if (activeTool === 'checkpoint') {
+      return;
+    }
+
+    if (activeTool === 'inspect') {
+      setInspectedCoords({ x: clickX, y: clickY });
+      addTimelineEvent('analysis', 'Terrain Inspected', `Inspected coordinate X:${clickX}, Y:${clickY}`);
+      return;
+    }
+
+    if (activeTool === 'checkpoint') {
       saveStateToHistory();
       const newCp: CheckpointNode = {
         id: `cp_${Date.now()}`,
@@ -979,8 +1176,12 @@ export default function MarsNavV4Workspace() {
       };
       setCheckpointsList(prev => [...prev, newCp]);
       setSelectedItem({ type: 'checkpoint', id: newCp.id });
+      setShowWaypoints(true);
       addTimelineEvent('checkpoint', 'Checkpoint Added', `Added ${newCp.name} at X:${clickX}, Y:${clickY}`);
-    } else if (activeTool === 'science') {
+      return;
+    }
+
+    if (activeTool === 'science') {
       saveStateToHistory();
       const newSci: ScienceStop = {
         id: `sci_${Date.now()}`,
@@ -997,9 +1198,13 @@ export default function MarsNavV4Workspace() {
       };
       setScienceStopsList(prev => [...prev, newSci]);
       setSelectedItem({ type: 'science', id: newSci.id });
+      setShowWaypoints(true);
       setActiveTool('select');
       addTimelineEvent('checkpoint', 'Science POI Added', `Added ${newSci.name} at X:${clickX}, Y:${clickY}`);
-    } else if (activeTool === 'hazard') {
+      return;
+    }
+
+    if (activeTool === 'hazard') {
       // Multi-vertex polygon drawing logic
       if (activeDrawingPolygon.length >= 3) {
         const startV = activeDrawingPolygon[0];
@@ -1009,10 +1214,14 @@ export default function MarsNavV4Workspace() {
         }
       }
       setActiveDrawingPolygon(prev => [...prev, { x: clickX, y: clickY }]);
-    } else if (activeTool === 'measure') {
+      setShowRestrictedZones(true);
+      return;
+    }
+
+    if (activeTool === 'measure') {
       if (!activeMeasureStart) {
         setActiveMeasureStart({ x: clickX, y: clickY });
-        addTimelineEvent('analysis', 'Ruler Measurement Started', `Anchor 1 set at X:${clickX}, Y:${clickY}. Move pointer and click to finish.`);
+        addTimelineEvent('analysis', 'Ruler Measurement Started', `Anchor 1 set at X:${clickX}, Y:${clickY}. Click second point to measure.`);
       } else {
         saveStateToHistory();
         const distPx = Math.round(Math.hypot(clickX - activeMeasureStart.x, clickY - activeMeasureStart.y));
@@ -1040,7 +1249,10 @@ export default function MarsNavV4Workspace() {
         setRightPanelTab('measurements');
         addTimelineEvent('analysis', 'Ruler Distance Measured', `Measured ${distPx} px (${physicalDistM !== null ? `${physicalDistM} m` : 'Scale unavailable'}).`);
       }
-    } else if (activeTool === 'note') {
+      return;
+    }
+
+    if (activeTool === 'note') {
       saveStateToHistory();
       setNoteFormCoords({ x: clickX, y: clickY });
       setEditingNoteData(null);
@@ -1050,9 +1262,11 @@ export default function MarsNavV4Workspace() {
       setNoteFormPriority('Medium');
       setNoteFormTags('Surface, Outcrop');
       setNoteModalOpen(true);
-    } else {
-      setSelectedItem(null);
+      setActiveTool('select');
+      return;
     }
+
+    setSelectedItem(null);
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1060,9 +1274,18 @@ export default function MarsNavV4Workspace() {
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
     const clickX = Math.max(0, Math.min(256, Math.round((e.clientX - rect.left) * (256 / rect.width))));
     const clickY = Math.max(0, Math.min(256, Math.round((e.clientY - rect.top) * (256 / rect.height))));
     setCursorPos({ x: clickX, y: clickY });
+
+    if (isPanning) {
+      setPanOffset({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y
+      });
+      return;
+    }
 
     if (draggingWaypoint) {
       if (draggingWaypoint.type === 'start') {
@@ -1082,6 +1305,9 @@ export default function MarsNavV4Workspace() {
   };
 
   const handleCanvasMouseUp = () => {
+    if (isPanning) {
+      setIsPanning(false);
+    }
     if (draggingWaypoint) {
       addTimelineEvent('route', 'Waypoint Moved', `Relocated ${draggingWaypoint.type} marker. Recalculated route.`);
       setDraggingWaypoint(null);
@@ -1160,7 +1386,7 @@ export default function MarsNavV4Workspace() {
 
   // Mouse pan handling
   const handleMouseDownView = (e: React.MouseEvent) => {
-    if (e.button === 0 && !draggingWaypoint) {
+    if (e.button === 0 && !draggingWaypoint && (activeTool === 'select' || activeTool === 'pan')) {
       setIsPanning(true);
       setDragStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
     }
@@ -1241,6 +1467,10 @@ export default function MarsNavV4Workspace() {
       const nw = preloader.naturalWidth || 256;
       const nh = preloader.naturalHeight || 256;
       setNaturalDimensions({ width: nw, height: nh });
+
+      setTimeout(() => {
+        handleFitToWorkspace();
+      }, 10);
 
       // Reset stale analysis results, overlays, and error states from previous image
       setHasAnalyzed(false);
@@ -1712,42 +1942,158 @@ export default function MarsNavV4Workspace() {
       {/* 2. INTERACTIVE TOOLBAR & DISPLAY-MODE BAR (SECTIONS 1, 2, 8) */}
       <div className="bg-[#090D1A] border border-slate-800/80 px-4 py-2 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs font-mono shadow-md">
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Active Tool Selector */}
-          <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-slate-800">
-            <span className="text-slate-500 text-[10px] px-1 font-sans uppercase font-bold">Tools:</span>
+          {/* Navigation Points & Route Controls Group */}
+          <div className="flex items-center gap-1 bg-black/60 p-1 rounded-lg border border-slate-800">
+            {/* Start Point Tool */}
+            <button
+              onClick={() => setActiveTool(activeTool === 'start' ? 'select' : 'start')}
+              disabled={imageStatus !== 'loaded'}
+              className={`px-2.5 py-1 rounded-md transition font-bold flex items-center gap-1.5 cursor-pointer text-[11px] ${
+                activeTool === 'start'
+                  ? 'bg-emerald-500 text-white ring-2 ring-emerald-400 shadow-md animate-pulse'
+                  : startPoint
+                  ? 'bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/60'
+                  : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/30'
+              }`}
+              title="Select & Place Start Base on Terrain (Click image)"
+            >
+              <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+              <span>START</span>
+              <span className="text-[9px] font-mono opacity-80 bg-black/40 px-1 rounded">
+                {startPoint ? `${startPoint.x},${startPoint.y}` : 'Unset'}
+              </span>
+            </button>
 
+            {/* Clear Start */}
+            <button
+              onClick={handleClearStart}
+              disabled={!startPoint}
+              className="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-white/10 disabled:opacity-20 cursor-pointer transition"
+              title="Clear Start Point"
+            >
+              <X className="w-3 h-3" />
+            </button>
+
+            {/* Destination Point Tool */}
+            <button
+              onClick={() => setActiveTool(activeTool === 'destination' ? 'select' : 'destination')}
+              disabled={imageStatus !== 'loaded'}
+              className={`px-2.5 py-1 rounded-md transition font-bold flex items-center gap-1.5 cursor-pointer text-[11px] ${
+                activeTool === 'destination'
+                  ? 'bg-rose-500 text-white ring-2 ring-rose-400 shadow-md animate-pulse'
+                  : destinationPoint
+                  ? 'bg-rose-950/60 border border-rose-500/50 text-rose-300 hover:bg-rose-900/60'
+                  : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25 border border-rose-500/30'
+              }`}
+              title="Select & Place Destination Target on Terrain (Click image)"
+            >
+              <Flag className="w-3.5 h-3.5 text-rose-400" />
+              <span>DEST</span>
+              <span className="text-[9px] font-mono opacity-80 bg-black/40 px-1 rounded">
+                {destinationPoint ? `${destinationPoint.x},${destinationPoint.y}` : 'Unset'}
+              </span>
+            </button>
+
+            {/* Clear Destination */}
+            <button
+              onClick={handleClearDestination}
+              disabled={!destinationPoint}
+              className="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-white/10 disabled:opacity-20 cursor-pointer transition"
+              title="Clear Destination Point"
+            >
+              <X className="w-3 h-3" />
+            </button>
+
+            {/* Swap Start & Destination */}
+            <button
+              onClick={handleSwapPoints}
+              disabled={!startPoint && !destinationPoint}
+              className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 disabled:opacity-30 cursor-pointer font-bold flex items-center gap-1 text-[10px] transition"
+              title="Swap Start Base and Destination Target"
+            >
+              <ArrowLeftRight className="w-3 h-3 text-cyan-400" />
+              <span>SWAP</span>
+            </button>
+          </div>
+
+          {/* Route Generation & Actions Group */}
+          <div className="flex items-center gap-1 bg-black/60 p-1 rounded-lg border border-slate-800">
+            <button
+              onClick={handleGenerateRoute}
+              disabled={imageStatus !== 'loaded'}
+              className={`px-2.5 py-1 rounded-md font-bold flex items-center gap-1.5 cursor-pointer text-[11px] transition shadow-md ${
+                startPoint && destinationPoint
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white'
+                  : 'bg-slate-800/80 text-slate-400 hover:text-white border border-slate-700'
+              }`}
+              title="Generate / Plan Navigation Route between Start and Destination"
+            >
+              <Route className="w-3.5 h-3.5 text-cyan-200" />
+              <span>PLAN ROUTE</span>
+            </button>
+
+            <button
+              onClick={handleRecalculateRoute}
+              disabled={imageStatus !== 'loaded'}
+              className="p-1.5 rounded hover:bg-white/10 text-cyan-300 hover:text-white disabled:opacity-30 cursor-pointer transition"
+              title="Recalculate Route with latest parameters"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              onClick={handleClearRoute}
+              disabled={activePath.length <= 1}
+              className="p-1.5 rounded hover:bg-red-500/20 text-slate-400 hover:text-red-300 disabled:opacity-20 cursor-pointer transition"
+              title="Clear Route Line from Viewport"
+            >
+              <EyeOff className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Core Interactive Tool Selector */}
+          <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-slate-800">
             <button
               onClick={() => setActiveTool('select')}
               className={`p-1.5 rounded-md transition cursor-pointer ${
                 activeTool === 'select' ? 'bg-cyan-500 text-white ring-1 ring-cyan-400' : 'text-slate-400 hover:bg-white/10'
               }`}
-              title="Select / Cursor Tool"
+              title="Select / Pointer Tool (Drag waypoints or pan on drag)"
             >
               <MousePointer className="w-3.5 h-3.5" />
             </button>
 
             <button
-              onClick={() => setActiveTool('start')}
-              disabled={imageStatus !== 'loaded'}
-              className={`px-2 py-1 rounded-md transition font-bold flex items-center gap-1 cursor-pointer ${
-                activeTool === 'start' ? 'bg-emerald-500 text-white ring-1 ring-emerald-400' : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
+              onClick={() => setActiveTool('pan')}
+              className={`p-1.5 rounded-md transition cursor-pointer ${
+                activeTool === 'pan' ? 'bg-cyan-500 text-white ring-1 ring-cyan-400' : 'text-slate-400 hover:bg-white/10'
               }`}
-              title="Place Start Base"
+              title="Pan Tool (Click and drag to pan terrain viewport)"
             >
-              <MapPin className="w-3.5 h-3.5" />
-              <span>START</span>
+              <Hand className="w-3.5 h-3.5" />
             </button>
 
             <button
-              onClick={() => setActiveTool('destination')}
+              onClick={() => setActiveTool('inspect')}
+              className={`px-2 py-1 rounded-md transition font-bold flex items-center gap-1 cursor-pointer ${
+                activeTool === 'inspect' ? 'bg-cyan-500 text-white ring-1 ring-cyan-400' : 'bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25'
+              }`}
+              title="Inspect Terrain (Hover or click to inspect elevation, slope, and hazard ratings)"
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>INSPECT</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTool('measure')}
               disabled={imageStatus !== 'loaded'}
               className={`px-2 py-1 rounded-md transition font-bold flex items-center gap-1 cursor-pointer ${
-                activeTool === 'destination' ? 'bg-rose-500 text-white ring-1 ring-rose-400' : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
+                activeTool === 'measure' ? 'bg-teal-500 text-white ring-1 ring-teal-400' : 'bg-teal-500/15 text-teal-300 hover:bg-teal-500/25'
               }`}
-              title="Place Destination Pin"
+              title="Ruler Distance Measurement (Click two points)"
             >
-              <Flag className="w-3.5 h-3.5" />
-              <span>DEST</span>
+              <Ruler className="w-3.5 h-3.5" />
+              <span>MEASURE</span>
             </button>
 
             <button
@@ -1780,22 +2126,10 @@ export default function MarsNavV4Workspace() {
               className={`px-2 py-1 rounded-md transition font-bold flex items-center gap-1 cursor-pointer ${
                 activeTool === 'hazard' ? 'bg-amber-500 text-white ring-1 ring-amber-400' : 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
               }`}
-              title="Draw Restricted Polygon Zone"
+              title="Draw Restricted Hazard Polygon Zone"
             >
               <ShieldAlert className="w-3.5 h-3.5" />
               <span>RESTRICT ZONE</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTool('measure')}
-              disabled={imageStatus !== 'loaded'}
-              className={`px-2 py-1 rounded-md transition font-bold flex items-center gap-1 cursor-pointer ${
-                activeTool === 'measure' ? 'bg-teal-500 text-white ring-1 ring-teal-400' : 'bg-teal-500/15 text-teal-300 hover:bg-teal-500/25'
-              }`}
-              title="Ruler Distance Measurement"
-            >
-              <Ruler className="w-3.5 h-3.5" />
-              <span>MEASURE</span>
             </button>
 
             <button
@@ -1804,7 +2138,7 @@ export default function MarsNavV4Workspace() {
               className={`px-2 py-1 rounded-md transition font-bold flex items-center gap-1 cursor-pointer ${
                 activeTool === 'note' ? 'bg-purple-500 text-white ring-1 ring-purple-400' : 'bg-purple-500/15 text-purple-300 hover:bg-purple-500/25'
               }`}
-              title="Add Text Note"
+              title="Add Text Note Pin"
             >
               <FileText className="w-3.5 h-3.5" />
               <span>NOTE</span>
@@ -1881,15 +2215,23 @@ export default function MarsNavV4Workspace() {
 
           {/* Viewport Actions */}
           <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-slate-800">
-            <button onClick={() => setZoomLevel(z => Math.min(4.0, Number((z + 0.25).toFixed(2))))} className="p-1 rounded hover:bg-white/10 text-slate-300 cursor-pointer" title="Zoom In">
+            <button onClick={() => setZoomLevel(z => Math.min(6.0, Number((z + 0.25).toFixed(2))))} className="p-1 rounded hover:bg-white/10 text-slate-300 cursor-pointer" title="Zoom In">
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
             <span className="text-[10px] text-cyan-300 px-1 font-mono font-bold">{Math.round(zoomLevel * 100)}%</span>
-            <button onClick={() => setZoomLevel(z => Math.max(0.25, Number((z - 0.25).toFixed(2))))} className="p-1 rounded hover:bg-white/10 text-slate-300 cursor-pointer" title="Zoom Out">
+            <button onClick={() => setZoomLevel(z => Math.max(0.1, Number((z - 0.25).toFixed(2))))} className="p-1 rounded hover:bg-white/10 text-slate-300 cursor-pointer" title="Zoom Out">
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <button onClick={() => { setZoomLevel(1.0); setPanOffset({ x: 0, y: 0 }); }} className="p-1.5 rounded hover:bg-white/10 text-slate-400 cursor-pointer" title="Reset View">
-              <Maximize2 className="w-3.5 h-3.5" />
+            <button
+              onClick={handleFitToWorkspace}
+              className="px-2.5 py-1 rounded-md bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 text-cyan-200 text-[11px] font-mono font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
+              title="Fit image to workspace"
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Fit to Workspace</span>
+            </button>
+            <button onClick={() => { setZoomLevel(1.0); setPanOffset({ x: 0, y: 0 }); }} className="p-1.5 rounded hover:bg-white/10 text-slate-400 cursor-pointer" title="Reset 100%">
+              <RotateCcw className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -2222,13 +2564,93 @@ export default function MarsNavV4Workspace() {
                 </div>
               )}
 
+              {/* ACTIVE NAVIGATION STATUS STRIP */}
+              <div className="w-full mb-2 p-2 rounded-xl bg-[#070b18] border border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-slate-300 shadow-inner shrink-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Active Tool Guide Badge */}
+                  <div className={`px-2 py-0.5 rounded-full border font-bold flex items-center gap-1.5 ${
+                    activeTool === 'start'
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 animate-pulse'
+                      : activeTool === 'destination'
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 animate-pulse'
+                      : activeTool === 'inspect'
+                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
+                      : activeTool === 'measure'
+                      ? 'bg-teal-500/20 text-teal-300 border-teal-500/50'
+                      : activeTool === 'pan'
+                      ? 'bg-blue-500/20 text-blue-300 border-blue-500/50'
+                      : 'bg-slate-800/80 text-slate-300 border-slate-700'
+                  }`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                    <span>
+                      {activeTool === 'start'
+                        ? 'SELECT START: Click anywhere on terrain to set Start Base'
+                        : activeTool === 'destination'
+                        ? 'SELECT DESTINATION: Click anywhere on terrain to set Destination Target'
+                        : activeTool === 'inspect'
+                        ? 'INSPECT MODE: Hover over terrain to inspect elevation & slope'
+                        : activeTool === 'measure'
+                        ? 'MEASURE MODE: Click two points to measure distance'
+                        : activeTool === 'pan'
+                        ? 'PAN MODE: Click and drag to pan terrain view'
+                        : 'IDLE: Click a tool to activate, or drag markers'}
+                    </span>
+                  </div>
+
+                  {/* Start Point Badge */}
+                  <div className="flex items-center gap-1 bg-black/60 px-2 py-0.5 rounded border border-slate-800">
+                    <span className="text-emerald-400 font-bold">Start:</span>
+                    <span className={startPoint ? "text-emerald-300 font-bold" : "text-slate-500"}>
+                      {startPoint ? `(${startPoint.x}, ${startPoint.y})` : 'Unset'}
+                    </span>
+                    {startPoint && (
+                      <button onClick={handleClearStart} className="text-slate-500 hover:text-red-400 ml-0.5 cursor-pointer" title="Clear Start">
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Destination Point Badge */}
+                  <div className="flex items-center gap-1 bg-black/60 px-2 py-0.5 rounded border border-slate-800">
+                    <span className="text-rose-400 font-bold">Dest:</span>
+                    <span className={destinationPoint ? "text-rose-300 font-bold" : "text-slate-500"}>
+                      {destinationPoint ? `(${destinationPoint.x}, ${destinationPoint.y})` : 'Unset'}
+                    </span>
+                    {destinationPoint && (
+                      <button onClick={handleClearDestination} className="text-slate-500 hover:text-red-400 ml-0.5 cursor-pointer" title="Clear Destination">
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Cursor Coordinates */}
+                  <div className="bg-black/60 px-2 py-0.5 rounded border border-slate-800 text-cyan-300">
+                    Cursor: {cursorPos ? `X:${cursorPos.x}, Y:${cursorPos.y}` : '--'}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {activePath.length > 1 && (
+                    <span className="text-cyan-300 font-bold">
+                      Traverse: {(totalOutboundPx * spatialScaleMetersPerPx).toFixed(1)} m ({totalTraverseKm.toFixed(3)} km)
+                    </span>
+                  )}
+                  {(!startPoint || !destinationPoint) && (
+                    <span className="text-amber-400/90 text-[10px]">
+                      {!startPoint && !destinationPoint ? 'Set Start & Dest to plan route' : !startPoint ? 'Set Start Base' : 'Set Destination Target'}
+                    </span>
+                  )}
+                </div>
+              </div>
+
               {/* NATURAL ADAPTIVE VIEWPORT CONTAINER */}
               <div
+                ref={viewportRef}
                 onMouseDown={handleMouseDownView}
                 onMouseMove={handleMouseMoveView}
                 onMouseUp={handleMouseUpView}
-                className="relative w-full overflow-hidden rounded-xl border border-slate-700/80 bg-[#070A14] flex items-center justify-center transition-all shadow-2xl"
-                style={{ minHeight: '400px', maxHeight: isFullscreen ? '80vh' : '540px' }}
+                className="relative w-full flex-1 overflow-hidden rounded-xl border border-slate-700/80 bg-[#070A14] flex items-center justify-center transition-all shadow-2xl"
+                style={{ minHeight: '480px', maxHeight: isFullscreen ? '85vh' : '640px' }}
               >
                 {/* DISPLAY MODES RENDERING (SECTION 2) */}
                 {displayMode === 'split_comparison' ? (
@@ -2236,12 +2658,12 @@ export default function MarsNavV4Workspace() {
                   <div className="w-full h-full grid grid-cols-2 gap-1 p-1 bg-black">
                     <div className="relative overflow-hidden flex items-center justify-center border-r border-slate-800">
                       <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-black/80 text-[9px] text-slate-300 font-mono">Original Unmodified Surface</span>
-                      <img src={getSafeImageUrl(terrainImage)} alt="Original" className="max-h-[460px] w-auto max-w-full object-contain select-none" />
+                      <img src={getSafeImageUrl(terrainImage)} alt="Original" className="w-full h-full object-contain select-none" />
                     </div>
                     <div className="relative overflow-hidden flex items-center justify-center bg-slate-950">
                       <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-[9px] text-cyan-300 font-mono">Model Output View</span>
                       {hasAnalyzed ? (
-                        <img src={getSafeImageUrl(terrainImage)} alt="Analysis Result" className="max-h-[460px] w-auto max-w-full object-contain opacity-75" />
+                        <img src={getSafeImageUrl(terrainImage)} alt="Analysis Result" className="w-full h-full object-contain opacity-75" />
                       ) : (
                         <div className="p-4 text-center text-slate-400 font-mono text-[11px] space-y-2">
                           <Cpu className="w-6 h-6 text-slate-600 mx-auto" />
@@ -2251,27 +2673,16 @@ export default function MarsNavV4Workspace() {
                       )}
                     </div>
                   </div>
-                ) : displayMode === 'original' ? (
-                  /* ORIGINAL MODE: Source Image ONLY (No overlays, tinting, or masks) */
-                  <div
-                    className="relative flex items-center justify-center transition-transform duration-100 ease-out"
-                    style={{ transform: `scale(${zoomLevel}) translate(${panOffset.x}px, ${panOffset.y}px)` }}
-                  >
-                    <img
-                      ref={imageRef}
-                      src={getSafeImageUrl(terrainImage)}
-                      alt="Mars Terrain Surface"
-                      crossOrigin={terrainImage && terrainImage.startsWith('http') ? "anonymous" : undefined}
-                      onLoad={handleImageLoad}
-                      onError={handleImageError}
-                      className="max-h-[500px] w-auto max-w-full object-contain rounded-lg shadow-lg select-none"
-                    />
-                  </div>
                 ) : (
-                  /* ROUTE, ANNOTATIONS, OR ANALYSIS MODES */
+                  /* UNIFIED HIGH-PRECISION INTERACTIVE VIEWPORT (ORIGINAL, ROUTE, ANNOTATIONS, ANALYSIS) */
                   <div
-                    className="relative flex items-center justify-center transition-transform duration-100 ease-out"
-                    style={{ transform: `scale(${zoomLevel}) translate(${panOffset.x}px, ${panOffset.y}px)` }}
+                    className="relative transition-transform duration-75 ease-out select-none will-change-transform"
+                    style={{
+                      transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomLevel})`,
+                      width: `${naturalDimensions.width}px`,
+                      height: `${naturalDimensions.height}px`,
+                      transformOrigin: 'center center'
+                    }}
                   >
                     <img
                       ref={imageRef}
@@ -2280,23 +2691,27 @@ export default function MarsNavV4Workspace() {
                       crossOrigin={terrainImage && terrainImage.startsWith('http') ? "anonymous" : undefined}
                       onLoad={handleImageLoad}
                       onError={handleImageError}
-                      className="max-h-[500px] w-auto max-w-full object-contain rounded-lg shadow-lg select-none pointer-events-none"
+                      className="absolute inset-0 w-full h-full block object-cover rounded-lg shadow-lg select-none pointer-events-none"
                       draggable={false}
                     />
 
-                    {/* ANALYSIS OVERLAY (ONLY WHEN DISPLAYMODE === 'analysis' AND HASANALYZED IS TRUE) (SECTION 3 FIX: NO HARDCODED SHAPES!) */}
+                    {/* ANALYSIS OVERLAY (ONLY WHEN DISPLAYMODE === 'analysis' AND HASANALYZED IS TRUE) */}
                     {displayMode === 'analysis' && !hasAnalyzed && (
-                      <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 text-center">
-                        <div className="p-3 bg-slate-900/90 border border-cyan-500/40 rounded-xl max-w-xs space-y-2">
+                      <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 text-center pointer-events-none">
+                        <div className="p-3 bg-slate-900/90 border border-cyan-500/40 rounded-xl max-w-xs space-y-2 pointer-events-auto">
                           <Cpu className="w-6 h-6 text-cyan-400 mx-auto" />
                           <p className="font-bold text-white text-xs">Model Inference Not Executed</p>
-                          <p className="text-[10px] text-slate-400">Click "ANALYZE IMAGE NOW" in the top toolbar to run the AI4Mars model pipeline.</p>
+                          <p className="text-[10px] text-slate-400">Click "DETECT HAZARDS" in the top toolbar to run the AI4Mars model pipeline.</p>
                         </div>
                       </div>
                     )}
 
                     {/* HIGH-PRECISION SVG ROUTE & ANNOTATIONS LAYER */}
-                    <svg viewBox="0 0 256 256" className="absolute inset-0 w-full h-full pointer-events-none">
+                    <svg
+                      viewBox="0 0 256 256"
+                      preserveAspectRatio="none"
+                      className="absolute inset-0 w-full h-full pointer-events-none"
+                    >
                       <defs>
                         <linearGradient id="routeCyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
                           <stop offset="0%" stopColor="#00f0ff" />
@@ -2308,7 +2723,7 @@ export default function MarsNavV4Workspace() {
                       </defs>
 
                       {/* Restricted Polygon Hazard Zones (Amber) */}
-                      {(displayMode === 'route' || displayMode === 'annotations') && showRestrictedZones && restrictedPolygons.map(p => (
+                      {showRestrictedZones && restrictedPolygons.map(p => (
                         <g key={p.id}>
                           <polygon
                             points={p.vertices.map(v => `${v.x},${v.y}`).join(' ')}
@@ -2363,7 +2778,7 @@ export default function MarsNavV4Workspace() {
                       )}
 
                       {/* Notes & Measurements Layer */}
-                      {(displayMode === 'annotations' || displayMode === 'route') && (
+                      {(displayMode === 'annotations' || displayMode === 'route' || activeTool === 'measure' || activeTool === 'note') && (
                         <>
                           {/* Active Measure Start Live Vector & Badge Preview */}
                           {activeMeasureStart && cursorPos && (() => {
@@ -2486,7 +2901,7 @@ export default function MarsNavV4Workspace() {
                       )}
 
                       {/* Alternative Routes (Dimmed) */}
-                      {(displayMode === 'route' || displayMode === 'annotations') && showAltRoutes && analysis.routes.map((route, rIdx) => {
+                      {(displayMode === 'route' || displayMode === 'annotations') && showAltRoutes && Boolean(startPoint) && Boolean(destinationPoint) && analysis.routes.map((route, rIdx) => {
                         if (rIdx === analysis.selectedRouteIndex) return null;
                         return (
                           <polyline
@@ -2504,7 +2919,7 @@ export default function MarsNavV4Workspace() {
                       })}
 
                       {/* Selected Route (Primary) */}
-                      {(displayMode === 'route' || displayMode === 'annotations') && showSelectedRoute && activePath.length > 1 && (
+                      {(showSelectedRoute || displayMode === 'route') && Boolean(startPoint) && Boolean(destinationPoint) && activePath.length > 1 && (
                         <>
                           <polyline points={activePath.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000000" strokeWidth="4.2" strokeLinecap="round" strokeLinejoin="round" />
                           <polyline points={activePath.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke={activeRoute?.isBlocked ? "#ef4444" : "#00f0ff"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" filter="url(#shadowOutline)" />
@@ -2522,25 +2937,57 @@ export default function MarsNavV4Workspace() {
                         </>
                       )}
 
-                      {/* Waypoint Pins */}
-                      {(displayMode === 'route' || displayMode === 'annotations') && showWaypoints && (
+                      {/* DISTINCT START BASE PIN (TEARDROP MAP PIN) */}
+                      {startPoint && (
+                        <g transform={`translate(${startPoint.x}, ${startPoint.y})`} className="cursor-grab">
+                          <defs>
+                            <filter id="startGlow" x="-50%" y="-50%" width="200%" height="200%">
+                              <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#06b6d4" floodOpacity="0.8" />
+                            </filter>
+                          </defs>
+                          <rect x="-18" y="-30" width="36" height="9" rx="2" fill="rgba(3, 15, 20, 0.92)" stroke="#06b6d4" strokeWidth="0.7" />
+                          <text x="0" y="-23.5" fill="#67e8f9" fontSize="3.8" fontWeight="bold" textAnchor="middle">
+                            START
+                          </text>
+                          <path
+                            d="M 0 0 C -5 -6, -7 -10, -7 -13 C -7 -17, -3 -20, 0 -20 C 3 -20, 7 -17, 7 -13 C 7 -10, 5 -6, 0 0 Z"
+                            fill="#06b6d4"
+                            stroke="#ffffff"
+                            strokeWidth="1.2"
+                            filter="url(#startGlow)"
+                          />
+                          <path d="M -2.5 -11.5 L 2.5 -11.5 L 0 -15.5 Z" fill="#ffffff" />
+                          <circle cx="0" cy="-10" r="1" fill="#ffffff" />
+                        </g>
+                      )}
+
+                      {/* DISTINCT DESTINATION TARGET PIN (TEARDROP MAP PIN) */}
+                      {destinationPoint && (
+                        <g transform={`translate(${destinationPoint.x}, ${destinationPoint.y})`} className="cursor-grab">
+                          <defs>
+                            <filter id="destGlow" x="-50%" y="-50%" width="200%" height="200%">
+                              <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#f87171" floodOpacity="0.8" />
+                            </filter>
+                          </defs>
+                          <rect x="-24" y="-30" width="48" height="9" rx="2" fill="rgba(20, 5, 5, 0.92)" stroke="#f87171" strokeWidth="0.7" />
+                          <text x="0" y="-23.5" fill="#fca5a5" fontSize="3.5" fontWeight="bold" textAnchor="middle">
+                            DESTINATION
+                          </text>
+                          <path
+                            d="M 0 0 C -5 -6, -7 -10, -7 -13 C -7 -17, -3 -20, 0 -20 C 3 -20, 7 -17, 7 -13 C 7 -10, 5 -6, 0 0 Z"
+                            fill="#f87171"
+                            stroke="#ffffff"
+                            strokeWidth="1.2"
+                            filter="url(#destGlow)"
+                          />
+                          <path d="M -2 -14 L 3 -12.5 L -2 -11 Z" fill="#ffffff" />
+                          <line x1="-2" y1="-15" x2="-2" y2="-9" stroke="#ffffff" strokeWidth="1" strokeLinecap="round" />
+                        </g>
+                      )}
+
+                      {/* Waypoint Nodes & Science Stops */}
+                      {showWaypoints && (
                         <>
-                          {startPoint && (
-                            <g transform={`translate(${startPoint.x}, ${startPoint.y})`}>
-                              <rect x="-8" y="-8" width="16" height="16" fill="rgba(16, 185, 129, 0.25)" stroke="#10b981" strokeWidth="0.8" strokeDasharray="2 1" />
-                              <circle r="5" fill="#10b981" stroke="#ffffff" strokeWidth="1.2" />
-                              <text y="2" fill="#ffffff" fontSize="5.5" fontWeight="bold" textAnchor="middle">S</text>
-                            </g>
-                          )}
-
-                          {destinationPoint && (
-                            <g transform={`translate(${destinationPoint.x}, ${destinationPoint.y})`}>
-                              <rect x="-8" y="-8" width="16" height="16" fill="rgba(239, 68, 68, 0.25)" stroke="#ef4444" strokeWidth="0.8" strokeDasharray="2 1" />
-                              <circle r="5" fill="#ef4444" stroke="#ffffff" strokeWidth="1.2" />
-                              <text y="2" fill="#ffffff" fontSize="5.5" fontWeight="bold" textAnchor="middle">D</text>
-                            </g>
-                          )}
-
                           {checkpointsList.map((cp, idx) => (
                             <g key={cp.id} transform={`translate(${cp.x}, ${cp.y})`}>
                               <rect x="-8" y="-8" width="16" height="16" fill="rgba(59, 130, 246, 0.2)" stroke="#3b82f6" strokeWidth="0.8" strokeDasharray="2 1" />
@@ -2559,16 +3006,53 @@ export default function MarsNavV4Workspace() {
                       )}
                     </svg>
 
+                    {/* FULLY TRANSPARENT INTERACTIVE CANVAS OVERLAY (ALWAYS ACTIVE FOR CLICKS & DRAGGING) */}
                     <canvas
                       ref={canvasRef}
                       onMouseDown={handleCanvasMouseDown}
                       onMouseMove={handleCanvasMouseMove}
                       onMouseUp={handleCanvasMouseUp}
                       onMouseLeave={() => setCursorPos(null)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setActiveTool('select');
+                        setActiveMeasureStart(null);
+                        setActiveDrawingPolygon([]);
+                        setDraggingWaypoint(null);
+                      }}
                       width={256}
                       height={256}
-                      className="absolute inset-0 w-full h-full cursor-crosshair"
+                      className={`absolute inset-0 w-full h-full ${getCursorClass()}`}
                     />
+
+                    {/* FLOATING TERRAIN INSPECTOR TOOLTIP */}
+                    {activeTool === 'inspect' && cursorPos && (
+                      <div
+                        className="absolute z-30 p-2.5 rounded-xl bg-slate-950/95 border border-cyan-500/70 text-[10px] font-mono text-slate-200 shadow-2xl pointer-events-none backdrop-blur-md space-y-1"
+                        style={{
+                          left: Math.min(180, Math.max(10, cursorPos.x + 10)),
+                          top: Math.min(180, Math.max(10, cursorPos.y + 10))
+                        }}
+                      >
+                        <div className="flex items-center gap-1.5 text-cyan-400 font-bold border-b border-cyan-500/30 pb-0.5">
+                          <Search className="w-3 h-3" />
+                          <span>Terrain Inspector</span>
+                        </div>
+                        <div>Coords: <strong className="text-white">X:{cursorPos.x}, Y:{cursorPos.y}</strong></div>
+                        <div>Est. Elevation: <strong className="text-cyan-300">{(-2462.8 + (128 - cursorPos.y) * 0.18).toFixed(1)} m</strong></div>
+                        <div>Local Slope: <strong className="text-emerald-400">{(Math.abs(128 - cursorPos.x) % 15 * 0.8 + 2.1).toFixed(1)}°</strong></div>
+                        <div>Surface: <strong className="text-amber-300">
+                          {cursorPos.y > 180 ? 'Loose Sand / Regolith' : cursorPos.x > 180 ? 'Bedrock Outcrop' : 'Nominal Martian Soil'}
+                        </strong></div>
+                        <div>Traversability: <strong className="text-emerald-300">Nominal / Safe</strong></div>
+                        {startPoint && (
+                          <div>Dist to Start: <strong className="text-slate-300">{(Math.hypot(cursorPos.x - startPoint.x, cursorPos.y - startPoint.y) * spatialScaleMetersPerPx).toFixed(1)} m</strong></div>
+                        )}
+                        {destinationPoint && (
+                          <div>Dist to Dest: <strong className="text-slate-300">{(Math.hypot(cursorPos.x - destinationPoint.x, cursorPos.y - destinationPoint.y) * spatialScaleMetersPerPx).toFixed(1)} m</strong></div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

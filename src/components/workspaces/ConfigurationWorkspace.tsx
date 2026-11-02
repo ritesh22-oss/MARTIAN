@@ -40,7 +40,7 @@ import { MARS_REFERENCE_DATUM } from '../../utils/marsScienceData';
 import { MarsRoverIcon } from '../MarsRoverIcon';
 
 export default function ConfigurationWorkspace() {
-  const { settings, updateSettings } = useWorkspace();
+  const { settings, updateSettings, sharedSession } = useWorkspace();
   const {
     analysis,
     setStartPoint,
@@ -66,39 +66,84 @@ export default function ConfigurationWorkspace() {
   const [activePreset, setActivePreset] = useState<string>('Custom');
   const [compareModalOpen, setCompareModalOpen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'analytics' | 'detections' | 'planning' | 'status'>('analytics');
-  const [showHazards, setShowHazards] = useState<boolean>(false);
-  const [showRouteOverlay, setShowRouteOverlay] = useState<boolean>(false);
+  const [showHazards, setShowHazards] = useState<boolean>(true);
+  const [showRouteOverlay, setShowRouteOverlay] = useState<boolean>(true);
+
+  // Tactical Traversal Viewport Options
+  const [showTacticalGrid, setShowTacticalGrid] = useState<boolean>(true);
+  const [showTacticalPhoto, setShowTacticalPhoto] = useState<boolean>(true);
+  const [showTacticalScanner, setShowTacticalScanner] = useState<boolean>(true);
 
   // Unit conversion helper
   const isImperial = settings.unitSystem === 'imperial';
   const formatDist = (meters: number) => isImperial ? `${(meters * 3.28084).toFixed(0)} ft` : `${Math.round(meters)} m`;
 
-  const currentRoute = analysis.routes[analysis.selectedRouteIndex] || analysis.routes[0];
+  const getSafeImageUrl = (url: string) => {
+    if (!url) return '';
+    if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('/')) return url;
+    return `/api/nasa/proxy-image?url=${encodeURIComponent(url)}`;
+  };
+
+  // Single Shared Source of Truth: sync with Walk Ops or active analysis candidate
+  const currentRoute = useMemo(() => {
+    if (analysis.selectedRouteIndex > 0 && analysis.routes[analysis.selectedRouteIndex]) {
+      return analysis.routes[analysis.selectedRouteIndex];
+    }
+    if (sharedSession?.activeSyncRoute?.waypoints && sharedSession.activeSyncRoute.waypoints.length > 0) {
+      const sr = sharedSession.activeSyncRoute;
+      return {
+        id: sr.routeId,
+        name: sr.name || 'Walk Ops Synchronized Route',
+        waypoints: sr.waypoints,
+        totalCost: sr.totalCost || 0,
+        totalLengthM: sr.totalDistanceM || 0,
+        maxSlope: Math.max(...sr.waypoints.map(w => Math.abs(w.slope || 0)), 0),
+        unsafeCount: sr.waypoints.filter(w => w.isUnsafe).length,
+        isBlocked: false,
+        difficulty: 'Safe',
+        explanation: 'Active synchronized navigation route from MarsWalk Operations.'
+      };
+    }
+    return analysis.routes[analysis.selectedRouteIndex] || analysis.routes[0];
+  }, [sharedSession?.activeSyncRoute, analysis.routes, analysis.selectedRouteIndex]);
+
   const waypoints = currentRoute?.waypoints || [];
 
-  // Log route diagnostics when route or waypoints update
-  useEffect(() => {
-    if (waypoints.length > 0) {
-      const xs = waypoints.map(w => w.x);
-      const ys = waypoints.map(w => w.y);
-      logRouteDiagnostics('ConfigurationWorkspace', {
-        imageId: analysis.imageId,
-        imageWidth: analysis.imageWidth,
-        imageHeight: analysis.imageHeight,
-        viewBox: '0 0 256 256',
-        waypointCount: waypoints.length,
-        firstWaypoint: waypoints[0],
-        lastWaypoint: waypoints[waypoints.length - 1],
-        minX: Math.min(...xs),
-        maxX: Math.max(...xs),
-        minY: Math.min(...ys),
-        maxY: Math.max(...ys),
-        startPt: analysis.effectiveStartPoint,
-        destPt: analysis.effectiveDestinationPoint,
-        totalLengthM: currentRoute?.totalLengthM || 0
-      });
+  const currentWaypointIndex = roverPos.waypointIndex;
+  const currentWaypoint = waypoints[currentWaypointIndex] || {
+    slope: roverPos.currentSlope,
+    roughness: roverPos.currentRoughness,
+    slip: roverPos.currentSlip,
+    stepCost: roverPos.currentStepCost,
+    x: roverPos.x,
+    y: roverPos.y
+  };
+
+  // Traversed vs Remaining route sections based on roverPos
+  const traversedWaypoints = useMemo(() => {
+    if (waypoints.length === 0) return [];
+    if (traversalProgress <= 0 && !isPlaying) return [];
+    const idx = Math.min(waypoints.length - 1, currentWaypointIndex);
+    const pts = waypoints.slice(0, idx + 1).map(w => ({ x: w.x, y: w.y }));
+    if (roverPos && (traversalProgress > 0 || isPlaying)) {
+      pts.push({ x: roverPos.x, y: roverPos.y });
     }
-  }, [waypoints, analysis.imageId, analysis.imageWidth, analysis.imageHeight, analysis.effectiveStartPoint, analysis.effectiveDestinationPoint, currentRoute?.totalLengthM]);
+    return pts;
+  }, [waypoints, currentWaypointIndex, roverPos, traversalProgress, isPlaying]);
+
+  const remainingWaypoints = useMemo(() => {
+    if (waypoints.length === 0) return [];
+    if (traversalProgress >= 100) return [];
+    const idx = Math.min(waypoints.length - 1, currentWaypointIndex);
+    const pts: Array<{ x: number; y: number }> = [];
+    if (roverPos && (traversalProgress > 0 || isPlaying)) {
+      pts.push({ x: roverPos.x, y: roverPos.y });
+    }
+    for (let i = idx + 1; i < waypoints.length; i++) {
+      pts.push({ x: waypoints[i].x, y: waypoints[i].y });
+    }
+    return pts;
+  }, [waypoints, currentWaypointIndex, roverPos, traversalProgress, isPlaying]);
 
   // Sample waypoints for graphs to prevent UI lag and "zero-width" invisible bars in flex containers
   const sampledWaypoints = useMemo(() => {
@@ -112,9 +157,6 @@ export default function ConfigurationWorkspace() {
     if (sampledWaypoints.length === 0) return -1;
     return Math.min(sampledWaypoints.length - 1, Math.floor((traversalProgress / 100) * (sampledWaypoints.length - 1)));
   }, [sampledWaypoints, traversalProgress]);
-  
-  const currentWaypointIndex = roverPos.waypointIndex;
-  const currentWaypoint = waypoints[currentWaypointIndex] || { slope: roverPos.currentSlope, roughness: roverPos.currentRoughness, slip: roverPos.currentSlip, stepCost: roverPos.currentStepCost, x: roverPos.x, y: roverPos.y };
 
   const presets: Record<string, any> = {
     'NASA Defaults': { maxSlopeLimitDeg: 14.0, roverMassKg: 1025, slopeWeight: 0.45, roughnessWeight: 0.25, slipWeight: 0.30 },
@@ -313,7 +355,10 @@ export default function ConfigurationWorkspace() {
               {/* Left: Image & Route Overlay */}
               <div className="bg-[#050813] border border-white/10 rounded-2xl p-4 flex flex-col items-center justify-between space-y-4 relative overflow-hidden">
                 <div className="w-full flex items-center justify-between gap-2 flex-wrap">
-                  <div className="text-[10px] font-mono text-cyan-400 uppercase font-bold">Active Image View</div>
+                  <div className="text-[10px] font-mono text-cyan-400 uppercase font-bold flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5" />
+                    <span>Active Image View</span>
+                  </div>
                   <div className="flex items-center gap-1.5 font-mono text-[10px]">
                     <button
                       onClick={() => setShowRouteOverlay(!showRouteOverlay)}
@@ -352,81 +397,137 @@ export default function ConfigurationWorkspace() {
                 
                 <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden border border-white/10 flex items-center justify-center bg-black/80">
                   {!analysis.isLoading && analysis.imageUrl ? (
-                    <img src={analysis.imageUrl} alt="Terrain" className="w-full h-full object-fill" />
+                    <img
+                      src={getSafeImageUrl(analysis.imageUrl)}
+                      alt="Terrain"
+                      className="w-full h-full object-fill select-none pointer-events-none"
+                    />
                   ) : (
                     <div className="text-cyan-400 text-xs animate-pulse">Loading image resource...</div>
                   )}
 
                   {(showRouteOverlay || showHazards) && (
                     <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 256 256" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="overlayTraversedGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#10B981" />
+                          <stop offset="100%" stopColor="#059669" />
+                        </linearGradient>
+                        <filter id="cfgShadow" x="-20%" y="-20%" width="140%" height="140%">
+                          <feDropShadow dx="0" dy="0" stdDeviation="1.5" floodColor="#000000" floodOpacity="0.9" />
+                        </filter>
+                      </defs>
+
                       {/* Restrained Scientific Hazard Markers */}
                       {showHazards && analysis.obstacles.map(obs => (
                         <g key={obs.id} transform={`translate(${obs.x}, ${obs.y})`}>
-                          <circle cx="0" cy="0" r={Math.max(4, obs.radius)} fill="rgba(245, 158, 11, 0.08)" stroke={obs.blocked ? '#EF4444' : '#F59E0B'} strokeWidth="0.8" strokeDasharray="2 1" />
+                          <circle cx="0" cy="0" r={Math.max(4, obs.radius)} fill="rgba(245, 158, 11, 0.12)" stroke={obs.blocked ? '#EF4444' : '#F59E0B'} strokeWidth="0.8" strokeDasharray="2 1" />
                           <circle cx="0" cy="0" r="1.5" fill={obs.blocked ? '#EF4444' : '#F59E0B'} />
                         </g>
                       ))}
 
-                      {/* Primary Route Line */}
+                      {/* Route Polyline Background Casing */}
                       {showRouteOverlay && waypoints.length > 1 && (
-                        <g>
-                          <polyline
-                            points={waypoints.map(w => `${w.x},${w.y}`).join(' ')}
-                            stroke="#00F0FF"
-                            strokeWidth="5"
-                            strokeOpacity="0.25"
-                            fill="none"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          <polyline
-                            points={waypoints.map(w => `${w.x},${w.y}`).join(' ')}
+                        <polyline
+                          points={waypoints.map(w => `${w.x},${w.y}`).join(' ')}
+                          stroke="#040814"
+                          strokeWidth="4.5"
+                          strokeOpacity="0.85"
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      )}
+
+                      {/* Traversed Route Section (Solid Emerald Green) */}
+                      {showRouteOverlay && traversedWaypoints.length > 1 && (
+                        <polyline
+                          points={traversedWaypoints.map(w => `${w.x},${w.y}`).join(' ')}
+                          stroke="#10B981"
+                          strokeWidth="3"
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          filter="url(#cfgShadow)"
+                        />
+                      )}
+
+                      {/* Remaining Route Section (Dashed Cyan Trajectory) */}
+                      {showRouteOverlay && (remainingWaypoints.length > 1 ? remainingWaypoints : waypoints).length > 1 && (
+                        <polyline
+                          points={(remainingWaypoints.length > 1 ? remainingWaypoints : waypoints).map(w => `${w.x},${w.y}`).join(' ')}
+                          stroke={currentRoute?.isBlocked ? "#EF4444" : "#00F0FF"}
+                          strokeWidth="2.2"
+                          strokeDasharray={traversedWaypoints.length > 1 ? "3 2" : "none"}
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          filter="url(#cfgShadow)"
+                        />
+                      )}
+
+                      {/* Individual Waypoint Dots along the route */}
+                      {showRouteOverlay && waypoints.map((w, idx) => {
+                        const isTraversed = idx <= currentWaypointIndex;
+                        const isNext = idx === currentWaypointIndex + 1;
+                        return (
+                          <circle
+                            key={idx}
+                            cx={w.x}
+                            cy={w.y}
+                            r={isNext ? 2.5 : 1.2}
+                            fill={isTraversed ? "#10B981" : isNext ? "#F59E0B" : "#FFFFFF"}
                             stroke="#040814"
-                            strokeWidth="2.8"
-                            strokeOpacity="0.8"
-                            fill="none"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
+                            strokeWidth="0.5"
                           />
-                          <polyline
-                            points={waypoints.map(w => `${w.x},${w.y}`).join(' ')}
-                            stroke={currentRoute?.isBlocked ? "#EF4444" : "#00F0FF"}
-                            strokeWidth="1.8"
-                            fill="none"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          <polyline
-                            points={waypoints.map(w => `${w.x},${w.y}`).join(' ')}
-                            stroke="#E0F2FE"
-                            strokeWidth="0.6"
-                            strokeOpacity="0.9"
-                            fill="none"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </g>
-                      )}
+                        );
+                      })}
 
-                      {/* Start Indicator */}
-                      {showRouteOverlay && analysis.effectiveStartPoint && (
-                        <g transform={`translate(${analysis.effectiveStartPoint.x}, ${analysis.effectiveStartPoint.y})`}>
-                          <circle r="7" fill="rgba(16, 185, 129, 0.15)" stroke="#10b981" strokeWidth="0.8" />
-                          <circle r="3.5" fill="#10b981" stroke="#ffffff" strokeWidth="1" />
-                          <text y="1.8" fill="#ffffff" fontSize="4.5" fontWeight="bold" textAnchor="middle">S</text>
-                        </g>
-                      )}
+                      {/* Clearly Visible Start Indicator (Teardrop Map Pin) */}
+                      {showRouteOverlay && (analysis.effectiveStartPoint || waypoints[0]) && (() => {
+                        const pt = analysis.effectiveStartPoint || waypoints[0];
+                        return (
+                          <g transform={`translate(${pt.x}, ${pt.y})`}>
+                            <rect x="-18" y="-30" width="36" height="9" rx="2" fill="rgba(3, 15, 20, 0.92)" stroke="#06b6d4" strokeWidth="0.7" />
+                            <text x="0" y="-23.5" fill="#67e8f9" fontSize="3.8" fontWeight="bold" textAnchor="middle">
+                              START
+                            </text>
+                            <path
+                              d="M 0 0 C -5 -6, -7 -10, -7 -13 C -7 -17, -3 -20, 0 -20 C 3 -20, 7 -17, 7 -13 C 7 -10, 5 -6, 0 0 Z"
+                              fill="#06b6d4"
+                              stroke="#ffffff"
+                              strokeWidth="1.2"
+                              filter="url(#cfgShadow)"
+                            />
+                            <path d="M -2.5 -11.5 L 2.5 -11.5 L 0 -15.5 Z" fill="#ffffff" />
+                            <circle cx="0" cy="-10" r="1" fill="#ffffff" />
+                          </g>
+                        );
+                      })()}
 
-                      {/* Destination Indicator */}
-                      {showRouteOverlay && analysis.effectiveDestinationPoint && (
-                        <g transform={`translate(${analysis.effectiveDestinationPoint.x}, ${analysis.effectiveDestinationPoint.y})`}>
-                          <circle r="7" fill="rgba(249, 115, 22, 0.15)" stroke="#f97316" strokeWidth="0.8" />
-                          <circle r="3.5" fill="#f97316" stroke="#ffffff" strokeWidth="1" />
-                          <text y="1.8" fill="#ffffff" fontSize="4.5" fontWeight="bold" textAnchor="middle">D</text>
-                        </g>
-                      )}
+                      {/* Clearly Visible Destination Indicator (Teardrop Map Pin) */}
+                      {showRouteOverlay && (analysis.effectiveDestinationPoint || waypoints[waypoints.length - 1]) && (() => {
+                        const pt = analysis.effectiveDestinationPoint || waypoints[waypoints.length - 1];
+                        return (
+                          <g transform={`translate(${pt.x}, ${pt.y})`}>
+                            <rect x="-24" y="-30" width="48" height="9" rx="2" fill="rgba(20, 5, 5, 0.92)" stroke="#f87171" strokeWidth="0.7" />
+                            <text x="0" y="-23.5" fill="#fca5a5" fontSize="3.5" fontWeight="bold" textAnchor="middle">
+                              DESTINATION
+                            </text>
+                            <path
+                              d="M 0 0 C -5 -6, -7 -10, -7 -13 C -7 -17, -3 -20, 0 -20 C 3 -20, 7 -17, 7 -13 C 7 -10, 5 -6, 0 0 Z"
+                              fill="#f87171"
+                              stroke="#ffffff"
+                              strokeWidth="1.2"
+                              filter="url(#cfgShadow)"
+                            />
+                            <path d="M -2 -14 L 3 -12.5 L -2 -11 Z" fill="#ffffff" />
+                            <line x1="-2" y1="-15" x2="-2" y2="-9" stroke="#ffffff" strokeWidth="1" strokeLinecap="round" />
+                          </g>
+                        );
+                      })()}
 
-                      {/* Rover Icon */}
+                      {/* Rover Icon positioned along the route */}
                       {showRouteOverlay && !currentRoute?.isBlocked && waypoints.length > 0 && (
                         <g transform={`translate(${roverPos.x}, ${roverPos.y}) rotate(${roverPos.angle})`}>
                           <MarsRoverIcon size={24} />
@@ -443,37 +544,116 @@ export default function ConfigurationWorkspace() {
                 </div>
               </div>
 
-              {/* Right: Playback & Live Telemetry */}
+              {/* Right: Traversal Playback & Live Traversal Visualization Engine */}
               <div className="lg:col-span-2 bg-[#050813] border border-white/10 rounded-2xl p-5 flex flex-col justify-between space-y-4">
+                {/* Playback Controls Header & Toolstrip */}
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-white text-xs uppercase tracking-wider">Traversal Playback &amp; Telemetry Control</span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      Waypoint {currentWaypointIndex + 1} of {waypoints.length}
-                    </span>
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-white text-xs uppercase tracking-wider flex items-center gap-1.5">
+                        <Activity className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Traversal Playback &amp; Telemetry Control</span>
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-bold flex items-center gap-1 ${
+                        isPlaying
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
+                          : traversalProgress >= 100
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                          : traversalProgress > 0
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                          : 'bg-slate-800 text-slate-400 border border-slate-700'
+                      }`}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                        <span>{isPlaying ? 'Traversing...' : traversalProgress >= 100 ? 'Completed' : traversalProgress > 0 ? 'Paused' : 'Ready'}</span>
+                      </span>
+                    </div>
+
+                    <div className="text-[10px] text-slate-400 font-mono flex items-center gap-2">
+                      <span>Waypoint <strong className="text-white">{currentWaypointIndex + 1}</strong> of <strong className="text-cyan-300">{waypoints.length}</strong></span>
+                      {waypoints.length > 0 && (
+                        <span className="text-slate-500">| Scale: 0.15 m/px</span>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="flex items-center space-x-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    {/* Play / Pause / Resume / Replay Button */}
                     <button
-                      onClick={() => isPlaying ? pauseTraversal() : startTraversal()}
+                      onClick={() => {
+                        if (isPlaying) {
+                          pauseTraversal();
+                        } else if (traversalProgress >= 100) {
+                          resetTraversal();
+                          setTimeout(() => startTraversal(), 50);
+                        } else if (traversalProgress > 0) {
+                          resumeTraversal();
+                        } else {
+                          startTraversal();
+                        }
+                      }}
                       disabled={currentRoute?.isBlocked || analysis.isLoading || waypoints.length < 2}
-                      className={`px-5 py-2.5 rounded-xl font-bold flex items-center space-x-2 transition cursor-pointer disabled:opacity-40 ${
-                        isPlaying ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-600/20'
+                      className={`px-5 py-2.5 rounded-xl font-bold flex items-center space-x-2 transition cursor-pointer disabled:opacity-40 shadow-lg ${
+                        isPlaying
+                          ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20'
+                          : traversalProgress >= 100
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                          : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-cyan-600/20'
                       }`}
+                      title={isPlaying ? "Pause Traversal" : traversalProgress >= 100 ? "Replay Traversal" : traversalProgress > 0 ? "Resume Traversal" : "Start Traversal"}
                     >
-                      {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
-                      <span>{isPlaying ? 'Pause' : 'Start Traverse'}</span>
+                      {isPlaying ? (
+                        <>
+                          <Pause className="w-4 h-4" />
+                          <span>Pause</span>
+                        </>
+                      ) : traversalProgress >= 100 ? (
+                        <>
+                          <RotateCcw className="w-4 h-4" />
+                          <span>Replay</span>
+                        </>
+                      ) : traversalProgress > 0 ? (
+                        <>
+                          <Play className="w-4 h-4 fill-current" />
+                          <span>Resume</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-4 h-4 fill-current" />
+                          <span>Start Traverse</span>
+                        </>
+                      )}
                     </button>
 
+                    {/* Reset Button */}
                     <button
                       onClick={resetTraversal}
-                      className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 cursor-pointer flex items-center space-x-1"
+                      className="px-3.5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 cursor-pointer flex items-center space-x-1.5 transition"
+                      title="Reset Rover to Start Point"
                     >
                       <RotateCcw className="w-4 h-4" />
                       <span>Reset</span>
                     </button>
 
-                    <div className="flex-1 flex items-center space-x-3 px-2">
+                    {/* Simulation Speed Selector */}
+                    <div className="flex items-center gap-1 bg-black/50 p-1 rounded-xl border border-white/10">
+                      <span className="text-[10px] text-slate-400 px-1 font-mono">Speed:</span>
+                      {[0.5, 1, 2, 4].map(spd => (
+                        <button
+                          key={spd}
+                          onClick={() => setSimSpeed(spd)}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold cursor-pointer transition ${
+                            simSpeed === spd
+                              ? 'bg-cyan-500 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-white hover:bg-white/5'
+                          }`}
+                        >
+                          {spd}x
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Progress Range Slider */}
+                    <div className="flex-1 min-w-[200px] flex items-center space-x-3 px-2 bg-black/40 p-2 rounded-xl border border-white/10">
                       <input
                         type="range"
                         min="0"
@@ -482,7 +662,7 @@ export default function ConfigurationWorkspace() {
                         value={traversalProgress}
                         disabled={currentRoute?.isBlocked || analysis.isLoading || waypoints.length < 2}
                         onChange={(e) => setTraversalProgress(parseFloat(e.target.value))}
-                        className="w-full accent-cyan-500 cursor-pointer disabled:opacity-40"
+                        className="w-full accent-cyan-400 cursor-pointer disabled:opacity-40"
                       />
                       <span className="text-xs font-mono font-bold text-cyan-300 w-12 text-right">
                         {traversalProgress.toFixed(0)}%
@@ -491,7 +671,288 @@ export default function ConfigurationWorkspace() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-white/10 text-[11px]">
+                {/* RESTORED: LARGE ROVER TRAVERSAL VISUALIZATION VIEWPORT */}
+                <div className="relative w-full h-[320px] lg:h-[340px] rounded-2xl overflow-hidden border border-cyan-500/40 bg-[#02050E] shadow-2xl flex flex-col justify-between">
+                  {/* Viewport Top HUD Controls Bar */}
+                  <div className="flex items-center justify-between px-3 py-2 bg-slate-950/80 border-b border-cyan-500/20 z-20 backdrop-blur-xs text-[10px] font-mono">
+                    <div className="flex items-center space-x-2">
+                      <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                      <span className="font-bold text-slate-200 uppercase tracking-wider">Rover Traversal Viewport</span>
+                      <span className="text-slate-600">|</span>
+                      <span className="text-slate-400">Heading: <strong className="text-cyan-300">{Math.round(roverPos.angle)}°</strong></span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setShowTacticalPhoto(!showTacticalPhoto)}
+                        className={`px-2 py-0.5 rounded border transition-all cursor-pointer ${
+                          showTacticalPhoto ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50' : 'bg-black/50 text-slate-500 border-slate-800'
+                        }`}
+                        title="Toggle Terrain Photo Underlay"
+                      >
+                        Photo: {showTacticalPhoto ? 'ON' : 'OFF'}
+                      </button>
+                      <button
+                        onClick={() => setShowTacticalGrid(!showTacticalGrid)}
+                        className={`px-2 py-0.5 rounded border transition-all cursor-pointer ${
+                          showTacticalGrid ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50' : 'bg-black/50 text-slate-500 border-slate-800'
+                        }`}
+                        title="Toggle Tactical Coordinate Grid"
+                      >
+                        Grid: {showTacticalGrid ? 'ON' : 'OFF'}
+                      </button>
+                      <button
+                        onClick={() => setShowTacticalScanner(!showTacticalScanner)}
+                        className={`px-2 py-0.5 rounded border transition-all cursor-pointer ${
+                          showTacticalScanner ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50' : 'bg-black/50 text-slate-500 border-slate-800'
+                        }`}
+                        title="Toggle Rover Forward Sensor Cone"
+                      >
+                        Scanner: {showTacticalScanner ? 'ON' : 'OFF'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Visual Surface Underlay & Tactical Radar Grid */}
+                  <div className="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center">
+                    {/* Authentic NASA Terrain Image Underlay */}
+                    {showTacticalPhoto && analysis.imageUrl && (
+                      <img
+                        src={getSafeImageUrl(analysis.imageUrl)}
+                        alt="Terrain Surface Underlay"
+                        className="absolute inset-0 w-full h-full object-fill opacity-35 pointer-events-none select-none filter contrast-125"
+                      />
+                    )}
+
+                    {/* Scanline Texture Overlay */}
+                    <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-[#02050E]/40 to-[#02050E]/90 pointer-events-none" />
+
+                    {/* Empty State when Route is not yet planned */}
+                    {waypoints.length < 2 && (
+                      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/85 backdrop-blur-xs p-6 text-center space-y-3">
+                        <Route className="w-10 h-10 text-cyan-400 animate-pulse" />
+                        <div className="font-bold text-white text-sm">Awaiting Traversal Route</div>
+                        <p className="text-slate-400 text-xs max-w-sm">
+                          Plan a route in MARSWALK OPS or select a candidate route from the tabs to initialize the traversal engine.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* TACTICAL SVG TRAVERSAL HUD LAYER */}
+                    <svg
+                      viewBox="0 0 256 256"
+                      preserveAspectRatio="none"
+                      className="absolute inset-0 w-full h-full pointer-events-none"
+                    >
+                      <defs>
+                        <linearGradient id="tacticalTraversedGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#10B981" />
+                          <stop offset="100%" stopColor="#059669" />
+                        </linearGradient>
+                        <radialGradient id="sensorConeGrad" cx="0%" cy="50%" r="100%">
+                          <stop offset="0%" stopColor="rgba(0, 240, 255, 0.45)" />
+                          <stop offset="60%" stopColor="rgba(0, 240, 255, 0.12)" />
+                          <stop offset="100%" stopColor="rgba(0, 240, 255, 0.0)" />
+                        </radialGradient>
+                        <filter id="tacticalShadow" x="-30%" y="-30%" width="160%" height="160%">
+                          <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#000000" floodOpacity="0.95" />
+                        </filter>
+                      </defs>
+
+                      {/* Tactical Coordinate Grid Overlay (32px divisions) */}
+                      {showTacticalGrid && (
+                        <g opacity="0.35">
+                          {[32, 64, 96, 128, 160, 192, 224].map(v => (
+                            <React.Fragment key={v}>
+                              <line x1={v} y1="0" x2={v} y2="256" stroke="#00F0FF" strokeWidth="0.3" strokeDasharray="2 4" />
+                              <line x1="0" y1={v} x2="256" y2={v} stroke="#00F0FF" strokeWidth="0.3" strokeDasharray="2 4" />
+                            </React.Fragment>
+                          ))}
+                          {/* Center Tactical Crosshair */}
+                          <circle cx="128" cy="128" r="8" fill="none" stroke="#00F0FF" strokeWidth="0.4" strokeDasharray="2 2" />
+                          <line x1="124" y1="128" x2="132" y2="128" stroke="#00F0FF" strokeWidth="0.6" />
+                          <line x1="128" y1="124" x2="128" y2="132" stroke="#00F0FF" strokeWidth="0.6" />
+                        </g>
+                      )}
+
+                      {/* Terrain Obstacles & Hazards */}
+                      {analysis.obstacles.map(obs => (
+                        <g key={`tactical-obs-${obs.id}`} transform={`translate(${obs.x}, ${obs.y})`}>
+                          <circle cx="0" cy="0" r={Math.max(5, obs.radius * 1.2)} fill="rgba(239, 68, 68, 0.12)" stroke="#EF4444" strokeWidth="0.8" strokeDasharray="2 2" />
+                          <circle cx="0" cy="0" r="2" fill="#EF4444" />
+                          <text y="-5" fill="#fca5a5" fontSize="3.8" fontWeight="bold" textAnchor="middle">
+                            HAZARD
+                          </text>
+                        </g>
+                      ))}
+
+                      {/* Full Route Base Guide Casing */}
+                      {waypoints.length > 1 && (
+                        <polyline
+                          points={waypoints.map(w => `${w.x},${w.y}`).join(' ')}
+                          stroke="#000000"
+                          strokeWidth="4.5"
+                          strokeOpacity="0.9"
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      )}
+
+                      {/* Traversed Path Section (Solid Glowing Emerald Trail) */}
+                      {traversedWaypoints.length > 1 && (
+                        <polyline
+                          points={traversedWaypoints.map(w => `${w.x},${w.y}`).join(' ')}
+                          stroke="#10B981"
+                          strokeWidth="3.2"
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          filter="url(#tacticalShadow)"
+                        />
+                      )}
+
+                      {/* Remaining Route Section (High-Contrast Dashed Cyan Trajectory) */}
+                      {(remainingWaypoints.length > 1 ? remainingWaypoints : waypoints).length > 1 && (
+                        <polyline
+                          points={(remainingWaypoints.length > 1 ? remainingWaypoints : waypoints).map(w => `${w.x},${w.y}`).join(' ')}
+                          stroke={currentRoute?.isBlocked ? "#EF4444" : "#00F0FF"}
+                          strokeWidth="2.2"
+                          strokeDasharray={traversedWaypoints.length > 1 ? "3 2" : "none"}
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          filter="url(#tacticalShadow)"
+                        />
+                      )}
+
+                      {/* Waypoint Nodes along the route */}
+                      {waypoints.map((w, idx) => {
+                        const isTraversed = idx <= currentWaypointIndex;
+                        const isNext = idx === currentWaypointIndex + 1;
+                        return (
+                          <g key={`wp-node-${idx}`} transform={`translate(${w.x}, ${w.y})`}>
+                            {isNext && (
+                              <g>
+                                <circle r="8" fill="rgba(245, 158, 11, 0.25)" stroke="#F59E0B" strokeWidth="1" strokeDasharray="2 1" className="animate-ping" />
+                                <rect x="-6" y="-6" width="12" height="12" fill="none" stroke="#F59E0B" strokeWidth="0.8" />
+                              </g>
+                            )}
+                            <circle
+                              r={isNext ? 3 : 1.5}
+                              fill={isTraversed ? "#10B981" : isNext ? "#F59E0B" : "#38BDF8"}
+                              stroke="#000000"
+                              strokeWidth="0.6"
+                            />
+                            {/* Waypoint number tag for key nodes */}
+                            {(idx === 0 || idx === waypoints.length - 1 || idx % Math.max(1, Math.floor(waypoints.length / 8)) === 0) && (
+                              <text y="4.5" fill="#E2E8F0" fontSize="3.2" fontWeight="bold" textAnchor="middle">
+                                {idx + 1}
+                              </text>
+                            )}
+                          </g>
+                        );
+                      })}
+
+                      {/* Active Next Waypoint Radar Highlight Target */}
+                      {waypoints[currentWaypointIndex + 1] && (() => {
+                        const nextWp = waypoints[currentWaypointIndex + 1];
+                        return (
+                          <g transform={`translate(${nextWp.x}, ${nextWp.y})`}>
+                            <rect x="-16" y="-14" width="32" height="7" rx="1.5" fill="rgba(15, 23, 42, 0.95)" stroke="#F59E0B" strokeWidth="0.6" />
+                            <text x="0" y="-9.5" fill="#FCD34D" fontSize="3.4" fontWeight="bold" textAnchor="middle">
+                              NEXT WP #{currentWaypointIndex + 2}
+                            </text>
+                          </g>
+                        );
+                      })()}
+
+                      {/* Start Base Pin Beacon (Teardrop Map Pin) */}
+                      {analysis.effectiveStartPoint && (
+                        <g transform={`translate(${analysis.effectiveStartPoint.x}, ${analysis.effectiveStartPoint.y})`}>
+                          <rect x="-18" y="-30" width="36" height="9" rx="2" fill="rgba(3, 15, 20, 0.95)" stroke="#06b6d4" strokeWidth="0.7" />
+                          <text x="0" y="-23.5" fill="#67e8f9" fontSize="3.8" fontWeight="bold" textAnchor="middle">
+                            START
+                          </text>
+                          <path
+                            d="M 0 0 C -5 -6, -7 -10, -7 -13 C -7 -17, -3 -20, 0 -20 C 3 -20, 7 -17, 7 -13 C 7 -10, 5 -6, 0 0 Z"
+                            fill="#06b6d4"
+                            stroke="#ffffff"
+                            strokeWidth="1.2"
+                            filter="url(#tacticalShadow)"
+                          />
+                          <path d="M -2.5 -11.5 L 2.5 -11.5 L 0 -15.5 Z" fill="#ffffff" />
+                          <circle cx="0" cy="-10" r="1" fill="#ffffff" />
+                        </g>
+                      )}
+
+                      {/* Goal Target Pin Beacon (Teardrop Map Pin) */}
+                      {analysis.effectiveDestinationPoint && (
+                        <g transform={`translate(${analysis.effectiveDestinationPoint.x}, ${analysis.effectiveDestinationPoint.y})`}>
+                          <rect x="-24" y="-30" width="48" height="9" rx="2" fill="rgba(20, 5, 5, 0.95)" stroke="#f87171" strokeWidth="0.7" />
+                          <text x="0" y="-23.5" fill="#fca5a5" fontSize="3.5" fontWeight="bold" textAnchor="middle">
+                            DESTINATION
+                          </text>
+                          <path
+                            d="M 0 0 C -5 -6, -7 -10, -7 -13 C -7 -17, -3 -20, 0 -20 C 3 -20, 7 -17, 7 -13 C 7 -10, 5 -6, 0 0 Z"
+                            fill="#f87171"
+                            stroke="#ffffff"
+                            strokeWidth="1.2"
+                            filter="url(#tacticalShadow)"
+                          />
+                          <path d="M -2 -14 L 3 -12.5 L -2 -11 Z" fill="#ffffff" />
+                          <line x1="-2" y1="-15" x2="-2" y2="-9" stroke="#ffffff" strokeWidth="1" strokeLinecap="round" />
+                        </g>
+                      )}
+
+                      {/* THE ROVER VISUALIZATION */}
+                      {waypoints.length > 0 && !currentRoute?.isBlocked && (
+                        <g transform={`translate(${roverPos.x}, ${roverPos.y})`}>
+                          {/* Forward Radar Scanner Cone */}
+                          {showTacticalScanner && (
+                            <g transform={`rotate(${roverPos.angle})`}>
+                              <path
+                                d="M 0 0 L 26 -14 A 30 30 0 0 1 26 14 Z"
+                                fill="url(#sensorConeGrad)"
+                              />
+                              <line x1="0" y1="0" x2="28" y2="0" stroke="#00F0FF" strokeWidth="0.7" strokeDasharray="2 2" opacity="0.8" />
+                            </g>
+                          )}
+
+                          {/* Rover Icon Rotated along Traversal Heading */}
+                          <g transform={`rotate(${roverPos.angle})`}>
+                            <MarsRoverIcon size={28} />
+                          </g>
+
+                          {/* Floating Rover Telemetry Pill */}
+                          <rect x="-24" y="-21" width="48" height="8" rx="2" fill="rgba(3, 7, 18, 0.95)" stroke="#00F0FF" strokeWidth="0.7" />
+                          <text x="0" y="-15.5" fill="#38BDF8" fontSize="3.4" fontWeight="bold" textAnchor="middle">
+                            ROVER · ({Math.round(roverPos.x)}, {Math.round(roverPos.y)})
+                          </text>
+                        </g>
+                      )}
+                    </svg>
+                  </div>
+
+                  {/* Viewport Bottom Status Bar */}
+                  <div className="flex items-center justify-between px-3 py-1.5 bg-slate-950/90 border-t border-cyan-500/20 z-20 text-[10px] font-mono text-slate-300">
+                    <div className="flex items-center space-x-3">
+                      <span>Distance: <strong className="text-white">{roverPos.distanceTraveledM} m</strong> / <strong className="text-slate-400">{currentRoute?.totalLengthM || 0} m</strong></span>
+                      <span className="text-slate-600">|</span>
+                      <span>Next WP Distance: <strong className="text-amber-400">
+                        {waypoints[currentWaypointIndex + 1] ? `${Math.round(Math.hypot(waypoints[currentWaypointIndex + 1].x - roverPos.x, waypoints[currentWaypointIndex + 1].y - roverPos.y) * 0.15)} m` : '0 m (Goal)'}
+                      </strong></span>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <span className="text-slate-400">Status:</span>
+                      <span className="text-cyan-300 font-bold uppercase">{isPlaying ? 'Active In-Transit' : traversalProgress >= 100 ? 'Mission Target Reached' : 'Holding Position'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bottom Telemetry Metrics Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-white/10 text-[11px]">
                   <div className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-0.5">
                     <div className="text-slate-400">Rover Position</div>
                     <div className="text-cyan-400 font-bold font-mono">({Math.round(roverPos.x)}, {Math.round(roverPos.y)})</div>
@@ -549,10 +1010,11 @@ export default function ConfigurationWorkspace() {
                   <div className="h-28 flex items-end gap-[1px] pt-2 px-1 border-b border-white/10">
                     {sampledWaypoints.length > 0 ? (
                       sampledWaypoints.map((w, idx) => {
-                        const h = Math.min(100, (w.obstaclePenalty / 10) * 100);
+                        const penalty = w.obstaclePenalty || 0;
+                        const h = Math.min(100, (penalty / 10) * 100);
                         return (
                           <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end relative group">
-                            <div className={`w-full rounded-t ${w.obstaclePenalty > 2 ? 'bg-amber-500' : 'bg-cyan-600'}`} style={{ height: `${Math.max(4, h)}%` }} />
+                            <div className={`w-full rounded-t ${penalty > 2 ? 'bg-amber-500' : 'bg-cyan-600'}`} style={{ height: `${Math.max(4, h)}%` }} />
                             {idx === currentSampledIndex && <div className="absolute -top-1 left-0 right-0 h-1 bg-white animate-pulse" />}
                           </div>
                         );

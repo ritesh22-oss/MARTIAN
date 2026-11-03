@@ -354,22 +354,25 @@ export async function analyzeImageSegmentation(
           }
         }
 
-        // If detection generated fewer than 3 features, provide baseline high-confidence features
-        if (hazards.length < 3) {
+        // Sort so blocked rocks, craters, and steep features come first
+        hazards.sort((a, b) => (b.blocked ? 1 : 0) - (a.blocked ? 1 : 0));
+        
+        // For the default Jezero baseline image only, if no features were extracted, provide baseline features.
+        // For any other uploaded NASA image, return its genuine detected features without contaminating it.
+        const isDefaultJezero = imageUrl.includes('PSP_001414_1780') || imageUrl.includes('vis_0_f6a9756b');
+        if (hazards.length === 0 && isDefaultJezero) {
           resolve(getDefaultTerrainFeatures(startPoint, destinationPoint));
         } else {
-          // Sort so rocks and pits come first, limit to top 18 non-cluttering features
-          hazards.sort((a, b) => (b.blocked ? 1 : 0) - (a.blocked ? 1 : 0));
-          resolve(hazards.slice(0, 18));
+          resolve(hazards.slice(0, 24));
         }
       } catch (err) {
-        console.warn('Classical CV segmentation fallback engaged:', err);
-        resolve(getDefaultTerrainFeatures(startPoint, destinationPoint));
+        console.warn('Classical CV segmentation error:', err);
+        resolve([]);
       }
     };
 
     img.onerror = () => {
-      resolve(getDefaultTerrainFeatures(startPoint, destinationPoint));
+      resolve([]);
     };
 
     img.src = imageUrl;

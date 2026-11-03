@@ -212,30 +212,12 @@ function WorkstationMain() {
 
       {/* 2. Main Workstation Body (Flexible width taking most space) */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden relative">
-        {/* Top Floating Application Bar */}
-        <div className="pt-4 px-6 shrink-0 z-30">
+        {/* Top Application Bar Container */}
+        <div className="pt-3.5 px-3 sm:px-4 md:px-6 shrink-0 z-30 min-w-0">
           <AppTopBar
             onOpenMissions={() => setMissionsModalOpen(true)}
             onOpenGuideModal={() => setGuideModalOpen(true)}
           />
-        </div>
-        
-        {/* Refined Global Search Box - Restored below navbar */}
-        <div className="px-6 py-3 shrink-0 z-20">
-          <div className="max-w-[1800px] mx-auto">
-            <button
-              onClick={() => setCommandPaletteOpen(true)}
-              className="w-full h-11 bg-[#0A0E1A]/60 backdrop-blur-xl border border-white/10 hover:border-orange-500/40 rounded-xl px-5 flex items-center justify-between text-slate-400 hover:text-white transition-all shadow-2xl group cursor-pointer"
-            >
-              <div className="flex items-center space-x-3.5">
-                <Search className="w-4 h-4 text-orange-400 group-hover:scale-110 transition-transform" />
-                <span className="text-xs font-semibold tracking-wide">SEARCH MISSIONS, DATASETS, OR ANALYSIS TOOLS...</span>
-              </div>
-              <div className="flex items-center space-x-2 opacity-60">
-                <kbd className="px-2 py-0.5 rounded bg-black/60 text-[10px] font-mono border border-white/10 text-slate-300">⌘ K</kbd>
-              </div>
-            </button>
-          </div>
         </div>
 
         <div className="px-6 shrink-0">

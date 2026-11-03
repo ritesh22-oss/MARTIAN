@@ -3,7 +3,6 @@ import {
   Compass,
   Layers,
   Eye,
-  Camera,
   RotateCcw,
   Maximize2,
   Minimize2,
@@ -11,10 +10,10 @@ import {
   Rocket,
   Navigation,
   Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  Activity
 } from 'lucide-react';
 import MarsTerrain3D from '../MarsTerrain3D';
-import HeroSection from '../HeroSection';
 import MarsLandingSimulation from '../MarsLandingSimulation';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { MARS_REFERENCE_DATUM } from '../../utils/marsScienceData';
@@ -28,7 +27,7 @@ export type ActiveSimulationType = 'rover_navigation' | 'lander_deployment';
 export default function Explorer3DWorkspace({ onOpenMissions }: Explorer3DWorkspaceProps) {
   const { setActiveWorkspace, activeDataset, activeTerrainSource, setActiveTerrainSource } = useWorkspace();
   const [activeSimulation, setActiveSimulation] = useState<ActiveSimulationType>('rover_navigation');
-  const [viewMode, setViewMode] = useState<'tactical' | 'cinematic'>('tactical');
+  const [slopeHeatmapOn, setSlopeHeatmapOn] = useState<boolean>(false);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
   return (
@@ -89,31 +88,7 @@ export default function Explorer3DWorkspace({ onOpenMissions }: Explorer3DWorksp
         {activeSimulation === 'rover_navigation' ? (
           /* Simulation 01 Controls */
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-slate-400 text-[10px] uppercase font-bold">Rover Nav Controls:</span>
-
-            {/* Mode Switcher: Tactical HiRISE vs Cinematic Rover View */}
-            <div className="flex items-center bg-black/40 p-0.5 rounded-lg border border-slate-800">
-              <button
-                onClick={() => setViewMode('tactical')}
-                className={`px-3 py-1 rounded-md font-medium transition-colors cursor-pointer ${
-                  viewMode === 'tactical'
-                    ? 'bg-orange-600 text-white shadow-sm font-bold'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Tactical HiRISE DEM
-              </button>
-              <button
-                onClick={() => setViewMode('cinematic')}
-                className={`px-3 py-1 rounded-md font-medium transition-colors cursor-pointer ${
-                  viewMode === 'cinematic'
-                    ? 'bg-orange-600 text-white shadow-sm font-bold'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Rover NavCam View
-              </button>
-            </div>
+            <span className="text-slate-400 text-[10px] uppercase font-bold">Tactical HiRISE DEM:</span>
 
             {/* Terrain DTM Source Selector */}
             <div className="flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded-lg border border-slate-800 text-[11px]">
@@ -130,6 +105,24 @@ export default function Explorer3DWorkspace({ onOpenMissions }: Explorer3DWorksp
                 <option value="procedural" className="bg-slate-900 text-slate-200">Procedural Synthetic Model</option>
               </select>
             </div>
+
+            {/* Slope Gradient Heatmap Toggle */}
+            <button
+              onClick={() => {
+                const nextActive = !slopeHeatmapOn;
+                (window as any).MarsSimulator?.toggleSlopeHeatmap?.(nextActive);
+                setSlopeHeatmapOn(nextActive);
+              }}
+              className={`px-3 py-1.5 rounded-lg border font-bold flex items-center gap-1.5 text-xs transition-all cursor-pointer ${
+                slopeHeatmapOn
+                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-lg shadow-emerald-500/20'
+                  : 'bg-black/40 border-slate-700 text-slate-300 hover:text-white hover:bg-black/60'
+              }`}
+              title="Toggle real-time slope gradient traversability heatmap overlay"
+            >
+              <Activity className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{slopeHeatmapOn ? 'Slope Heatmap: ON' : 'Slope Heatmap: OFF'}</span>
+            </button>
           </div>
         ) : (
           /* Simulation 02 Controls */
@@ -165,13 +158,27 @@ export default function Explorer3DWorkspace({ onOpenMissions }: Explorer3DWorksp
 
       {/* 3. MAIN 3D SIMULATION CANVAS CONTAINER */}
       <div className="flex-1 min-h-[580px] bg-[#05070E] border-x border-b border-slate-800/80 rounded-b-2xl overflow-hidden relative shadow-2xl">
+        {slopeHeatmapOn && activeSimulation === 'rover_navigation' && (
+          <div className="absolute top-4 left-4 z-25 bg-[#0b0e14]/95 border border-emerald-500/40 p-2.5 rounded-xl shadow-2xl backdrop-blur-md text-[10px] font-mono flex items-center gap-3 animate-fade-in pointer-events-none">
+            <span className="text-emerald-400 font-bold">SLOPE GRADIENT:</span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-[#10b981]" />
+              <span className="text-slate-300">Safe (&lt;5°)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-[#f59e0b]" />
+              <span className="text-slate-300">Moderate (5-15°)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded bg-[#ef4444]" />
+              <span className="text-slate-300">Hazard (&gt;15°)</span>
+            </div>
+          </div>
+        )}
+
         {activeSimulation === 'rover_navigation' ? (
           /* SIMULATION 01 — ROVER NAVIGATION */
-          viewMode === 'tactical' ? (
-            <MarsTerrain3D onOpenMissions={onOpenMissions} />
-          ) : (
-            <HeroSection setActiveSection={(id: string) => setActiveWorkspace(id as any)} />
-          )
+          <MarsTerrain3D onOpenMissions={onOpenMissions} />
         ) : (
           /* SIMULATION 02 — SPACECRAFT LANDING & ROVER DEPLOYMENT */
           <MarsLandingSimulation onSwitchToNavigation={() => setActiveSimulation('rover_navigation')} />

@@ -151,19 +151,87 @@ export function smoothPathCollisionFree(path, isBlocked) {
 }
 
 function isLineOfSightClear(p1, p2, isBlocked) {
-  const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-  const steps = Math.ceil(dist * 2); // 2 samples per pixel
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const dist = Math.hypot(dx, dy);
+  const steps = Math.ceil(dist * 3); // 3 samples per grid unit for high resolution
   if (steps <= 2) return true;
-  // Test intermediate samples, ignoring start/end nodes to permit departure/arrival
+
+  let prevX = p1.x;
+  let prevY = p1.y;
+
+  // Test intermediate samples
   for (let s = 1; s < steps; s++) {
     const t = s / steps;
-    const cx = Math.round(p1.x + (p2.x - p1.x) * t);
-    const cy = Math.round(p1.y + (p2.y - p1.y) * t);
+    const cx = Math.round(p1.x + dx * t);
+    const cy = Math.round(p1.y + dy * t);
+
+    // Obstacle / buffer check
     if (isBlocked(cx, cy)) {
       return false;
     }
+
+    // Corner-cutting check for diagonal steps
+    if (cx !== prevX && cy !== prevY) {
+      if (isBlocked(cx, prevY) || isBlocked(prevX, cy)) {
+        return false;
+      }
+    }
+
+    prevX = cx;
+    prevY = cy;
   }
   return true;
+}
+
+/**
+ * Strict collision validation for complete route paths.
+ * Checks intermediate points along every line segment at sub-pixel resolution.
+ */
+export function validateRouteCollisionFree(
+  path,
+  isBlockedFn,
+  isCoreFn,
+  sampleResolution = 0.5
+) {
+  if (!path || path.length < 2) {
+    return { isValid: false, reason: 'Path has fewer than 2 points' };
+  }
+  const start = path[0];
+  const goal = path[path.length - 1];
+
+  for (let i = 0; i < path.length - 1; i++) {
+    const p1 = path[i];
+    const p2 = path[i + 1];
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const steps = Math.max(1, Math.ceil(dist / sampleResolution));
+
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps;
+      const x = p1.x + (p2.x - p1.x) * t;
+      const y = p1.y + (p2.y - p1.y) * t;
+      const rx = Math.round(x);
+      const ry = Math.round(y);
+
+      // Boundary check
+      if (rx < 0 || rx >= 256 || ry < 0 || ry >= 256) {
+        return { isValid: false, collisionPoint: { x, y }, reason: `Leaves image boundaries at (${rx}, ${ry})` };
+      }
+
+      // Hard obstacle core check
+      if (isCoreFn && isCoreFn(rx, ry)) {
+        return { isValid: false, collisionPoint: { x, y }, reason: `Intersects detected obstacle core at (${rx}, ${ry})` };
+      }
+
+      // Safety buffer clearance check (allow immediate departure/arrival within 1.5 px)
+      const nearStart = Math.hypot(x - start.x, y - start.y) <= 1.5;
+      const nearGoal = Math.hypot(x - goal.x, y - goal.y) <= 1.5;
+      if (!nearStart && !nearGoal && isBlockedFn && isBlockedFn(rx, ry)) {
+        return { isValid: false, collisionPoint: { x, y }, reason: `Encroaches obstacle safety clearance buffer at (${rx}, ${ry})` };
+      }
+    }
+  }
+  return { isValid: true };
 }
 
 export class AStarGrid {
@@ -374,6 +442,60 @@ export class AStarGrid {
 
     const startBlocked = rawBlocked(start.x, start.y);
     const goalBlocked = rawBlocked(goal.x, goal.y);
+    const startInCore = isCoreBlocked(start.x, start.y);
+    const goalInCore = isCoreBlocked(goal.x, goal.y);
+
+    if (startInCore) {
+      return {
+        success: false,
+        mode: 'start_blocked',
+        statusLabel: 'START POINT INSIDE OBSTACLE',
+        warning: 'Selected start position is inside an impassable obstacle or boulder. Please select a clear traversable location.',
+        path: null,
+        rawPath: null,
+        pixelLength: 0,
+        steps: 0,
+        totalCost: Infinity,
+        iterations: 0,
+        exploredNodes: [],
+        diagnostics: {
+          gridWidth: this.width,
+          gridHeight: this.height,
+          start,
+          goal,
+          mode: 'start_blocked',
+          startBlockedOnCore: true,
+          goalBlockedOnCore: goalInCore,
+          blockedReason: 'Start position is inside an obstacle'
+        }
+      };
+    }
+
+    if (goalInCore) {
+      return {
+        success: false,
+        mode: 'goal_blocked',
+        statusLabel: 'DESTINATION INSIDE OBSTACLE',
+        warning: 'Selected destination is inside an impassable obstacle or boulder. Please select a clear traversable location.',
+        path: null,
+        rawPath: null,
+        pixelLength: 0,
+        steps: 0,
+        totalCost: Infinity,
+        iterations: 0,
+        exploredNodes: [],
+        diagnostics: {
+          gridWidth: this.width,
+          gridHeight: this.height,
+          start,
+          goal,
+          mode: 'goal_blocked',
+          startBlockedOnCore: false,
+          goalBlockedOnCore: true,
+          blockedReason: 'Destination is inside an obstacle'
+        }
+      };
+    }
 
     // If start == goal
     if (start.x === goal.x && start.y === goal.y) {
@@ -415,19 +537,20 @@ export class AStarGrid {
     // TIER 1: Nominal Obstacle-Aware A* (Full Clearance Buffer)
     const tier1 = this._searchCore(start, goal, isBlockedMasked, rawCost, 30000);
     if (tier1.success && tier1.path && tier1.path.length >= 2) {
-      const path = tier1.path;
-      path[0] = { x: start.x, y: start.y };
-      path[path.length - 1] = { x: goal.x, y: goal.y };
-      const len = calculatePathLength(path);
+      const smoothed = smoothPathCollisionFree(tier1.path, isBlockedMasked);
+      const finalPath = smoothed.length >= 2 ? smoothed : tier1.path;
+      finalPath[0] = { x: start.x, y: start.y };
+      finalPath[finalPath.length - 1] = { x: goal.x, y: goal.y };
+      const len = calculatePathLength(finalPath);
 
       return {
         success: true,
         mode: 'optimal',
         statusLabel: 'OPTIMAL ROUTE FOUND',
-        path,
-        rawPath: [...path],
+        path: finalPath,
+        rawPath: [...tier1.path],
         pixelLength: len,
-        steps: path.length - 1,
+        steps: finalPath.length - 1,
         totalCost: parseFloat(tier1.totalCost.toFixed(2)),
         iterations: tier1.iterations,
         exploredNodes: tier1.exploredNodes,
@@ -446,113 +569,72 @@ export class AStarGrid {
       };
     }
 
-    // TIER 2: Reduced Safety Buffer (Relax buffer constraint; only hard obstacles remain blocked)
-    const isCoreMasked = (x, y) => {
-      if ((Math.abs(x - start.x) <= 2 && Math.abs(y - start.y) <= 2) ||
-          (Math.abs(x - goal.x) <= 2 && Math.abs(y - goal.y) <= 2)) {
-        return false;
-      }
-      return isCoreBlocked(x, y);
-    };
-    const bufferPenalizedCost = (x, y) => {
-      const base = rawCost ? rawCost(x, y) : 1.0;
-      // High cost for buffer encroachment, but still passable
-      return rawBlocked(x, y) ? base + 12.0 : base;
-    };
+    let tier2 = null;
 
-    const tier2 = this._searchCore(start, goal, isCoreMasked, bufferPenalizedCost, 30000);
-    if (tier2.success && tier2.path && tier2.path.length >= 2) {
-      const path = tier2.path;
-      path[0] = { x: start.x, y: start.y };
-      path[path.length - 1] = { x: goal.x, y: goal.y };
-      const len = calculatePathLength(path);
+    // TIER 2: Reduced Safety Buffer (Only when explicitly enabled by options.allowReducedMargin)
+    if (options.allowReducedMargin) {
+      const isCoreMasked = (x, y) => {
+        if ((Math.abs(x - start.x) <= 2 && Math.abs(y - start.y) <= 2) ||
+            (Math.abs(x - goal.x) <= 2 && Math.abs(y - goal.y) <= 2)) {
+          return false;
+        }
+        return isCoreBlocked(x, y);
+      };
+      const bufferPenalizedCost = (x, y) => {
+        const base = rawCost ? rawCost(x, y) : 1.0;
+        // Moderate cost penalty for buffer encroachment to prefer open ground, while navigating narrow passes without exhausting queue
+        return rawBlocked(x, y) ? base + 2.5 : base;
+      };
 
-      return {
-        success: true,
-        mode: 'reduced_margin',
-        statusLabel: 'REDUCED SAFETY MARGIN TRAVERSAL',
-        warning: 'Nominal buffer clearance was constrained. Path safely bypasses hard obstacle cores with reduced buffer.',
-        path,
-        rawPath: [...path],
-        pixelLength: len,
-        steps: path.length - 1,
-        totalCost: parseFloat(tier2.totalCost.toFixed(2)),
-        iterations: tier1.iterations + tier2.iterations,
-        exploredNodes: tier2.exploredNodes,
-        exploredCount: tier2.closedCount,
-        diagnostics: {
-          gridWidth: this.width,
-          gridHeight: this.height,
-          start,
-          goal,
+      tier2 = this._searchCore(start, goal, isCoreMasked, bufferPenalizedCost, 45000);
+      if (tier2.success && tier2.path && tier2.path.length >= 2) {
+        const smoothed = smoothPathCollisionFree(tier2.path, isCoreMasked);
+        const finalPath = smoothed.length >= 2 ? smoothed : tier2.path;
+        finalPath[0] = { x: start.x, y: start.y };
+        finalPath[finalPath.length - 1] = { x: goal.x, y: goal.y };
+        const len = calculatePathLength(finalPath);
+
+        return {
+          success: true,
           mode: 'reduced_margin',
+          statusLabel: 'SAFE ROUTE FOUND (REDUCED CLEARANCE)',
+          warning: 'Nominal buffer clearance was constrained. Path safely bypasses obstacle cores via narrow corridor.',
+          path: finalPath,
+          rawPath: [...tier2.path],
+          pixelLength: len,
+          steps: finalPath.length - 1,
+          totalCost: parseFloat(tier2.totalCost.toFixed(2)),
           iterations: tier1.iterations + tier2.iterations,
+          exploredNodes: tier2.exploredNodes,
           exploredCount: tier2.closedCount,
-          startBlockedOnCore: startBlocked,
-          goalBlockedOnCore: goalBlocked
-        }
-      };
+          diagnostics: {
+            gridWidth: this.width,
+            gridHeight: this.height,
+            start,
+            goal,
+            mode: 'reduced_margin',
+            iterations: tier1.iterations + tier2.iterations,
+            exploredCount: tier2.closedCount,
+            startBlockedOnCore: startBlocked,
+            goalBlockedOnCore: goalBlocked
+          }
+        };
+      }
     }
 
-    // TIER 3: Least-Cost Hazard Penetration (All cells traversable with heavy penalty on hard hazards)
-    const softCost = (x, y) => {
-      const base = rawCost ? rawCost(x, y) : 1.0;
-      if (isCoreBlocked(x, y)) return base + 40.0;
-      if (rawBlocked(x, y)) return base + 15.0;
-      return base;
-    };
-    const noneBlocked = () => false;
-
-    const tier3 = this._searchCore(start, goal, noneBlocked, softCost, 30000);
-    if (tier3.success && tier3.path && tier3.path.length >= 2) {
-      const path = tier3.path;
-      path[0] = { x: start.x, y: start.y };
-      path[path.length - 1] = { x: goal.x, y: goal.y };
-      const len = calculatePathLength(path);
-
-      return {
-        success: true,
-        mode: 'hazard_fallback',
-        statusLabel: 'SAFE ROUTE NOT FOUND · MINIMUM HAZARD TRAVERSAL DISPLAYED',
-        warning: 'Standard safety corridors are obstructed. The generated path minimizes exposure to mapped hazards.',
-        path,
-        rawPath: [...path],
-        pixelLength: len,
-        steps: path.length - 1,
-        totalCost: parseFloat(tier3.totalCost.toFixed(2)),
-        iterations: tier1.iterations + tier2.iterations + tier3.iterations,
-        exploredNodes: tier3.exploredNodes,
-        exploredCount: tier3.closedCount,
-        diagnostics: {
-          gridWidth: this.width,
-          gridHeight: this.height,
-          start,
-          goal,
-          mode: 'hazard_fallback',
-          iterations: tier1.iterations + tier2.iterations + tier3.iterations,
-          exploredCount: tier3.closedCount,
-          startBlockedOnCore: startBlocked,
-          goalBlockedOnCore: goalBlocked
-        }
-      };
-    }
-
-    // TIER 4: Deterministic Straight-Line Fallback
-    // Guaranteed to connect START directly to DESTINATION with real Euclidean distance
-    const straightPath = generateStraightLinePath(start, goal);
-    const straightLen = calculatePathLength(straightPath);
-
+    // HONEST NO-SAFE-ROUTE TERMINATION
+    // Under no circumstances should A* draw a straight line or penetrate obstacles when no safe path exists.
     return {
       success: false,
-      mode: 'straight_line_fallback',
-      statusLabel: 'STRAIGHT-LINE FALLBACK · OBSTACLE AVOIDANCE NOT VERIFIED',
-      warning: 'No passable trajectory found through terrain grid. Straight-line vector displayed; safety unverified.',
-      path: straightPath,
-      rawPath: [...straightPath],
-      pixelLength: straightLen,
-      steps: straightPath.length - 1,
-      totalCost: straightLen,
-      iterations: tier1.iterations + tier2.iterations + tier3.iterations,
+      mode: 'no_safe_path',
+      statusLabel: 'NO SAFE ROUTE FOUND',
+      warning: 'Impassable obstacles or boulder field completely block traversal to the destination. Select an alternative destination or reduce safety clearance.',
+      path: null,
+      rawPath: null,
+      pixelLength: 0,
+      steps: 0,
+      totalCost: Infinity,
+      iterations: tier1.iterations + (tier2 ? tier2.iterations : 0),
       exploredNodes: tier1.exploredNodes || [],
       exploredCount: tier1.closedCount || 0,
       diagnostics: {
@@ -560,11 +642,16 @@ export class AStarGrid {
         gridHeight: this.height,
         start,
         goal,
-        mode: 'straight_line_fallback',
-        iterations: tier1.iterations + tier2.iterations + tier3.iterations,
+        mode: 'no_safe_path',
+        iterations: tier1.iterations + (tier2 ? tier2.iterations : 0),
         exploredCount: tier1.closedCount || 0,
         startBlockedOnCore: startBlocked,
-        goalBlockedOnCore: goalBlocked
+        goalBlockedOnCore: goalBlocked,
+        blockedReason: startBlocked
+          ? 'Start point is positioned on an obstacle'
+          : goalBlocked
+          ? 'Destination is positioned on an obstacle'
+          : 'Continuous obstacle wall or boulder field obstructs all navigable paths'
       }
     };
   }

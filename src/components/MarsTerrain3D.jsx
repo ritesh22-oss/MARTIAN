@@ -103,13 +103,13 @@ export default function MarsTerrain3D({ onOpenMissions }) {
       }
 
       const posAttr = terrainGeo.attributes.position;
-      const colorAttr = [];
       const colIronLow = new THREE.Color(0x6e210b);
       const colHematite = new THREE.Color(0x993514);
       const colOchre = new THREE.Color(0xbf491b);
       const colSunLit = new THREE.Color(0xe26a2c);
       const colRimSand = new THREE.Color(0xf2914b);
 
+      const marsColors = [];
       for (let i = 0; i < posAttr.count; i++) {
         const vx = posAttr.getX(i);
         const vz = posAttr.getZ(i);
@@ -125,11 +125,36 @@ export default function MarsTerrain3D({ onOpenMissions }) {
         col.r += noise;
         col.g += noise * 0.7;
 
-        colorAttr.push(col.r, col.g, col.b);
+        marsColors.push(col.r, col.g, col.b);
       }
 
-      terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(colorAttr, 3));
       terrainGeo.computeVertexNormals();
+      const normAttr = terrainGeo.attributes.normal;
+      const slopeColors = [];
+      const colSafe = new THREE.Color(0x10b981);     // Safe green (<5 deg)
+      const colModerate = new THREE.Color(0xf59e0b); // Moderate amber (5-15 deg)
+      const colHazard = new THREE.Color(0xef4444);   // Hazardous red (>15 deg)
+
+      for (let i = 0; i < posAttr.count; i++) {
+        const ny = normAttr.getY(i);
+        const slopeDeg = Math.acos(Math.min(Math.max(ny, 0), 1)) * (180 / Math.PI);
+        const scol = new THREE.Color();
+        if (slopeDeg < 5) {
+          scol.copy(colSafe);
+        } else if (slopeDeg < 15) {
+          const t = (slopeDeg - 5) / 10;
+          scol.lerpColors(colSafe, colModerate, t);
+        } else {
+          const t = Math.min(1, (slopeDeg - 15) / 20);
+          scol.lerpColors(colModerate, colHazard, t);
+        }
+        slopeColors.push(scol.r, scol.g, scol.b);
+      }
+
+      const marsColorBuffer = new THREE.Float32BufferAttribute(marsColors, 3);
+      const slopeColorBuffer = new THREE.Float32BufferAttribute(slopeColors, 3);
+
+      terrainGeo.setAttribute('color', marsColorBuffer);
 
       const canvasTex = document.createElement('canvas');
       canvasTex.width = 512;
@@ -398,6 +423,15 @@ export default function MarsTerrain3D({ onOpenMissions }) {
         },
         setCamera: function(viewMode) {
           camTargetMode = viewMode;
+        },
+        toggleSlopeHeatmap: function(active) {
+          let slopeHeatmapActive = active;
+          if (typeof slopeHeatmapActive !== 'boolean') {
+            slopeHeatmapActive = terrainGeo.attributes.color === marsColorBuffer;
+          }
+          terrainGeo.setAttribute('color', slopeHeatmapActive ? slopeColorBuffer : marsColorBuffer);
+          terrainGeo.attributes.color.needsUpdate = true;
+          return slopeHeatmapActive;
         }
       };
 

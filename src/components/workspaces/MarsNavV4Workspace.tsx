@@ -233,6 +233,9 @@ export default function MarsNavV4Workspace() {
     swapStartAndDestination,
     recalculateAnalysis,
     setSelectedRouteIndex,
+    safetyClearancePx: contextSafetyClearancePx,
+    setSafetyClearancePx: setContextSafetyClearancePx,
+    validateCoordinateTraversability,
     addObstacle: addContextObstacle,
     removeObstacle: removeContextObstacle,
     clearObstacles: clearContextObstacles,
@@ -267,8 +270,11 @@ export default function MarsNavV4Workspace() {
   });
   const [imageLoadError, setImageLoadError] = useState<{ message: string; failedUrl: string } | null>(null);
 
-  // Natural Image Dimensions
-  const [naturalDimensions, setNaturalDimensions] = useState<{ width: number; height: number }>({ width: 256, height: 256 });
+  // Natural Image Dimensions (Sync with Analysis Context)
+  const [naturalDimensions, setNaturalDimensions] = useState<{ width: number; height: number }>({ 
+    width: analysis.imageWidth || 256, 
+    height: analysis.imageHeight || 256 
+  });
 
   // Display Mode Selection (Clean Original Image by default)
   const [displayMode, setDisplayMode] = useState<'original' | 'route' | 'annotations' | 'analysis' | 'split_comparison'>('original');
@@ -282,17 +288,17 @@ export default function MarsNavV4Workspace() {
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [showMinimap, setShowMinimap] = useState<boolean>(true);
 
-  // Layer Visibility Controls (Disabled by default until user explicitly requests an overlay)
-  const [showSelectedRoute, setShowSelectedRoute] = useState<boolean>(false);
+  // Navigation Overlay Layer Visibility Controls
+  const [showSelectedRoute, setShowSelectedRoute] = useState<boolean>(true);
   const [showAltRoutes, setShowAltRoutes] = useState<boolean>(false);
   const [showEmergencyPath, setShowEmergencyPath] = useState<boolean>(false);
-  const [showWaypoints, setShowWaypoints] = useState<boolean>(false);
-  const [showRestrictedZones, setShowRestrictedZones] = useState<boolean>(false);
+  const [showWaypoints, setShowWaypoints] = useState<boolean>(true);
+  const [showRestrictedZones, setShowRestrictedZones] = useState<boolean>(true);
   const [showDirectionArrows, setShowDirectionArrows] = useState<boolean>(true);
   const [showSquareTargetBoxes, setShowSquareTargetBoxes] = useState<boolean>(true);
   const [showLegend, setShowLegend] = useState<boolean>(true);
   const [routeMenuOpen, setRouteMenuOpen] = useState<boolean>(false);
-
+  const [obstaclePlacementWarning, setObstaclePlacementWarning] = useState<string | null>(null);
 
   // Multi-waypoint nodes & annotations
   const [checkpointsList, setCheckpointsList] = useState<CheckpointNode[]>([]);
@@ -303,7 +309,13 @@ export default function MarsNavV4Workspace() {
   const [measurementsList, setMeasurementsList] = useState<SavedMeasurement[]>(() => getSavedMeasurements());
   const [activeMeasureStart, setActiveMeasureStart] = useState<{ x: number; y: number } | null>(null);
   const [notesList, setNotesList] = useState<SavedNote[]>(() => getSavedNotes());
-  const [safetyBufferPx, setSafetyBufferPx] = useState<number>(14);
+  const [safetyBufferPx, setSafetyBufferPx] = useState<number>(analysis.safetyClearancePx || 12);
+
+  // Sync safety buffer with context
+  const handleClearanceChange = useCallback((px: number) => {
+    setSafetyBufferPx(px);
+    setContextSafetyClearancePx(px);
+  }, [setContextSafetyClearancePx]);
 
   // Workspace Note Creator / Editor Modal State
   const [noteModalOpen, setNoteModalOpen] = useState<boolean>(false);
@@ -335,7 +347,7 @@ export default function MarsNavV4Workspace() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState<boolean>(false);
 
   // Route Comparison Options
-  const [selectedRouteStrategy, setSelectedRouteStrategy] = useState<'shortest' | 'safety' | 'science'>('shortest');
+  const [selectedRouteStrategy, setSelectedRouteStrategy] = useState<string>('alpha');
 
   // AI & Image Analytics State
   const [isAnalyzingImage, setIsAnalyzingImage] = useState<boolean>(false);
@@ -357,18 +369,19 @@ export default function MarsNavV4Workspace() {
 
   // Sync selectedRouteStrategy with active analysis route index
   useEffect(() => {
-    if (analysis.selectedRouteIndex === 0) setSelectedRouteStrategy('shortest');
-    else if (analysis.selectedRouteIndex === 1) setSelectedRouteStrategy('safety');
-    else if (analysis.selectedRouteIndex === 2) setSelectedRouteStrategy('science');
+    if (analysis.selectedRouteIndex === 0) setSelectedRouteStrategy('alpha');
+    else if (analysis.selectedRouteIndex === 1) setSelectedRouteStrategy('beta');
+    else if (analysis.selectedRouteIndex === 2) setSelectedRouteStrategy('gamma');
+    else if (analysis.selectedRouteIndex === 3) setSelectedRouteStrategy('delta');
   }, [analysis.selectedRouteIndex]);
 
   useEffect(() => {
-    if (activeRoute && activeRoute.waypoints && activeRoute.waypoints.length > 0) {
-      setActivePath(activeRoute.waypoints || []);
-      setRouteFeasible(!activeRoute.isBlocked);
+    if (activeRoute && !activeRoute.isBlocked && activeRoute.waypoints && activeRoute.waypoints.length > 1) {
+      setActivePath(activeRoute.waypoints);
+      setRouteFeasible(true);
       setPathfindingReason(activeRoute.explanation);
       // Derive return path from current selection if context doesn't provide it
-      setReturnPath([...(activeRoute.waypoints || [])].reverse());
+      setReturnPath([...activeRoute.waypoints].reverse());
       // Alt safety can be the second best candidate
       setAltSafetyPath(analysis.routes[1]?.waypoints || []);
 
@@ -393,6 +406,17 @@ export default function MarsNavV4Workspace() {
           version: Date.now(),
           lastUpdated: new Date().toISOString()
         }
+      });
+    } else {
+      setActivePath([]);
+      setRouteFeasible(false);
+      setPathfindingReason(activeRoute?.explanation || 'No safe route found around detected terrain obstacles.');
+      setReturnPath([]);
+      setAltSafetyPath([]);
+
+      updateSharedSession({
+        astarComputedPath: [],
+        activeSyncRoute: null
       });
     }
   }, [activeRoute, analysis.routes, selectedRouteStrategy, naturalDimensions.width, naturalDimensions.height, updateSharedSession]);
@@ -468,11 +492,16 @@ export default function MarsNavV4Workspace() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const activeBlobUrlRef = useRef<string | null>(null);
   const uploadSeqRef = useRef<number>(0);
+  const simDistanceRef = useRef(simDistance);
+
+  useEffect(() => {
+    simDistanceRef.current = simDistance;
+  }, [simDistance]);
 
   // Log Timeline Event helper
-  const addTimelineEvent = (type: TimelineEvent['type'], title: string, detail: string) => {
+  const addTimelineEvent = useCallback((type: TimelineEvent['type'], title: string, detail: string) => {
     const wallClock = new Date().toLocaleTimeString('en-US', { hour12: false });
-    const simTime = `${Math.floor(simDistance / 10)}m`;
+    const simTime = `${Math.floor(simDistanceRef.current / 10)}m`;
     setTimelineEvents(prev => [
       {
         id: `evt_${Date.now()}_${Math.random()}`,
@@ -484,7 +513,7 @@ export default function MarsNavV4Workspace() {
       },
       ...prev.slice(0, 49)
     ]);
-  };
+  }, []);
 
   // Push state to history for undo
   const saveStateToHistory = () => {
@@ -572,10 +601,10 @@ export default function MarsNavV4Workspace() {
       const detail = e.detail;
       if (detail && typeof detail.x === 'number' && typeof detail.y === 'number') {
         setZoomLevel(2.0);
-        // Center pan offset on target (256x256 workspace center is 128)
+        const scaleFactor = (naturalDimensions.width / 256) * 2.0; // 2.0 is the zoomLevel set above
         setPanOffset({
-          x: (128 - detail.x) * 1.5,
-          y: (128 - detail.y) * 1.5
+          x: (128 - detail.x) * scaleFactor,
+          y: (128 - detail.y) * scaleFactor
         });
         setLocatedTarget({ id: detail.noteId, x: detail.x, y: detail.y });
         setDisplayMode('annotations');
@@ -769,11 +798,13 @@ export default function MarsNavV4Workspace() {
     setImageLoadError(null);
     const nw = img.naturalWidth || 256;
     const nh = img.naturalHeight || 256;
+    
     setNaturalDimensions({ width: nw, height: nh });
 
+    // Explicitly call fit with new dimensions to avoid stale state in callback
     setTimeout(() => {
-      handleFitToWorkspace();
-    }, 10);
+      handleFitToWorkspace({ width: nw, height: nh });
+    }, 50);
 
     computeCanvasStats(img);
   };
@@ -895,19 +926,20 @@ export default function MarsNavV4Workspace() {
   const handleWheelZoom = (e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
     const container = viewportRef.current;
-    if (!container) return;
+    if (!container || imageStatus !== 'loaded') return;
 
-    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
+    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
     const rect = container.getBoundingClientRect();
     
-    // Mouse position relative to container center (because of flex justify-center items-center)
+    // Mouse position relative to viewport center
     const mouseX = e.clientX - (rect.left + rect.width / 2);
     const mouseY = e.clientY - (rect.top + rect.height / 2);
 
     setZoomLevel(prevZoom => {
-      const nextZoom = Math.min(10.0, Math.max(0.01, Number((prevZoom * zoomFactor).toFixed(4))));
+      const nextZoom = Math.min(10.0, Math.max(0.05, Number((prevZoom * zoomFactor).toFixed(4))));
       const scaleChange = nextZoom / prevZoom;
 
+      // Adjust panOffset to keep the point under the cursor stable
       setPanOffset(prevPan => ({
         x: mouseX - (mouseX - prevPan.x) * scaleChange,
         y: mouseY - (mouseY - prevPan.y) * scaleChange
@@ -993,32 +1025,59 @@ export default function MarsNavV4Workspace() {
     addTimelineEvent('route', 'Route Cleared', 'Cleared active computed route overlay.');
   };
 
+  const handleZoomAction = useCallback((factor: number) => {
+    setZoomLevel(prevZoom => {
+      const safePrevZoom = prevZoom || 1.0;
+      const nextZoom = Math.min(10.0, Math.max(0.05, Number((safePrevZoom * factor).toFixed(4))));
+      const scaleChange = nextZoom / safePrevZoom;
+      
+      // Zoom toward center of viewport
+      setPanOffset(prevPan => ({
+        x: (prevPan.x || 0) * scaleChange,
+        y: (prevPan.y || 0) * scaleChange
+      }));
+      
+      return nextZoom;
+    });
+  }, []);
+
   const handleResetView = () => {
     setZoomLevel(1.0);
     setPanOffset({ x: 0, y: 0 });
     addTimelineEvent('image', 'View Reset', 'Reset zoom to 100% and centered viewport.');
   };
 
-  const handleFitToWorkspace = useCallback(() => {
+  const handleFitToWorkspace = useCallback((explicitDims?: { width: number; height: number }) => {
     const container = viewportRef.current;
     if (!container) return;
 
-    const nw = naturalDimensions.width || 256;
-    const nh = naturalDimensions.height || 256;
-    const cw = container.clientWidth;
-    const ch = container.clientHeight;
+    const nw = explicitDims?.width || naturalDimensions.width || 256;
+    const nh = explicitDims?.height || naturalDimensions.height || 256;
+    
+    const rect = container.getBoundingClientRect();
+    const cw = rect.width;
+    const ch = rect.height;
 
     if (cw > 0 && ch > 0) {
-      const margin = 32;
+      const margin = 60;
       const scaleX = (cw - margin) / nw;
       const scaleY = (ch - margin) / nh;
       const fitScale = Math.min(scaleX, scaleY);
       
-      setZoomLevel(Math.min(8.0, Math.max(0.01, Number(fitScale.toFixed(4)))));
+      const finalScale = Math.min(8.0, Math.max(0.01, Number(fitScale.toFixed(4))));
+      setZoomLevel(finalScale);
       setPanOffset({ x: 0, y: 0 });
-      addTimelineEvent('image', 'Fit to Workspace', `Fitted image (${nw}x${nh} px) to workspace ${cw}x${ch} at ${(fitScale * 100).toFixed(1)}% zoom.`);
+      
+      addTimelineEvent('image', 'Fit to Workspace', `Fitted image (${nw}x${nh} px) to viewport at ${(finalScale * 100).toFixed(1)}% zoom.`);
     }
-  }, [naturalDimensions, addTimelineEvent]);
+  }, [naturalDimensions.width, naturalDimensions.height, addTimelineEvent]);
+
+  // Auto-fit image to workspace when dimensions update or image loads
+  useEffect(() => {
+    if (imageStatus === 'loaded') {
+      handleFitToWorkspace();
+    }
+  }, [naturalDimensions, imageStatus, handleFitToWorkspace]);
 
   // Automatically fit image to workspace on container resize or UI layout shifts
   useEffect(() => {
@@ -1026,8 +1085,7 @@ export default function MarsNavV4Workspace() {
     if (!container) return;
 
     const observer = new ResizeObserver(() => {
-      // Small delay to ensure layout is stable
-      setTimeout(handleFitToWorkspace, 10);
+      setTimeout(() => handleFitToWorkspace(), 10);
     });
 
     observer.observe(container);
@@ -1134,7 +1192,7 @@ export default function MarsNavV4Workspace() {
         return;
       }
 
-      // If clicked on empty space in select mode, allow panning
+      // If clicked on empty space, initiate panning
       setIsPanning(true);
       setDragStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
       return;
@@ -1142,18 +1200,34 @@ export default function MarsNavV4Workspace() {
 
     // Standard Tool Placement Logic
     if (activeTool === 'start') {
+      const check = validateCoordinateTraversability(clickX, clickY);
+      if (!check.traversable && check.isCore) {
+        setObstaclePlacementWarning(`Cannot place START on an obstacle (${check.reason}). Please select clear traversable terrain.`);
+        addTimelineEvent('checkpoint', 'Start Placement Rejected', `Point X:${clickX}, Y:${clickY} rejected: on ${check.reason}`);
+        return;
+      }
+      setObstaclePlacementWarning(null);
       saveStateToHistory();
       setStartPoint({ x: clickX, y: clickY });
       setShowWaypoints(true);
+      setShowSelectedRoute(true);
       setActiveTool('select');
       addTimelineEvent('checkpoint', 'Start Base Placed', `Set Start Base at X:${clickX}, Y:${clickY}`);
       return;
     }
 
     if (activeTool === 'destination') {
+      const check = validateCoordinateTraversability(clickX, clickY);
+      if (!check.traversable && check.isCore) {
+        setObstaclePlacementWarning(`Cannot place DESTINATION on an obstacle (${check.reason}). Please select clear traversable terrain.`);
+        addTimelineEvent('checkpoint', 'Destination Placement Rejected', `Point X:${clickX}, Y:${clickY} rejected: on ${check.reason}`);
+        return;
+      }
+      setObstaclePlacementWarning(null);
       saveStateToHistory();
       setDestinationPoint({ x: clickX, y: clickY });
       setShowWaypoints(true);
+      setShowSelectedRoute(true);
       setActiveTool('select');
       addTimelineEvent('checkpoint', 'Destination Placed', `Set Destination target at X:${clickX}, Y:${clickY}`);
       return;
@@ -1289,9 +1363,21 @@ export default function MarsNavV4Workspace() {
 
     if (draggingWaypoint) {
       if (draggingWaypoint.type === 'start') {
-        setStartPoint({ x: clickX, y: clickY });
+        const check = validateCoordinateTraversability(clickX, clickY);
+        if (check.traversable || !check.isCore) {
+          setStartPoint({ x: clickX, y: clickY });
+          setObstaclePlacementWarning(null);
+        } else {
+          setObstaclePlacementWarning(`Warning: Dragging START over obstacle (${check.reason}).`);
+        }
       } else if (draggingWaypoint.type === 'dest') {
-        setDestinationPoint({ x: clickX, y: clickY });
+        const check = validateCoordinateTraversability(clickX, clickY);
+        if (check.traversable || !check.isCore) {
+          setDestinationPoint({ x: clickX, y: clickY });
+          setObstaclePlacementWarning(null);
+        } else {
+          setObstaclePlacementWarning(`Warning: Dragging DESTINATION over obstacle (${check.reason}).`);
+        }
       } else if (draggingWaypoint.type === 'checkpoint') {
         setCheckpointsList(prev => prev.map(c => c.id === draggingWaypoint.id ? { ...c, x: clickX, y: clickY } : c));
       } else if (draggingWaypoint.type === 'science') {
@@ -1311,6 +1397,9 @@ export default function MarsNavV4Workspace() {
     if (draggingWaypoint) {
       addTimelineEvent('route', 'Waypoint Moved', `Relocated ${draggingWaypoint.type} marker. Recalculated route.`);
       setDraggingWaypoint(null);
+      if (obstaclePlacementWarning) {
+        setTimeout(() => setObstaclePlacementWarning(null), 3500);
+      }
     }
   };
 
@@ -1384,7 +1473,7 @@ export default function MarsNavV4Workspace() {
     addTimelineEvent('checkpoint', 'Finding Converted to Science POI', `Converted AI finding ${label} to Science Stop.`);
   };
 
-  // Mouse pan handling
+  // Consolidated View mouse handlers
   const handleMouseDownView = (e: React.MouseEvent) => {
     if (e.button === 0 && !draggingWaypoint && (activeTool === 'select' || activeTool === 'pan')) {
       setIsPanning(true);
@@ -2215,15 +2304,15 @@ export default function MarsNavV4Workspace() {
 
           {/* Viewport Actions */}
           <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-slate-800">
-            <button onClick={() => setZoomLevel(z => Math.min(6.0, Number((z + 0.25).toFixed(2))))} className="p-1 rounded hover:bg-white/10 text-slate-300 cursor-pointer" title="Zoom In">
+            <button onClick={() => handleZoomAction(1.25)} className="p-1 rounded hover:bg-white/10 text-slate-300 cursor-pointer" title="Zoom In">
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
             <span className="text-[10px] text-cyan-300 px-1 font-mono font-bold">{Math.round(zoomLevel * 100)}%</span>
-            <button onClick={() => setZoomLevel(z => Math.max(0.1, Number((z - 0.25).toFixed(2))))} className="p-1 rounded hover:bg-white/10 text-slate-300 cursor-pointer" title="Zoom Out">
+            <button onClick={() => handleZoomAction(0.8)} className="p-1 rounded hover:bg-white/10 text-slate-300 cursor-pointer" title="Zoom Out">
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
             <button
-              onClick={handleFitToWorkspace}
+              onClick={() => handleFitToWorkspace()}
               className="px-2.5 py-1 rounded-md bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 text-cyan-200 text-[11px] font-mono font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
               title="Fit image to workspace"
             >
@@ -2564,81 +2653,145 @@ export default function MarsNavV4Workspace() {
                 </div>
               )}
 
-              {/* ACTIVE NAVIGATION STATUS STRIP */}
-              <div className="w-full mb-2 p-2 rounded-xl bg-[#070b18] border border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-slate-300 shadow-inner shrink-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  {/* Active Tool Guide Badge */}
-                  <div className={`px-2 py-0.5 rounded-full border font-bold flex items-center gap-1.5 ${
-                    activeTool === 'start'
-                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 animate-pulse'
-                      : activeTool === 'destination'
-                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 animate-pulse'
-                      : activeTool === 'inspect'
-                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
-                      : activeTool === 'measure'
-                      ? 'bg-teal-500/20 text-teal-300 border-teal-500/50'
-                      : activeTool === 'pan'
-                      ? 'bg-blue-500/20 text-blue-300 border-blue-500/50'
-                      : 'bg-slate-800/80 text-slate-300 border-slate-700'
-                  }`}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                    <span>
-                      {activeTool === 'start'
-                        ? 'SELECT START: Click anywhere on terrain to set Start Base'
+              {/* ACTIVE NAVIGATION STATUS STRIP & VISUAL LAYER TOGGLES */}
+              <div className="w-full mb-2 p-2 rounded-xl bg-[#070b18] border border-slate-800 flex flex-col gap-2 text-[10px] font-mono text-slate-300 shadow-inner shrink-0">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Active Tool Guide Badge */}
+                    <div className={`px-2 py-0.5 rounded-full border font-bold flex items-center gap-1.5 ${
+                      activeTool === 'start'
+                        ? 'bg-blue-500/20 text-blue-300 border-blue-500/50 animate-pulse'
                         : activeTool === 'destination'
-                        ? 'SELECT DESTINATION: Click anywhere on terrain to set Destination Target'
+                        ? 'bg-orange-500/20 text-orange-300 border-orange-500/50 animate-pulse'
                         : activeTool === 'inspect'
-                        ? 'INSPECT MODE: Hover over terrain to inspect elevation & slope'
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
                         : activeTool === 'measure'
-                        ? 'MEASURE MODE: Click two points to measure distance'
+                        ? 'bg-teal-500/20 text-teal-300 border-teal-500/50'
                         : activeTool === 'pan'
-                        ? 'PAN MODE: Click and drag to pan terrain view'
-                        : 'IDLE: Click a tool to activate, or drag markers'}
-                    </span>
+                        ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50'
+                        : 'bg-slate-800/80 text-slate-300 border-slate-700'
+                    }`}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                      <span>
+                        {activeTool === 'start'
+                          ? 'SELECT START: Click terrain to set Start Base (Blue)'
+                          : activeTool === 'destination'
+                          ? 'SELECT DESTINATION: Click terrain to set Destination Target (Orange)'
+                          : activeTool === 'inspect'
+                          ? 'INSPECT MODE: Hover over terrain to inspect elevation & slope'
+                          : activeTool === 'measure'
+                          ? 'MEASURE MODE: Click two points to measure distance'
+                          : activeTool === 'pan'
+                          ? 'PAN MODE: Click and drag to pan terrain view'
+                          : 'IDLE: Click a tool to activate, or drag markers'}
+                      </span>
+                    </div>
+
+                    {/* Start Point Badge */}
+                    <div className="flex items-center gap-1 bg-black/60 px-2 py-0.5 rounded border border-slate-800">
+                      <span className="text-blue-400 font-bold">Start:</span>
+                      <span className={startPoint ? "text-blue-300 font-bold" : "text-slate-500"}>
+                        {startPoint ? `(${startPoint.x}, ${startPoint.y})` : 'Unset'}
+                      </span>
+                      {startPoint && (
+                        <button onClick={handleClearStart} className="text-slate-500 hover:text-red-400 ml-0.5 cursor-pointer" title="Clear Start">
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Destination Point Badge */}
+                    <div className="flex items-center gap-1 bg-black/60 px-2 py-0.5 rounded border border-slate-800">
+                      <span className="text-orange-400 font-bold">Dest:</span>
+                      <span className={destinationPoint ? "text-orange-300 font-bold" : "text-slate-500"}>
+                        {destinationPoint ? `(${destinationPoint.x}, ${destinationPoint.y})` : 'Unset'}
+                      </span>
+                      {destinationPoint && (
+                        <button onClick={handleClearDestination} className="text-slate-500 hover:text-red-400 ml-0.5 cursor-pointer" title="Clear Destination">
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Cursor Coordinates */}
+                    <div className="bg-black/60 px-2 py-0.5 rounded border border-slate-800 text-cyan-300">
+                      Cursor: {cursorPos ? `X:${cursorPos.x}, Y:${cursorPos.y}` : '--'}
+                    </div>
                   </div>
 
-                  {/* Start Point Badge */}
-                  <div className="flex items-center gap-1 bg-black/60 px-2 py-0.5 rounded border border-slate-800">
-                    <span className="text-emerald-400 font-bold">Start:</span>
-                    <span className={startPoint ? "text-emerald-300 font-bold" : "text-slate-500"}>
-                      {startPoint ? `(${startPoint.x}, ${startPoint.y})` : 'Unset'}
-                    </span>
-                    {startPoint && (
-                      <button onClick={handleClearStart} className="text-slate-500 hover:text-red-400 ml-0.5 cursor-pointer" title="Clear Start">
-                        <X className="w-2.5 h-2.5" />
-                      </button>
+                  <div className="flex items-center gap-2">
+                    {activeRoute && (
+                      <span className={`px-2 py-0.5 rounded font-bold border text-[10px] ${
+                        activeRoute.isBlocked
+                          ? 'bg-red-500/20 text-red-400 border-red-500/50'
+                          : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                      }`}>
+                        {activeRoute.isBlocked ? '⚠️ NO SAFE ROUTE' : `SAFE ROUTE · ${(activeRoute.totalLengthM || totalOutboundPx * spatialScaleMetersPerPx).toFixed(1)} m`}
+                      </span>
                     )}
-                  </div>
-
-                  {/* Destination Point Badge */}
-                  <div className="flex items-center gap-1 bg-black/60 px-2 py-0.5 rounded border border-slate-800">
-                    <span className="text-rose-400 font-bold">Dest:</span>
-                    <span className={destinationPoint ? "text-rose-300 font-bold" : "text-slate-500"}>
-                      {destinationPoint ? `(${destinationPoint.x}, ${destinationPoint.y})` : 'Unset'}
-                    </span>
-                    {destinationPoint && (
-                      <button onClick={handleClearDestination} className="text-slate-500 hover:text-red-400 ml-0.5 cursor-pointer" title="Clear Destination">
-                        <X className="w-2.5 h-2.5" />
-                      </button>
+                    {(!startPoint || !destinationPoint) && (
+                      <span className="text-amber-400/90 text-[10px]">
+                        {!startPoint && !destinationPoint ? 'Set Start & Dest to plan route' : !startPoint ? 'Set Start Base' : 'Set Destination Target'}
+                      </span>
                     )}
-                  </div>
-
-                  {/* Cursor Coordinates */}
-                  <div className="bg-black/60 px-2 py-0.5 rounded border border-slate-800 text-cyan-300">
-                    Cursor: {cursorPos ? `X:${cursorPos.x}, Y:${cursorPos.y}` : '--'}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {activePath.length > 1 && (
-                    <span className="text-cyan-300 font-bold">
-                      Traverse: {(totalOutboundPx * spatialScaleMetersPerPx).toFixed(1)} m ({totalTraverseKm.toFixed(3)} km)
-                    </span>
-                  )}
-                  {(!startPoint || !destinationPoint) && (
-                    <span className="text-amber-400/90 text-[10px]">
-                      {!startPoint && !destinationPoint ? 'Set Start & Dest to plan route' : !startPoint ? 'Set Start Base' : 'Set Destination Target'}
-                    </span>
+                {/* WORKSPACE VIEW CONTROLS & SIMULATION */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-1.5 border-t border-slate-800/80 text-[10px]">
+                  {/* Clean Display Toggles */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-slate-500 uppercase tracking-wider text-[9px] font-bold">Display:</span>
+
+                    {/* Planned Route Toggle (Cyan) */}
+                    <button
+                      onClick={() => setShowSelectedRoute(p => !p)}
+                      className={`px-2.5 py-1 rounded-md border flex items-center gap-1.5 cursor-pointer font-bold transition ${
+                        showSelectedRoute
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-xs'
+                          : 'bg-black/40 text-slate-500 border-slate-800 line-through'
+                      }`}
+                      title="Toggle planned rover route overlay"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                      <span>Planned Route</span>
+                    </button>
+
+                    {/* Waypoints Toggle */}
+                    <button
+                      onClick={() => setShowWaypoints(p => !p)}
+                      className={`px-2.5 py-1 rounded-md border flex items-center gap-1.5 cursor-pointer font-bold transition ${
+                        showWaypoints
+                          ? 'bg-blue-500/20 text-blue-300 border-blue-500/40 shadow-xs'
+                          : 'bg-black/40 text-slate-500 border-slate-800 line-through'
+                      }`}
+                      title="Toggle intermediate waypoint nodes"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-blue-400" />
+                      <span>Waypoints</span>
+                    </button>
+                  </div>
+
+                  {/* Quick Simulation Trigger */}
+                  {activeRoute && !activeRoute.isBlocked && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => isPlaying ? pauseTraversal() : startTraversal()}
+                        className="px-3 py-1 rounded-md bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 text-cyan-200 font-bold flex items-center gap-1.5 cursor-pointer transition shadow-xs"
+                      >
+                        {isPlaying ? <Pause className="w-3.5 h-3.5 text-cyan-400" /> : <Play className="w-3.5 h-3.5 text-cyan-400" />}
+                        <span>{isPlaying ? 'Pause' : 'Simulate Rover'}</span>
+                      </button>
+                      {(isPlaying || traversalProgress > 0) && (
+                        <button
+                          onClick={resetTraversal}
+                          className="p-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
+                          title="Reset Rover Traversal"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -2676,9 +2829,9 @@ export default function MarsNavV4Workspace() {
                 ) : (
                   /* UNIFIED HIGH-PRECISION INTERACTIVE VIEWPORT (ORIGINAL, ROUTE, ANNOTATIONS, ANALYSIS) */
                   <div
-                    className="relative transition-transform duration-75 ease-out select-none will-change-transform"
+                    className="relative transition-transform duration-75 ease-out select-none will-change-transform shrink-0"
                     style={{
-                      transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomLevel})`,
+                      transform: `translate(${panOffset.x || 0}px, ${panOffset.y || 0}px) scale(${zoomLevel || 1.0})`,
                       width: `${naturalDimensions.width}px`,
                       height: `${naturalDimensions.height}px`,
                       transformOrigin: 'center center'
@@ -2691,7 +2844,7 @@ export default function MarsNavV4Workspace() {
                       crossOrigin={terrainImage && terrainImage.startsWith('http') ? "anonymous" : undefined}
                       onLoad={handleImageLoad}
                       onError={handleImageError}
-                      className="absolute inset-0 w-full h-full block object-cover rounded-lg shadow-lg select-none pointer-events-none"
+                      className="absolute inset-0 w-full h-full block object-contain rounded-lg shadow-lg select-none pointer-events-none"
                       draggable={false}
                     />
 
@@ -2720,35 +2873,13 @@ export default function MarsNavV4Workspace() {
                         <filter id="shadowOutline" x="-20%" y="-20%" width="140%" height="140%">
                           <feDropShadow dx="0" dy="0" stdDeviation="1.2" floodColor="#000000" floodOpacity="0.9" />
                         </filter>
+                        <filter id="startGlow" x="-50%" y="-50%" width="200%" height="200%">
+                          <feDropShadow dx="0" dy="0" stdDeviation="2.5" floodColor="#2563eb" floodOpacity="0.9" />
+                        </filter>
+                        <filter id="destGlow" x="-50%" y="-50%" width="200%" height="200%">
+                          <feDropShadow dx="0" dy="0" stdDeviation="2.5" floodColor="#f97316" floodOpacity="0.9" />
+                        </filter>
                       </defs>
-
-                      {/* Restricted Polygon Hazard Zones (Amber) */}
-                      {showRestrictedZones && restrictedPolygons.map(p => (
-                        <g key={p.id}>
-                          <polygon
-                            points={p.vertices.map(v => `${v.x},${v.y}`).join(' ')}
-                            fill="rgba(245, 158, 11, 0.25)"
-                            stroke="#f59e0b"
-                            strokeWidth="1.5"
-                            strokeDasharray={p.closed ? "none" : "3 2"}
-                          />
-                          {p.vertices.map((v, idx) => (
-                            <circle key={idx} cx={v.x} cy={v.y} r="2" fill="#f59e0b" stroke="#ffffff" strokeWidth="0.8" />
-                          ))}
-                          {p.vertices.length > 0 && (
-                            <text
-                              x={p.vertices.reduce((a, b) => a + b.x, 0) / p.vertices.length}
-                              y={p.vertices.reduce((a, b) => a + b.y, 0) / p.vertices.length}
-                              fill="#fcd34d"
-                              fontSize="4.5"
-                              fontWeight="bold"
-                              textAnchor="middle"
-                            >
-                              {p.label}
-                            </text>
-                          )}
-                        </g>
-                      ))}
 
                       {/* Active Drawing Polygon Preview */}
                       {activeDrawingPolygon.length > 0 && (
@@ -2902,13 +3033,13 @@ export default function MarsNavV4Workspace() {
 
                       {/* Alternative Routes (Dimmed) */}
                       {(displayMode === 'route' || displayMode === 'annotations') && showAltRoutes && Boolean(startPoint) && Boolean(destinationPoint) && analysis.routes.map((route, rIdx) => {
-                        if (rIdx === analysis.selectedRouteIndex) return null;
+                        if (rIdx === analysis.selectedRouteIndex || route.isBlocked || !route.waypoints || route.waypoints.length < 2) return null;
                         return (
                           <polyline
                             key={route.id}
                             points={route.waypoints.map(p => `${p.x},${p.y}`).join(' ')}
                             fill="none"
-                            stroke={route.isBlocked ? "#ef4444" : "#64748b"}
+                            stroke="#64748b"
                             strokeWidth="1.2"
                             strokeDasharray="2 2"
                             opacity="0.6"
@@ -2918,14 +3049,24 @@ export default function MarsNavV4Workspace() {
                         );
                       })}
 
-                      {/* Selected Route (Primary) */}
-                      {(showSelectedRoute || displayMode === 'route') && Boolean(startPoint) && Boolean(destinationPoint) && activePath.length > 1 && (
-                        <>
+                      {/* 4. PLANNED ROVER ROUTE LAYER (CYAN) */}
+                      {(showSelectedRoute || displayMode === 'route') && Boolean(startPoint) && Boolean(destinationPoint) && !activeRoute?.isBlocked && activePath.length > 1 && (
+                        /* Valid safe obstacle-avoiding route */
+                        <g pointerEvents="none">
                           <polyline points={activePath.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000000" strokeWidth="4.2" strokeLinecap="round" strokeLinejoin="round" />
-                          <polyline points={activePath.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke={activeRoute?.isBlocked ? "#ef4444" : "#00f0ff"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" filter="url(#shadowOutline)" />
+                          <polyline points={activePath.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#00f0ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" filter="url(#shadowOutline)" />
 
+                          {/* Small waypoint markers along the route */}
+                          {showWaypoints && routeNodes.filter((_, i) => i > 0 && i < routeNodes.length - 1 && i % 4 === 0).map((wp, idx) => (
+                            <g key={`route-wp-${idx}`} transform={`translate(${wp.x}, ${wp.y})`}>
+                              <circle r="2.2" fill="#00f0ff" stroke="#030712" strokeWidth="0.6" />
+                              <circle r="0.9" fill="#ffffff" />
+                            </g>
+                          ))}
+
+                          {/* Direction indicators along route */}
                           {showDirectionArrows && routeNodes.map((nd, idx) => (
-                            <circle key={idx} cx={nd.x} cy={nd.y} r="1.6" fill="#ffffff" stroke="#000000" strokeWidth="0.5" />
+                            <circle key={idx} cx={nd.x} cy={nd.y} r="1.4" fill="#ffffff" stroke="#0096c7" strokeWidth="0.5" />
                           ))}
 
                           {/* Animated Miniature 2D Mars Rover Marker */}
@@ -2934,48 +3075,38 @@ export default function MarsNavV4Workspace() {
                               <MarsRoverIcon size={24} />
                             </g>
                           )}
-                        </>
+                        </g>
                       )}
 
-                      {/* DISTINCT START BASE PIN (TEARDROP MAP PIN) */}
+                      {/* 5. DISTINCT START BASE PIN (BLUE TEARDROP MAP PIN) */}
                       {startPoint && (
                         <g transform={`translate(${startPoint.x}, ${startPoint.y})`} className="cursor-grab">
-                          <defs>
-                            <filter id="startGlow" x="-50%" y="-50%" width="200%" height="200%">
-                              <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#06b6d4" floodOpacity="0.8" />
-                            </filter>
-                          </defs>
-                          <rect x="-18" y="-30" width="36" height="9" rx="2" fill="rgba(3, 15, 20, 0.92)" stroke="#06b6d4" strokeWidth="0.7" />
-                          <text x="0" y="-23.5" fill="#67e8f9" fontSize="3.8" fontWeight="bold" textAnchor="middle">
+                          <rect x="-18" y="-30" width="36" height="9" rx="2" fill="rgba(3, 10, 30, 0.95)" stroke="#3b82f6" strokeWidth="0.8" />
+                          <text x="0" y="-23.5" fill="#93c5fd" fontSize="3.8" fontWeight="bold" textAnchor="middle">
                             START
                           </text>
                           <path
                             d="M 0 0 C -5 -6, -7 -10, -7 -13 C -7 -17, -3 -20, 0 -20 C 3 -20, 7 -17, 7 -13 C 7 -10, 5 -6, 0 0 Z"
-                            fill="#06b6d4"
+                            fill="#2563eb"
                             stroke="#ffffff"
                             strokeWidth="1.2"
                             filter="url(#startGlow)"
                           />
                           <path d="M -2.5 -11.5 L 2.5 -11.5 L 0 -15.5 Z" fill="#ffffff" />
-                          <circle cx="0" cy="-10" r="1" fill="#ffffff" />
+                          <circle cx="0" cy="-10" r="1.2" fill="#ffffff" />
                         </g>
                       )}
 
-                      {/* DISTINCT DESTINATION TARGET PIN (TEARDROP MAP PIN) */}
+                      {/* 6. DISTINCT DESTINATION TARGET PIN (ORANGE TEARDROP MAP PIN) */}
                       {destinationPoint && (
                         <g transform={`translate(${destinationPoint.x}, ${destinationPoint.y})`} className="cursor-grab">
-                          <defs>
-                            <filter id="destGlow" x="-50%" y="-50%" width="200%" height="200%">
-                              <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#f87171" floodOpacity="0.8" />
-                            </filter>
-                          </defs>
-                          <rect x="-24" y="-30" width="48" height="9" rx="2" fill="rgba(20, 5, 5, 0.92)" stroke="#f87171" strokeWidth="0.7" />
-                          <text x="0" y="-23.5" fill="#fca5a5" fontSize="3.5" fontWeight="bold" textAnchor="middle">
+                          <rect x="-24" y="-30" width="48" height="9" rx="2" fill="rgba(30, 10, 3, 0.95)" stroke="#f97316" strokeWidth="0.8" />
+                          <text x="0" y="-23.5" fill="#fdba74" fontSize="3.5" fontWeight="bold" textAnchor="middle">
                             DESTINATION
                           </text>
                           <path
                             d="M 0 0 C -5 -6, -7 -10, -7 -13 C -7 -17, -3 -20, 0 -20 C 3 -20, 7 -17, 7 -13 C 7 -10, 5 -6, 0 0 Z"
-                            fill="#f87171"
+                            fill="#ea580c"
                             stroke="#ffffff"
                             strokeWidth="1.2"
                             filter="url(#destGlow)"
@@ -2985,7 +3116,7 @@ export default function MarsNavV4Workspace() {
                         </g>
                       )}
 
-                      {/* Waypoint Nodes & Science Stops */}
+                      {/* Custom User Waypoints & Science Stops */}
                       {showWaypoints && (
                         <>
                           {checkpointsList.map((cp, idx) => (
@@ -3024,6 +3155,33 @@ export default function MarsNavV4Workspace() {
                       height={256}
                       className={`absolute inset-0 w-full h-full ${getCursorClass()}`}
                     />
+
+                    {/* FLOATING "NO SAFE ROUTE FOUND" BANNER */}
+                    {activeRoute?.isBlocked && Boolean(startPoint) && Boolean(destinationPoint) && (
+                      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-red-950/95 border-2 border-red-500 text-white px-4 py-2.5 rounded-xl shadow-2xl flex flex-col items-center gap-1 max-w-sm text-center pointer-events-auto backdrop-blur-md animate-bounce-short">
+                        <div className="flex items-center gap-2 text-red-400 font-bold text-xs uppercase tracking-wider">
+                          <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                          <span>NO SAFE ROUTE FOUND</span>
+                        </div>
+                        <p className="text-[10px] text-red-200 leading-tight">
+                          {activeRoute.explanation || 'All corridors are blocked by detected obstacles or safety clearance margins. Straight-line penetration is strictly prevented.'}
+                        </p>
+                        <span className="text-[9px] text-slate-400 pt-0.5">
+                          Try lowering clearance margin ({safetyBufferPx}px) or repositioning markers.
+                        </span>
+                      </div>
+                    )}
+
+                    {/* FLOATING OBSTACLE PLACEMENT WARNING TOAST */}
+                    {obstaclePlacementWarning && (
+                      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-amber-950/95 border border-amber-500 text-amber-100 px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-2xl backdrop-blur-md">
+                        <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span>{obstaclePlacementWarning}</span>
+                        <button onClick={() => setObstaclePlacementWarning(null)} className="ml-2 text-slate-400 hover:text-white cursor-pointer">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
 
                     {/* FLOATING TERRAIN INSPECTOR TOOLTIP */}
                     {activeTool === 'inspect' && cursorPos && (
@@ -3310,39 +3468,158 @@ export default function MarsNavV4Workspace() {
                     </div>
                   )}
 
-                  {/* ROUTE MODE ANALYSIS */}
+                  {/* ROUTE MODE ANALYSIS & NAVIGATION METRICS */}
                   {displayMode === 'route' && (
                     <div className="space-y-3">
-                      <div className="p-3 bg-black/40 border border-slate-800 rounded-xl space-y-2">
-                        <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">
-                          Active Navigation &amp; Waypoint Telemetry
-                        </span>
-                        <div className="space-y-1 text-[11px]">
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Strategy Selected:</span>
-                            <strong className="text-cyan-300 uppercase">{selectedRouteStrategy}</strong>
+                      {/* PRIMARY NAVIGATION METRICS CARD */}
+                      <div className="p-3 bg-black/40 border border-slate-800 rounded-xl space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                          <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                            <Route className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Rover Navigation Telemetry</span>
+                          </span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                            activeRoute?.isBlocked
+                              ? 'bg-red-500/20 text-red-400 border-red-500/50'
+                              : activeRoute?.difficultyScore === 'HIGH RISK'
+                              ? 'bg-rose-500/20 text-rose-300 border-rose-500/50'
+                              : activeRoute?.difficultyScore === 'MODERATE'
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                              : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                          }`}>
+                            {activeRoute?.isBlocked ? 'IMPASSABLE' : activeRoute?.difficultyScore || 'SAFE'}
+                          </span>
+                        </div>
+
+                        {/* Blocked Route Alert or Feasibility Notice */}
+                        {activeRoute?.isBlocked ? (
+                          <div className="p-2.5 bg-red-950/60 border border-red-500/50 rounded-lg text-red-200 text-[10px] space-y-1">
+                            <strong className="block font-bold text-red-300 flex items-center gap-1">
+                              <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                              <span>NO SAFE ROUTE FOUND</span>
+                            </strong>
+                            <p className="leading-snug">{activeRoute.explanation || 'All corridors are blocked by detected obstacles or clearance buffer. Straight-line routes are strictly rejected.'}</p>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Traverse Distance:</span>
-                            <strong className="text-white">{totalTraverseKm.toFixed(3)} km ({totalOutboundPx.toFixed(0)} px)</strong>
+                        ) : null}
+
+                        {/* Metrics Grid */}
+                        <div className="space-y-1.5 text-[11px]">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">Total Route Distance:</span>
+                            <strong className="text-cyan-300 font-bold">
+                              {activeRoute?.totalLengthM ? `${activeRoute.totalLengthM.toFixed(1)} m` : `${(totalOutboundPx * spatialScaleMetersPerPx).toFixed(1)} m`}
+                              <span className="text-slate-500 font-normal ml-1">({activeRoute?.totalLengthPx ? `${activeRoute.totalLengthPx} px` : `${Math.round(totalOutboundPx)} px`})</span>
+                            </strong>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Est. Duration:</span>
-                            <strong className="text-cyan-300">{totalMissionHours.toFixed(2)} hours</strong>
+
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">Direct (Straight-Line):</span>
+                            <strong className="text-slate-300">
+                              {activeRoute?.directDistanceM ? `${activeRoute.directDistanceM.toFixed(1)} m` : '--'}
+                            </strong>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Checkpoints:</span>
-                            <strong className="text-white">{checkpointsList.length} nodes</strong>
+
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">Detour Around Obstacles:</span>
+                            <strong className="text-amber-300">
+                              +{activeRoute?.detourDistanceM ? `${activeRoute.detourDistanceM.toFixed(1)} m` : '0.0 m'}
+                              <span className="text-slate-500 font-normal ml-1">(+{activeRoute?.detourPct ?? 0}%)</span>
+                            </strong>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Science POIs:</span>
-                            <strong className="text-indigo-300">{scienceStopsList.length} stops</strong>
+
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">Route Waypoints:</span>
+                            <strong className="text-white">
+                              {activeRoute?.waypointsCount ?? activePath.length} nodes
+                            </strong>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Feasibility:</span>
-                            <strong className={isFeasible ? 'text-emerald-400' : 'text-rose-400'}>{isFeasible ? 'EVA FEASIBLE' : 'LIMIT VIOLATION'}</strong>
+
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">Est. Rover Travel Time:</span>
+                            <strong className="text-cyan-300">
+                              {activeRoute?.estimatedTravelTimeHours
+                                ? `${(activeRoute.estimatedTravelTimeHours * 60).toFixed(1)} mins`
+                                : `${(totalMissionHours * 60).toFixed(1)} mins`}
+                              <span className="text-slate-500 font-normal ml-1">(~0.033 m/s)</span>
+                            </strong>
                           </div>
                         </div>
+
+                        {/* Terrain Classification Breakdown */}
+                        <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                            Traversed Terrain Composition
+                          </span>
+                          <div className="space-y-1 text-[10px]">
+                            <div>
+                              <div className="flex justify-between text-slate-300">
+                                <span className="flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                                  <span>Flat Regolith / Soil:</span>
+                                </span>
+                                <strong className="text-white">{activeRoute?.terrainBreakdown?.soilPct ?? 78}%</strong>
+                              </div>
+                              <div className="h-1 w-full bg-slate-800 rounded-full mt-0.5 overflow-hidden">
+                                <div className="h-full bg-red-400 rounded-full" style={{ width: `${activeRoute?.terrainBreakdown?.soilPct ?? 78}%` }} />
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="flex justify-between text-slate-300">
+                                <span className="flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                  <span>Bedrock Outcrop:</span>
+                                </span>
+                                <strong className="text-white">{activeRoute?.terrainBreakdown?.bedrockPct ?? 22}%</strong>
+                              </div>
+                              <div className="h-1 w-full bg-slate-800 rounded-full mt-0.5 overflow-hidden">
+                                <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${activeRoute?.terrainBreakdown?.bedrockPct ?? 22}%` }} />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Traversal Rover Simulation Controls */}
+                        {activeRoute && !activeRoute.isBlocked && (
+                          <div className="pt-2 border-t border-slate-800 space-y-2">
+                            <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider block">
+                              Rover Traversal Simulation
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => isPlaying ? pauseTraversal() : startTraversal()}
+                                className="flex-1 py-1.5 px-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow transition"
+                              >
+                                {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                                <span>{isPlaying ? 'Pause Simulation' : 'Run Simulation'}</span>
+                              </button>
+                              <button
+                                onClick={resetTraversal}
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer"
+                                title="Reset Traversal"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            {/* Progress bar */}
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-[10px] text-slate-400">
+                                <span>Traversal Progress:</span>
+                                <strong className="text-cyan-300">{Math.round(traversalProgress * 100)}%</strong>
+                              </div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={1}
+                                step={0.01}
+                                value={traversalProgress}
+                                onChange={e => setTraversalProgress(Number(e.target.value))}
+                                className="w-full accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -3514,7 +3791,8 @@ export default function MarsNavV4Workspace() {
                                 <button
                                   onClick={() => {
                                     setZoomLevel(2.0);
-                                    setPanOffset({ x: (128 - midX) * 1.5, y: (128 - midY) * 1.5 });
+                                    const sf = (naturalDimensions.width / 256) * 2.0;
+                                    setPanOffset({ x: (128 - midX) * sf, y: (128 - midY) * sf });
                                     setSelectedItem({ type: 'measure', id: m.id });
                                     setDisplayMode('annotations');
                                   }}
@@ -3621,7 +3899,8 @@ export default function MarsNavV4Workspace() {
                                   <button
                                     onClick={() => {
                                       setZoomLevel(2.0);
-                                      setPanOffset({ x: (128 - n.x) * 1.5, y: (128 - n.y) * 1.5 });
+                                      const sf = (naturalDimensions.width / 256) * 2.0;
+                                      setPanOffset({ x: (128 - n.x) * sf, y: (128 - n.y) * sf });
                                       setSelectedItem({ type: 'note', id: n.id });
                                       setDisplayMode('annotations');
                                       setLocatedTarget({ id: n.id, x: n.x, y: n.y });
@@ -3788,84 +4067,151 @@ export default function MarsNavV4Workspace() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Alpha: Shortest Safe Distance */}
           <div
             onClick={() => {
-              setSelectedRouteStrategy('shortest');
+              setSelectedRouteStrategy('alpha');
               setSelectedRouteIndex(0);
             }}
             className={`p-3 rounded-xl border cursor-pointer transition-all ${
-              selectedRouteStrategy === 'shortest'
+              selectedRouteStrategy === 'alpha' || selectedRouteStrategy === 'shortest'
                 ? 'bg-cyan-950/40 border-cyan-500 shadow-md ring-1 ring-cyan-500/40'
                 : 'bg-black/40 border-slate-800 hover:border-slate-700'
             }`}
           >
-            <div className="flex justify-between font-bold text-white mb-1">
-              <span>Shortest Feasible Route</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300">A* Optimized</span>
+            <div className="flex justify-between items-center font-bold text-white mb-1">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#00f0ff]" />
+                <span>Alpha: Shortest Safe</span>
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono">Distance</span>
             </div>
-            <div className="space-y-1 text-[11px] pt-1 border-t border-slate-800">
+            <div className="space-y-1 text-[11px] pt-1 border-t border-slate-800 font-mono">
               <div className="flex justify-between">
                 <span className="text-slate-400">Length:</span>
-                <strong className="text-white">{(totalOutboundMeters / 1000).toFixed(3)} km</strong>
+                <strong className="text-white">{analysis.routes[0]?.totalLengthM || 0} m</strong>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Duration:</span>
-                <strong className="text-cyan-300">{totalMissionHours.toFixed(2)} hrs</strong>
+                <strong className="text-cyan-300">{analysis.routes[0]?.estimatedDurationMins || 0} mins</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Status:</span>
+                <span className={analysis.routes[0]?.isBlocked ? 'text-rose-400' : 'text-emerald-400 font-bold'}>
+                  {analysis.routes[0]?.isBlocked ? 'Blocked' : '✓ Verified Safe'}
+                </span>
               </div>
             </div>
           </div>
 
+          {/* Beta: Lowest Traversal Cost */}
           <div
             onClick={() => {
-              setSelectedRouteStrategy('safety');
+              setSelectedRouteStrategy('beta');
               setSelectedRouteIndex(1);
             }}
             className={`p-3 rounded-xl border cursor-pointer transition-all ${
-              selectedRouteStrategy === 'safety'
+              selectedRouteStrategy === 'beta'
+                ? 'bg-purple-950/40 border-purple-500 shadow-md ring-1 ring-purple-500/40'
+                : 'bg-black/40 border-slate-800 hover:border-slate-700'
+            }`}
+          >
+            <div className="flex justify-between items-center font-bold text-white mb-1">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#bf5af2]" />
+                <span>Beta: Lowest Cost</span>
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono">Energy</span>
+            </div>
+            <div className="space-y-1 text-[11px] pt-1 border-t border-slate-800 font-mono">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Length:</span>
+                <strong className="text-white">{analysis.routes[1]?.totalLengthM || 0} m</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Cost:</span>
+                <strong className="text-purple-300">{analysis.routes[1]?.totalCost || 0} Units</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Status:</span>
+                <span className={analysis.routes[1]?.isBlocked ? 'text-rose-400' : 'text-emerald-400 font-bold'}>
+                  {analysis.routes[1]?.isBlocked ? 'Blocked' : '✓ Verified Safe'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Gamma: Uncertainty-Aware */}
+          <div
+            onClick={() => {
+              setSelectedRouteStrategy('gamma');
+              setSelectedRouteIndex(2);
+            }}
+            className={`p-3 rounded-xl border cursor-pointer transition-all ${
+              selectedRouteStrategy === 'gamma' || selectedRouteStrategy === 'safety'
                 ? 'bg-emerald-950/40 border-emerald-500 shadow-md ring-1 ring-emerald-500/40'
                 : 'bg-black/40 border-slate-800 hover:border-slate-700'
             }`}
           >
-            <div className="flex justify-between font-bold text-white mb-1">
-              <span>Safety-Priority Route</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">Max Buffer</span>
+            <div className="flex justify-between items-center font-bold text-white mb-1">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#30d158]" />
+                <span>Gamma: Uncertainty</span>
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">Clearance</span>
             </div>
-            <div className="space-y-1 text-[11px] pt-1 border-t border-slate-800">
+            <div className="space-y-1 text-[11px] pt-1 border-t border-slate-800 font-mono">
               <div className="flex justify-between">
                 <span className="text-slate-400">Length:</span>
-                <strong className="text-white">{((totalOutboundMeters * 1.12) / 1000).toFixed(3)} km</strong>
+                <strong className="text-white">{analysis.routes[2]?.totalLengthM || 0} m</strong>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Clearance:</span>
-                <strong className="text-emerald-400">Maximum (+10m buffer)</strong>
+                <span className="text-slate-400">Buffer:</span>
+                <strong className="text-emerald-400">{analysis.routes[2]?.obstacleClearancePx || contextSafetyClearancePx} px</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Status:</span>
+                <span className={analysis.routes[2]?.isBlocked ? 'text-rose-400' : 'text-emerald-400 font-bold'}>
+                  {analysis.routes[2]?.isBlocked ? 'Blocked' : '✓ Max Clearance'}
+                </span>
               </div>
             </div>
           </div>
 
+          {/* Delta: Science-Driven Exploration */}
           <div
             onClick={() => {
-              setSelectedRouteStrategy('science');
-              setSelectedRouteIndex(2);
+              setSelectedRouteStrategy('delta');
+              setSelectedRouteIndex(3);
             }}
             className={`p-3 rounded-xl border cursor-pointer transition-all ${
-              selectedRouteStrategy === 'science'
-                ? 'bg-indigo-950/40 border-indigo-500 shadow-md ring-1 ring-indigo-500/40'
+              selectedRouteStrategy === 'delta' || selectedRouteStrategy === 'science'
+                ? 'bg-amber-950/40 border-amber-500 shadow-md ring-1 ring-amber-500/40'
                 : 'bg-black/40 border-slate-800 hover:border-slate-700'
             }`}
           >
-            <div className="flex justify-between font-bold text-white mb-1">
-              <span>Science-Priority Route</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">Max POIs</span>
+            <div className="flex justify-between items-center font-bold text-white mb-1">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#ff9f0a]" />
+                <span>Delta: Science</span>
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono">Geology</span>
             </div>
-            <div className="space-y-1 text-[11px] pt-1 border-t border-slate-800">
+            <div className="space-y-1 text-[11px] pt-1 border-t border-slate-800 font-mono">
               <div className="flex justify-between">
                 <span className="text-slate-400">Length:</span>
-                <strong className="text-white">{((totalOutboundMeters * 1.05) / 1000).toFixed(3)} km</strong>
+                <strong className="text-white">{analysis.routes[3]?.totalLengthM || 0} m</strong>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Science Dwell:</span>
-                <strong className="text-indigo-300">{totalScienceDwellMins} mins</strong>
+                <span className="text-slate-400">Targets:</span>
+                <strong className="text-amber-300">{sharedSession.scienceTargets?.length || 0} verified</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Status:</span>
+                <span className={analysis.routes[3]?.isBlocked ? 'text-rose-400' : 'text-emerald-400 font-bold'}>
+                  {analysis.routes[3]?.isBlocked ? 'Blocked' : '✓ Bedrock Path'}
+                </span>
               </div>
             </div>
           </div>

@@ -19,11 +19,11 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Orbit,
   Radio
 } from 'lucide-react';
 import { useWorkspace, WorkspaceId } from '../../context/WorkspaceContext';
 import { PWAInstallButton } from '../PWAInstallButton';
+import MarsNavLogo from '../MarsNavLogo';
 
 interface NavItem {
   id: WorkspaceId;
@@ -104,30 +104,16 @@ export default function AppSidebar() {
       }`}
     >
       {/* Top Application Brand Header - Sticky */}
-      <div className="sticky top-0 h-[72px] pt-4 px-4 border-b border-slate-800/80 flex items-center bg-[#060812]/95 backdrop-blur-md z-20 transition-all duration-200">
-        <div className="flex items-center gap-3 overflow-hidden w-full h-full">
-          <div className="relative group shrink-0">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 via-red-600 to-amber-600 flex items-center justify-center shadow-lg shadow-orange-950/40 ring-1 ring-white/20">
-              <Orbit className="w-5 h-5 text-white" />
-            </div>
-            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#060812] flex items-center justify-center">
-              <span className={`w-2 h-2 rounded-full ${systemStatus.backend === 'connected' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]' : 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.9)]'} animate-pulse`} />
-            </div>
-          </div>
-
-          {!sidebarCollapsed && (
-            <div className="flex-1 min-w-0 flex flex-col justify-center h-full">
-              <div className="flex items-center justify-between gap-1.5 leading-none">
-                <span className="font-extrabold text-xs tracking-[0.2em] text-white font-mono uppercase">MARSNAV</span>
-                <span className="px-1.5 py-0.5 text-[8px] font-mono font-bold text-orange-400 bg-orange-500/15 border border-orange-500/30 rounded shadow-sm">
-                  v1.0
-                </span>
-              </div>
-              <div className="text-[10px] text-slate-400 font-mono tracking-tight flex items-center gap-1.5 mt-1 leading-none">
-                <span className="text-slate-500 font-medium truncate uppercase">
-                  {systemStatus.backend === 'connected' ? 'ARES-OS ONLINE' : 'AUTONOMOUS'}
-                </span>
-              </div>
+      <div className="sticky top-0 h-[84px] py-3 px-3 border-b border-slate-800/80 flex items-center bg-[#060812]/95 backdrop-blur-md z-20 transition-all duration-200">
+        <div className="flex items-center gap-2 overflow-hidden w-full h-full">
+          {sidebarCollapsed ? (
+            <MarsNavLogo variant="icon" height={44} />
+          ) : (
+            <div className="flex items-center justify-between w-full px-1">
+              <MarsNavLogo variant="full" height={44} />
+              <span className="px-1.5 py-0.5 text-[8px] font-mono font-bold text-orange-400 bg-orange-500/15 border border-orange-500/30 rounded shadow-sm">
+                v1.0
+              </span>
             </div>
           )}
         </div>
@@ -152,48 +138,36 @@ export default function AppSidebar() {
                   <button
                     key={item.id}
                     onClick={() => setActiveWorkspace(item.id)}
-                    title={sidebarCollapsed ? item.label : undefined}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] transition-all duration-200 text-left group cursor-pointer relative border ${
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer group relative ${
                       isActive
-                        ? 'bg-orange-500/15 text-white font-semibold border-orange-500/40 shadow-[0_0_12px_rgba(249,115,22,0.12)]'
-                        : 'bg-transparent text-slate-300 border-transparent hover:text-white hover:bg-slate-800/50'
+                        ? 'bg-gradient-to-r from-orange-600/20 via-amber-600/10 to-transparent text-white border-l-2 border-orange-500 font-semibold shadow-inner'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
                     }`}
+                    title={sidebarCollapsed ? item.label : undefined}
                   >
-                    <div className="shrink-0 transition-transform duration-150 group-hover:scale-110 flex items-center justify-center">
+                    <span className="shrink-0 group-hover:scale-110 transition-transform">
                       {item.icon}
-                    </div>
+                    </span>
 
-                    {!sidebarCollapsed ? (
-                      <div className="flex-1 flex items-center justify-between truncate gap-1">
-                        <span className="truncate">{item.label}</span>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {item.shortcut && (
-                            <kbd className={`text-[9px] font-bold font-mono px-1 py-0.2 rounded border ${
-                              isActive ? 'bg-orange-500/20 text-orange-300 border-orange-500/40' : 'bg-black/40 text-slate-400 border-slate-800'
-                            }`}>
-                              {item.shortcut}
-                            </kbd>
-                          )}
-                          {item.badge && (
-                            <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${
-                              isActive ? 'bg-orange-500/20 text-orange-300' : 'bg-slate-800 text-slate-500'
-                            }`}>
-                              {item.badge}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      /* Custom Tooltip */
-                      <div className="absolute left-full ml-4 px-3 py-2 bg-slate-900 border border-slate-700 text-white text-[11px] font-semibold rounded-xl hidden group-hover:block pointer-events-none z-[9999] shadow-2xl whitespace-nowrap animate-in fade-in slide-in-from-left-2 duration-150">
-                        <div className="flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.6)]" />
-                          <span>{item.label}</span>
-                          {item.shortcut && <kbd className="ml-1 text-[9px] text-orange-400 font-mono">[{item.shortcut}]</kbd>}
-                          {item.badge && <span className="ml-1 text-[9px] text-slate-500 font-mono">[{item.badge}]</span>}
-                        </div>
-                        <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-2 bg-slate-900 border-l border-b border-slate-700 rotate-45" />
-                      </div>
+                    {!sidebarCollapsed && (
+                      <span className="truncate flex-1 text-left">
+                        {item.label}
+                      </span>
+                    )}
+
+                    {!sidebarCollapsed && item.badge && (
+                      <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                        item.badge === 'EVA' ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30' :
+                        item.badge === '3D' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' :
+                        item.badge === 'LIVE' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                        'bg-slate-800 text-slate-300'
+                      }`}>
+                        {item.badge}
+                      </span>
+                    )}
+
+                    {sidebarCollapsed && item.badge && (
+                      <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-orange-500" />
                     )}
                   </button>
                 );
@@ -203,26 +177,20 @@ export default function AppSidebar() {
         ))}
       </div>
 
-      {/* PWA Install Promo */}
-      {!sidebarCollapsed && (
-        <div className="px-3 pb-3">
-          <PWAInstallButton variant="sidebar" />
-        </div>
-      )}
-
-      {/* Bottom Collapse / Expand Toggle Button - Sticky */}
-      <div className="sticky bottom-0 p-3 border-t border-slate-800/80 bg-[#060812] z-20">
+      {/* Bottom PWA Install & Collapse Toggle Footer */}
+      <div className="sticky bottom-0 bg-[#060812]/95 backdrop-blur-md border-t border-slate-800/80 p-3 space-y-2 z-20">
+        {!sidebarCollapsed && <PWAInstallButton />}
         <button
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          className="w-full flex items-center justify-center gap-2 py-1.5 px-2 rounded-md hover:bg-slate-800/50 text-slate-400 hover:text-slate-200 text-xs transition-colors cursor-pointer"
-          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer text-xs font-mono"
+          title={sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
         >
           {sidebarCollapsed ? (
-            <ChevronRight className="w-4 h-4" />
+            <ChevronRight className="w-4 h-4 text-orange-400" />
           ) : (
             <>
-              <ChevronLeft className="w-4 h-4" />
-              <span className="text-[11px] font-medium">Collapse</span>
+              <ChevronLeft className="w-4 h-4 text-orange-400" />
+              <span className="text-[11px] font-semibold">Collapse Sidebar</span>
             </>
           )}
         </button>

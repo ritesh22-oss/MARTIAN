@@ -18,7 +18,11 @@ export async function signInWithGoogle() {
     const result = await signInWithPopup(auth, googleProvider);
     return result.user;
   } catch (error) {
-    console.error('Google Sign-In Error:', error);
+    if (error?.code === 'auth/unauthorized-domain' || (error?.message && error.message.includes('auth/unauthorized-domain'))) {
+      console.warn('Google Sign-In Notice: Domain is not authorized in Firebase Console (auth/unauthorized-domain).');
+    } else {
+      console.error('Google Sign-In Error:', error);
+    }
     throw error;
   }
 }
@@ -36,8 +40,14 @@ export async function signOutUser() {
  * Standard Firestore Error Handler conforming to the FirestoreErrorInfo contract
  */
 export function handleFirestoreError(error, operationType, path) {
+  const errMsg = error instanceof Error ? error.message : String(error);
+  if (errMsg.includes('resource-exhausted') || errMsg.includes('Quota limit exceeded')) {
+    markFirestoreQuotaExceeded();
+    console.warn('Firestore write quota exceeded. Switched to offline local storage mode.');
+  }
+
   const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: auth.currentUser?.uid || null,
       email: auth.currentUser?.email || null,

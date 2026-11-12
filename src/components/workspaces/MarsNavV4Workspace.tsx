@@ -69,6 +69,7 @@ import {
   Hand
 } from 'lucide-react';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { sharedExplorationStore } from '../../services/sharedExplorationStore';
 import NASAImageFeed from '../NASAImageFeed';
 import { useTerrainAnalysis } from '../../context/TerrainAnalysisContext';
 import { apiGet, apiPost } from '../../utils/apiClient';
@@ -1569,7 +1570,7 @@ export default function MarsNavV4Workspace() {
       setImageStatus('loaded');
       setImageLoadError(null);
 
-      // Store in shared session
+      // Store in shared session & trigger central terrain vision analysis
       updateSharedSession({
         terrainImage: blobUrl,
         imageProvenance: {
@@ -1581,6 +1582,11 @@ export default function MarsNavV4Workspace() {
           identifier: file.name,
           sourceUrl: blobUrl
         }
+      });
+
+      // Automatically trigger live AI vision analysis & dashboard synchronization
+      sharedExplorationStore.processAndSyncImage(file, file.name, selectedRegion?.id || 'jezero').catch(err => {
+        console.error('[MARSWALK_OPS] Vision analysis sync error:', err);
       });
 
       computeCanvasStats(preloader);
@@ -1646,6 +1652,16 @@ export default function MarsNavV4Workspace() {
         sourceUrl: img.sourceUrl || fullUrl
       }
     });
+
+    // Explicitly sync to central exploration session store
+    sharedExplorationStore.processAndSyncImage(
+      fullUrl,
+      img.id || img.imageid || 'NASA_Perseverance_Raw.jpg',
+      selectedRegion?.id || 'jezero'
+    ).catch(err => {
+      console.warn('[MARSWALK_OPS] NASA image sync error:', err);
+    });
+
     setNasaBrowserOpen(false);
   };
 

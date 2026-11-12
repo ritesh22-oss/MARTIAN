@@ -43,6 +43,16 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
 
   // Mapping workspaces to categories for active state highlighting
   const workspaceToCategory: Record<string, string> = {
+    'astronaut-exploration': 'ASTRONAUT',
+    'surface-dashboard': 'ASTRONAUT',
+    'science-planner': 'ASTRONAUT',
+    'surface-explorer': 'ASTRONAUT',
+    'multilayer-map': 'ASTRONAUT',
+    'safety-monitoring': 'ASTRONAUT',
+    'geological-targets': 'ASTRONAUT',
+    'suit-mobility': 'ASTRONAUT',
+    'astronaut-route-planner': 'ASTRONAUT',
+    'radiation-monitor': 'ASTRONAUT',
     'overview': 'MISSION',
     'explorer-3d': 'MISSION',
     'live-mission-data': 'MISSION',
@@ -64,9 +74,10 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
     'field-notebook': 'MISSION'
   };
 
-  const currentCategory = workspaceToCategory[activeWorkspace] || 'MISSION';
+  const currentCategory = workspaceToCategory[activeWorkspace] || 'ASTRONAUT';
 
   const categories = [
+    { label: 'ASTRONAUT', defaultWorkspace: 'astronaut-exploration' },
     { label: 'MISSION', defaultWorkspace: 'overview' },
     { label: 'ANALYSIS', defaultWorkspace: 'terrain-intelligence' },
     { label: 'NAVIGATION', defaultWorkspace: 'marsnav-v4' },

@@ -16,6 +16,7 @@ import {
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
 import { useMissionRecord } from './MissionRecordContext';
+import { sharedExplorationStore } from '../services/sharedExplorationStore';
 
 export type WorkspaceId =
   | 'overview'
@@ -39,7 +40,17 @@ export type WorkspaceId =
   | 'settings'
   | 'nasa-raw-feed'
   | 'base-camp-intel'
-  | 'field-notebook';
+  | 'field-notebook'
+  | 'astronaut-exploration'
+  | 'surface-dashboard'
+  | 'science-planner'
+  | 'surface-explorer'
+  | 'multilayer-map'
+  | 'safety-monitoring'
+  | 'geological-targets'
+  | 'suit-mobility'
+  | 'astronaut-route-planner'
+  | 'radiation-monitor';
 
 export interface SystemStatus {
   backend: 'connected' | 'autonomous' | 'disconnected' | 'checking';
@@ -217,18 +228,18 @@ const defaultTelemetry: RoverTelemetry = {
 };
 
 const defaultSharedSession: SharedTerrainSession = {
-  terrainImage: '',
+  terrainImage: '/assets/aistudio/vis_0_f6a9756b.png',
   imageProvenance: {
-    source: '',
-    rover: '',
-    camera: '',
-    sol: 0,
-    acquisitionUtc: '',
-    identifier: '',
-    sourceUrl: ''
+    source: 'NASA AI4MARS / Rover NavCam Ground Truth Dataset (vis_0)',
+    rover: 'Perseverance (Mars 2020)',
+    camera: 'NAVCAM_LEFT',
+    sol: 428,
+    acquisitionUtc: '2024-03-12T09:15:00Z',
+    identifier: 'vis_0_f6a9756b.png',
+    sourceUrl: '/assets/aistudio/vis_0_f6a9756b.png'
   },
-  startPoint: null,
-  destinationPoint: null,
+  startPoint: { x: 38, y: 218 },
+  destinationPoint: { x: 218, y: 38 },
   obstacles: [],
   scienceTargets: [],
   selectedStrategy: 'alpha',
@@ -587,7 +598,23 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           recordUpdateMissionRef.current(updatedActiveMission.id, updatedActiveMission);
         }
       }
+      if (partial.terrainImage && partial.terrainImage.trim() !== '') {
+        const imgName = partial.imageProvenance?.identifier || partial.imageProvenance?.source || 'Mars_Terrain.jpg';
+        sharedExplorationStore.processAndSyncImage(partial.terrainImage, imgName, selectedRegion?.id || 'jezero').catch(err => {
+          console.warn('[WORKSPACE] Auto sync shared exploration store failed:', err);
+        });
+      }
+
       return next;
+    });
+  }, [selectedRegion]);
+
+  // Initial synchronization on mount
+  useEffect(() => {
+    const initialImg = sharedSession.terrainImage || '/assets/aistudio/vis_0_f6a9756b.png';
+    const initialName = sharedSession.imageProvenance?.identifier || 'vis_0_f6a9756b.png';
+    sharedExplorationStore.processAndSyncImage(initialImg, initialName, selectedRegion?.id || 'jezero').catch(err => {
+      console.warn('[WORKSPACE] Initial sharedExplorationStore sync failed:', err);
     });
   }, []);
 

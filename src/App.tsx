@@ -4,10 +4,13 @@ import { AuthProvider } from './context/AuthContext';
 import { MissionRecordProvider } from './context/MissionRecordContext';
 import { WorkspaceProvider, useWorkspace, WorkspaceId } from './context/WorkspaceContext';
 import { TerrainAnalysisProvider } from './context/TerrainAnalysisContext';
+import { AstronautExplorationProvider } from './context/AstronautExplorationContext';
 import BootScreen from './components/BootScreen';
 import AppSidebar from './components/shell/AppSidebar';
 import AppTopBar from './components/shell/AppTopBar';
 import CommandPalette from './components/shell/CommandPalette';
+
+import AstronautExplorationWorkspace from './components/workspaces/AstronautExplorationWorkspace';
 
 // Workspaces
 import OverviewWorkspace from './components/workspaces/OverviewWorkspace';
@@ -98,6 +101,17 @@ function WorkstationMain() {
   // Render the dedicated engineering tool workspace
   const renderWorkspace = () => {
     switch (activeWorkspace) {
+      case 'astronaut-exploration':
+      case 'surface-dashboard':
+      case 'science-planner':
+      case 'surface-explorer':
+      case 'multilayer-map':
+      case 'safety-monitoring':
+      case 'geological-targets':
+      case 'suit-mobility':
+      case 'astronaut-route-planner':
+      case 'radiation-monitor':
+        return <AstronautExplorationWorkspace />;
       case 'overview':
         return <OverviewWorkspace />;
       case 'marsnav-v4':
@@ -284,7 +298,9 @@ export default function App() {
       <MissionRecordProvider>
         <WorkspaceProvider>
           <TerrainAnalysisProvider>
-            <WorkstationMain />
+            <AstronautExplorationProvider>
+              <WorkstationMain />
+            </AstronautExplorationProvider>
           </TerrainAnalysisProvider>
         </WorkspaceProvider>
       </MissionRecordProvider>

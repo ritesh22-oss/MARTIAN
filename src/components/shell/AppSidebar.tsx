@@ -19,7 +19,11 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Radio
+  Radio,
+  Footprints,
+  Target,
+  Activity,
+  Sun
 } from 'lucide-react';
 import { useWorkspace, WorkspaceId } from '../../context/WorkspaceContext';
 import { PWAInstallButton } from '../PWAInstallButton';
@@ -48,6 +52,21 @@ export default function AppSidebar() {
   } = useWorkspace();
 
   const groups: NavGroup[] = [
+    {
+      name: 'Astronaut Exploration',
+      items: [
+        { id: 'astronaut-exploration', label: 'Astronaut Surface Suite', icon: <Footprints className="w-4 h-4 text-orange-400" />, badge: 'CREW' },
+        { id: 'surface-dashboard', label: 'Surface Mission Dashboard', icon: <LayoutDashboard className="w-4 h-4 text-cyan-400" /> },
+        { id: 'science-planner', label: 'Mission Science Planner', icon: <Target className="w-4 h-4 text-cyan-400" /> },
+        { id: 'surface-explorer', label: 'Mars Surface Explorer', icon: <Compass className="w-4 h-4 text-orange-400" /> },
+        { id: 'multilayer-map', label: 'Multilayer Scientific Map', icon: <Layers className="w-4 h-4 text-blue-400" /> },
+        { id: 'safety-monitoring', label: 'Safety & Environment', icon: <ShieldAlert className="w-4 h-4 text-amber-400" /> },
+        { id: 'geological-targets', label: 'Geological Targets', icon: <Activity className="w-4 h-4 text-emerald-400" /> },
+        { id: 'suit-mobility', label: 'Suit Mobility Analysis', icon: <Footprints className="w-4 h-4 text-purple-400" /> },
+        { id: 'astronaut-route-planner', label: 'Astronaut Route Planner', icon: <Compass className="w-4 h-4 text-rose-400" /> },
+        { id: 'radiation-monitor', label: 'Radiation & Space Weather', icon: <Sun className="w-4 h-4 text-yellow-400" /> }
+      ]
+    },
     {
       name: 'Mission',
       items: [

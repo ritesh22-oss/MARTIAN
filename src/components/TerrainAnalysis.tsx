@@ -24,6 +24,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
+import { sharedExplorationStore } from '../services/sharedExplorationStore';
 import { useTerrainAnalysis } from '../context/TerrainAnalysisContext';
 import { useMissionRecord } from '../context/MissionRecordContext';
 import { apiGet, apiPost } from '../utils/apiClient';
@@ -170,6 +171,9 @@ export default function TerrainAnalysis() {
         setInferenceResult(null);
         setBlockerError(null);
         updateSharedSession({ terrainImage: resultUrl });
+
+        // Trigger central AI vision & exploration session synchronization
+        sharedExplorationStore.processAndSyncImage(file, file.name).catch(console.error);
       };
       reader.readAsDataURL(file);
     }
@@ -188,6 +192,9 @@ export default function TerrainAnalysis() {
         setInferenceResult(null);
         setBlockerError(null);
         updateSharedSession({ terrainImage: resultUrl });
+
+        // Trigger central AI vision & exploration session synchronization
+        sharedExplorationStore.processAndSyncImage(file, file.name).catch(console.error);
       };
       reader.readAsDataURL(file);
     }

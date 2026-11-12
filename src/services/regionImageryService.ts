@@ -1415,3 +1415,12 @@ export function validateImageLoad(url: string, timeoutMs: number = 7000): Promis
     }
   });
 }
+
+/**
+ * Synchronous local image retriever for a region
+ */
+export function getImagesForRegion(regionId: string): RegionImageRecord[] {
+  const normKey = (regionId || '').toLowerCase().trim();
+  const matchedKey = Object.keys(VERIFIED_REGION_IMAGES).find(k => k === normKey || normKey.includes(k) || k.includes(normKey)) || 'jezero';
+  return VERIFIED_REGION_IMAGES[matchedKey] || VERIFIED_REGION_IMAGES['jezero'] || [];
+}

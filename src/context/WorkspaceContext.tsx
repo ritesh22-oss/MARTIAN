@@ -228,18 +228,18 @@ const defaultTelemetry: RoverTelemetry = {
 };
 
 const defaultSharedSession: SharedTerrainSession = {
-  terrainImage: '/assets/aistudio/vis_0_f6a9756b.png',
+  terrainImage: '',
   imageProvenance: {
-    source: 'NASA AI4MARS / Rover NavCam Ground Truth Dataset (vis_0)',
-    rover: 'Perseverance (Mars 2020)',
-    camera: 'NAVCAM_LEFT',
-    sol: 428,
-    acquisitionUtc: '2024-03-12T09:15:00Z',
-    identifier: 'vis_0_f6a9756b.png',
-    sourceUrl: '/assets/aistudio/vis_0_f6a9756b.png'
+    source: '',
+    rover: '',
+    camera: '',
+    sol: 0,
+    acquisitionUtc: '',
+    identifier: '',
+    sourceUrl: ''
   },
-  startPoint: { x: 38, y: 218 },
-  destinationPoint: { x: 218, y: 38 },
+  startPoint: null,
+  destinationPoint: null,
   obstacles: [],
   scienceTargets: [],
   selectedStrategy: 'alpha',
@@ -573,41 +573,156 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         }
       }
       if (!hasChanges) return prev;
-
-      const next = { ...prev, ...partial };
-      const currentActiveMission = activeMissionRef.current;
-      if (currentActiveMission) {
-        const missionUpdates: any = {};
-        if (partial.terrainImage !== undefined) {
-          // If blob URL or giant base64 data URL, do not store raw multi-megabytes into localStorage/Firestore
-          const imgStr = partial.terrainImage;
-          if (imgStr && (imgStr.startsWith('blob:') || (imgStr.startsWith('data:') && imgStr.length > 50000))) {
-            missionUpdates.terrainImage = currentActiveMission.terrainImage || '';
-          } else {
-            missionUpdates.terrainImage = imgStr;
-          }
-        }
-        if (partial.imageProvenance !== undefined) missionUpdates.imageProvenance = partial.imageProvenance;
-        if (partial.startPoint !== undefined) missionUpdates.startPoint = partial.startPoint;
-        if (partial.destinationPoint !== undefined) missionUpdates.destinationPoint = partial.destinationPoint;
-        if (partial.obstacles !== undefined) missionUpdates.obstacles = partial.obstacles;
-        if (partial.selectedStrategy !== undefined) missionUpdates.selectedStrategy = partial.selectedStrategy;
-        
-        if (Object.keys(missionUpdates).length > 0) {
-          const updatedActiveMission = { ...currentActiveMission, ...missionUpdates, updatedAt: new Date().toISOString() };
-          recordUpdateMissionRef.current(updatedActiveMission.id, updatedActiveMission);
-        }
-      }
-      if (partial.terrainImage && partial.terrainImage.trim() !== '') {
-        const imgName = partial.imageProvenance?.identifier || partial.imageProvenance?.source || 'Mars_Terrain.jpg';
-        sharedExplorationStore.processAndSyncImage(partial.terrainImage, imgName, selectedRegion?.id || 'jezero').catch(err => {
-          console.warn('[WORKSPACE] Auto sync shared exploration store failed:', err);
-        });
-      }
-
-      return next;
+      return { ...prev, ...partial };
     });
-  }, [selectedRegion]);
+  }, []);
+
+  // Use refs to avoid infinite loops and stale closures in effects
+  const lastSyncedMissionSessionRef = useRef<string>('');
+  const lastSyncedStoreSessionRef = useRef<string>('');
+
+  // EFFECT: Synchronize sharedSession changes to the Active Mission Record
+  useEffect(() => {
+    if (!activeMission) return;
+
+    // Create a fingerprint of the keys we want to persist to the mission record
+    const fingerprint = JSON.stringify({
+      terrainImage: sharedSession.terrainImage?.substring(0, 100), // Only check start for performance/blobs
+      startPoint: sharedSession.startPoint,
+      destinationPoint: sharedSession.destinationPoint,
+      obstacles: sharedSession.obstacles,
+      selectedStrategy: sharedSession.selectedStrategy
+    });
+
+    if (lastSyncedMissionSessionRef.current === fingerprint) return;
+    lastSyncedMissionSessionRef.current = fingerprint;
+
+    const missionUpdates: any = {};
+    
+    // If blob URL or giant base64 data URL, do not store raw multi-megabytes into mission record
+    const imgStr = sharedSession.terrainImage;
+    if (imgStr && (imgStr.startsWith('blob:') || (imgStr.startsWith('data:') && imgStr.length > 50000))) {
+      // Keep existing image if new one is too large for storage
+      missionUpdates.terrainImage = activeMission.terrainImage || '';
+    } else {
+      missionUpdates.terrainImage = imgStr;
+    }
+
+    missionUpdates.imageProvenance = sharedSession.imageProvenance;
+    missionUpdates.startPoint = sharedSession.startPoint;
+    missionUpdates.destinationPoint = sharedSession.destinationPoint;
+    missionUpdates.obstacles = sharedSession.obstacles;
+    missionUpdates.selectedStrategy = sharedSession.selectedStrategy;
+
+    // Debounce the mission update to avoid hitting Firestore quotas during rapid changes (e.g. dragging markers)
+    const timeoutId = setTimeout(() => {
+      updateActiveMission({ ...missionUpdates, updatedAt: new Date().toISOString() });
+    }, 1500);
+
+    return () => clearTimeout(timeoutId);
+  }, [sharedSession, activeMission, updateActiveMission]);
+
+  // EFFECT: Synchronize sharedSession changes to the SharedExplorationStore (Astronaut Dashboards)
+  useEffect(() => {
+    // Fingerprint for store sync
+    const fingerprint = JSON.stringify({
+      terrainImage: sharedSession.terrainImage?.substring(0, 100),
+      startPoint: sharedSession.startPoint,
+      destinationPoint: sharedSession.destinationPoint,
+      activeSyncRouteId: sharedSession.activeSyncRoute?.routeId,
+      activeSyncRouteLen: sharedSession.activeSyncRoute?.waypoints.length
+    });
+
+    if (lastSyncedStoreSessionRef.current === fingerprint) return;
+    lastSyncedStoreSessionRef.current = fingerprint;
+
+    // 1. Sync Waypoints
+    if (sharedSession.startPoint) {
+      sharedExplorationStore.updateWaypoint('wp_start', { 
+        xPct: Number(((sharedSession.startPoint.x / 256) * 100).toFixed(1)), 
+        yPct: Number(((sharedSession.startPoint.y / 256) * 100).toFixed(1)) 
+      });
+    }
+    if (sharedSession.destinationPoint) {
+      sharedExplorationStore.updateWaypoint('wp_dest', { 
+        xPct: Number(((sharedSession.destinationPoint.x / 256) * 100).toFixed(1)), 
+        yPct: Number(((sharedSession.destinationPoint.y / 256) * 100).toFixed(1)) 
+      });
+    }
+
+    // 2. Sync Image Analysis
+    if (sharedSession.terrainImage && sharedSession.terrainImage.trim() !== '') {
+      const imgName = sharedSession.imageProvenance?.identifier || sharedSession.imageProvenance?.source || 'Mars_Terrain.jpg';
+      const currentStart = sharedSession.startPoint ? { 
+        xPct: (sharedSession.startPoint.x / 256) * 100, 
+        yPct: (sharedSession.startPoint.y / 256) * 100 
+      } : undefined;
+      const currentDest = sharedSession.destinationPoint ? { 
+        xPct: (sharedSession.destinationPoint.x / 256) * 100, 
+        yPct: (sharedSession.destinationPoint.y / 256) * 100 
+      } : undefined;
+
+      sharedExplorationStore.processAndSyncImage(
+        sharedSession.terrainImage, 
+        imgName, 
+        selectedRegion?.id || 'jezero',
+        currentStart,
+        currentDest
+      ).catch(err => {
+        console.warn('[WORKSPACE] Shared exploration store sync failed:', err);
+      });
+    }
+
+    // 3. Sync Active Route & Footprints
+    if (sharedSession.activeSyncRoute) {
+      const route = sharedSession.activeSyncRoute;
+      const path = route.waypoints.map(w => ({ xPct: (w.x / 256) * 100, yPct: (w.y / 256) * 100 }));
+      
+      const footprints: any[] = [];
+      for (let i = 0; i < route.waypoints.length - 1; i++) {
+        const p1 = route.waypoints[i];
+        const p2 = route.waypoints[i + 1];
+        const segSteps = 2;
+        for (let s = 1; s <= segSteps; s++) {
+          const ratio = s / (segSteps + 1);
+          const fx = p1.x + (p2.x - p1.x) * ratio;
+          const fy = p1.y + (p2.y - p1.y) * ratio;
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const angleRad = Math.atan2(dy, dx);
+          const angleDeg = (angleRad * 180) / Math.PI + 90;
+          footprints.push({
+            xPct: Number(((fx / 256) * 100).toFixed(1)),
+            yPct: Number(((fy / 256) * 100).toFixed(1)),
+            angleDeg: Number(angleDeg.toFixed(1)),
+            isLeft: s % 2 === 0
+          });
+        }
+      }
+
+      sharedExplorationStore.updateSession({
+        automatedRoute: {
+          path,
+          footprints,
+          distanceMeters: route.totalDistanceM,
+          estimatedMins: Math.round(route.totalDistanceM / 40),
+          maxSlopeDeg: 8.5,
+          safetyScore: 92,
+          status: 'GENERATED'
+        }
+      });
+    } else {
+      // Use any cast to allow nulling the automatedRoute in the session
+      sharedExplorationStore.updateSession({ automatedRoute: null as any });
+    }
+  }, [
+    sharedSession.startPoint, 
+    sharedSession.destinationPoint, 
+    sharedSession.terrainImage, 
+    sharedSession.activeSyncRoute,
+    sharedSession.imageProvenance,
+    selectedRegion?.id
+  ]);
 
   // Initial synchronization on mount
   useEffect(() => {

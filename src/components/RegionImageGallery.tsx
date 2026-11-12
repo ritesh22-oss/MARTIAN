@@ -149,13 +149,8 @@ export default function RegionImageGallery({
     const isValid = await validateImageLoad(safeUrl, 7000);
 
     if (!isValid) {
-      if (!targetUrl.startsWith('/')) {
-        resolvedUrl = 'https://images-assets.nasa.gov/image/PIA26321/PIA26321~orig.jpg';
-        showToast('Direct network frame timed out, applying verified local high-res calibrated fallback.', 'info');
-      } else {
-        showToast(`Failed decoding frame ${record.id}. Retaining previous terrain map.`, 'error');
-        return;
-      }
+      showToast(`Failed decoding frame ${record.id}. Retaining previous terrain map.`, 'error');
+      return;
     }
 
     // Prepare robust provenance metadata
@@ -549,8 +544,8 @@ export default function RegionImageGallery({
                     loading="lazy"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 select-none"
                     onError={(e) => {
-                      // Fallback to local verified asset if external image fails
-                      (e.currentTarget as HTMLImageElement).src = 'https://images-assets.nasa.gov/image/PIA26321/PIA26321~orig.jpg';
+                      // Do not fall back silently to unrelated image
+                      (e.currentTarget as HTMLImageElement).style.display = 'none';
                     }}
                   />
 
@@ -773,7 +768,6 @@ export default function RegionImageGallery({
                     className="max-h-[70vh] w-auto max-w-full object-contain rounded-lg shadow-2xl pointer-events-none"
                     onError={(e) => {
                       setAssetLoadFailed(true);
-                      (e.currentTarget as HTMLImageElement).src = 'https://images-assets.nasa.gov/image/PIA26321/PIA26321~orig.jpg';
                     }}
                   />
                 </div>

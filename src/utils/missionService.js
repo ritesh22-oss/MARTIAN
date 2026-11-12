@@ -252,13 +252,23 @@ export function setLocalActiveMissionId(id) {
 export async function saveMissionRecord(mission) {
   if (!mission || !mission.id) return null;
   
+  // 0. Prevent redundant writes if data is identical (excluding timestamps)
+  const localList = getLocalMissions();
+  const existing = localList.find(m => m.id === mission.id);
+  if (existing) {
+    const { updatedAt: _u1, ...oldData } = existing;
+    const { updatedAt: _u2, ...newData } = mission;
+    if (JSON.stringify(oldData) === JSON.stringify(newData)) {
+      return existing; // No change, skip write
+    }
+  }
+
   const updatedMission = {
     ...mission,
     updatedAt: new Date().toISOString()
   };
 
   // 1. Update Local Storage Cache
-  const localList = getLocalMissions();
   const existingIdx = localList.findIndex(m => m.id === updatedMission.id);
   if (existingIdx >= 0) {
     localList[existingIdx] = updatedMission;

@@ -124,12 +124,24 @@ export const MarsSurfaceExplorer: React.FC = () => {
   };
 
   const handleGenerateWaypoints = () => {
-    const plan = sharedExplorationStore.generateAutomatedNavigationPlan(activeSession.imageAnalysis.boulders);
+    const start = activeSession.waypoints.find(wp => wp.type === 'start');
+    const dest = activeSession.waypoints.find(wp => wp.type === 'destination');
+    const plan = sharedExplorationStore.generateAutomatedNavigationPlan(
+      activeSession.imageAnalysis.boulders,
+      start ? { xPct: start.xPct, yPct: start.yPct } : undefined,
+      dest ? { xPct: dest.xPct, yPct: dest.yPct } : undefined
+    );
     sharedExplorationStore.updateSession({ waypoints: plan.waypoints });
   };
 
   const handleGenerateOptimalRoute = () => {
-    const plan = sharedExplorationStore.generateAutomatedNavigationPlan(activeSession.imageAnalysis.boulders);
+    const start = activeSession.waypoints.find(wp => wp.type === 'start');
+    const dest = activeSession.waypoints.find(wp => wp.type === 'destination');
+    const plan = sharedExplorationStore.generateAutomatedNavigationPlan(
+      activeSession.imageAnalysis.boulders,
+      start ? { xPct: start.xPct, yPct: start.yPct } : undefined,
+      dest ? { xPct: dest.xPct, yPct: dest.yPct } : undefined
+    );
     sharedExplorationStore.updateSession({ automatedRoute: plan.automatedRoute });
   };
 
@@ -171,12 +183,37 @@ export const MarsSurfaceExplorer: React.FC = () => {
 
         {/* Action Buttons Control Panel */}
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Navigation Validation Status Panel (Mini) */}
+          <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-800 rounded-xl px-3 py-1.5 mr-2">
+             <div className="flex flex-col">
+                <span className="text-[9px] text-slate-500 uppercase font-bold tracking-tighter">NAV VALIDATION</span>
+                <div className="flex items-center gap-1.5">
+                  {activeSession.analysisStatus === 'completed' ? (
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                  ) : activeSession.analysisStatus === 'failed' ? (
+                    <AlertTriangle className="w-3 h-3 text-rose-400" />
+                  ) : (
+                    <RefreshCw className="w-3 h-3 text-cyan-400 animate-spin" />
+                  )}
+                  <span className={`text-[10px] font-mono font-bold ${
+                    activeSession.analysisStatus === 'completed' ? 'text-emerald-400' : 
+                    activeSession.analysisStatus === 'failed' ? 'text-rose-400' : 'text-cyan-400'
+                  }`}>
+                    {activeSession.analysisStatus === 'processing_terrain' ? 'GENERATING OBSTACLE MAP' :
+                     activeSession.analysisStatus === 'updating_dashboard' ? 'VALIDATING ROUTE' :
+                     activeSession.analysisStatus === 'completed' ? 'ROUTE VERIFIED' : 
+                     activeSession.analysisStatus.toUpperCase().replace('_', ' ')}
+                  </span>
+                </div>
+             </div>
+          </div>
+
           <button
             onClick={handleAnalyzeTerrain}
             className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-mono text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-lg shadow-cyan-950/40"
           >
-            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            <span>ANALYZE TERRAIN</span>
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>RE-ANALYZE TERRAIN</span>
           </button>
           <button
             onClick={handleGenerateWaypoints}

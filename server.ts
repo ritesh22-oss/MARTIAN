@@ -163,6 +163,9 @@ async function callGeminiWithTimeout<T>(promise: Promise<T>, timeoutMs: number =
   }
 }
 
+// Simple in-memory cache for analysis results
+const analysisCache = new Map<string, any>();
+
 // Gemini Chat Endpoint
 app.post('/api/chat', async (req, res, next) => {
   try {
@@ -221,6 +224,22 @@ app.post('/api/gemini/analyze-terrain', async (req, res) => {
       } catch (loadErr: any) {
         console.warn('[ANALYZE_IMAGE_LOAD_WARN]', getErrorMessage(loadErr));
       }
+    }
+
+    // Generate a unique cache key based on the image content or URL
+    const cacheKey = imageBase64 
+      ? `b64_${imageBase64.length}_${imageBase64.substring(0, 50)}` 
+      : imageUrl 
+        ? `url_${imageUrl}` 
+        : null;
+
+    if (cacheKey && analysisCache.has(cacheKey)) {
+      console.log(`[GEMINI_VISION] Serving cached analysis for key: ${cacheKey.substring(0, 30)}...`);
+      return res.json({
+        success: true,
+        source: 'gemini-3.8-flash-cached',
+        analysis: analysisCache.get(cacheKey)
+      });
     }
 
     if (!process.env.GEMINI_API_KEY) {
@@ -327,6 +346,10 @@ Analyze the photograph in detail and return a valid JSON object matching this ex
     const jsonText = response.text ? response.text.trim() : '{}';
     const parsed = JSON.parse(jsonText);
 
+    if (cacheKey) {
+      analysisCache.set(cacheKey, parsed);
+    }
+
     res.json({
       success: true,
       source: 'gemini-3.8-flash',
@@ -385,7 +408,8 @@ Analyze the photograph in detail and return a valid JSON object matching this ex
 app.get(['/api/nasa/mars2020/raw', '/api/nasa/raw'], async (req, res, next) => {
   try {
     const { mission = 'mars2020', sol, camera, order = 'newest', num = '24', page = '0' } = req.query;
-    const category = mission === 'msl' ? 'msl' : 'mars2020';
+    const validMission = ['mars2020', 'msl', 'opportunity', 'spirit'].includes(String(mission)) ? String(mission) : 'mars2020';
+    const category = validMission;
     const jplOrder = order === 'oldest' ? 'sol asc' : 'sol desc';
 
     const params = new URLSearchParams({
@@ -406,16 +430,25 @@ app.get(['/api/nasa/mars2020/raw', '/api/nasa/raw'], async (req, res, next) => {
       cacheTTLMs: 1000 * 60 * 60, // 1 hour
     });
 
+    const missionNameMap: Record<string, string> = {
+      mars2020: 'Mars 2020 (Perseverance)',
+      msl: 'MSL (Curiosity)',
+      opportunity: 'MER-B (Opportunity)',
+      spirit: 'MER-A (Spirit)'
+    };
+
     const normalizedImages = (rawData.images || []).map((img: any) => ({
-      id: img.imageid,
+      id: img.imageid || img.id || Math.random().toString(),
+      imageid: img.imageid || img.id,
       title: img.title || `Sol ${img.sol} Frame`,
       sol: img.sol,
-      camera: img.camera?.instrument || img.instrument,
-      thumbnailUrl: img.image_files?.medium || img.image_files?.small || img.image_files?.full_res,
-      fullResUrl: img.image_files?.full_res || img.image_files?.large,
-      dateUtc: img.date_taken_utc || img.date_received,
+      camera: img.camera?.instrument || img.instrument || 'NAVCAM',
+      cameraFullName: img.camera?.instrument_full_name || img.camera || 'Navigation Camera',
+      dateUtc: img.date_taken_utc || img.date_received || new Date().toISOString(),
+      thumbnailUrl: img.image_files?.medium || img.image_files?.small || img.image_files?.full_res || img.url,
+      fullResUrl: img.image_files?.full_res || img.image_files?.large || img.image_files?.medium || img.url,
       credit: img.credit || 'NASA/JPL-Caltech',
-      mission: category === 'msl' ? 'MSL (Curiosity)' : 'Mars 2020 (Perseverance)'
+      mission: missionNameMap[category] || 'Mars Rover'
     }));
 
     res.json({

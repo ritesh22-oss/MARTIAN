@@ -62,7 +62,7 @@ const REGION_REGISTRY: Record<string, RegionTerrainData> = {
     scientificReasoning: 'Shallow slab ice offers direct resource utilization (ISRU) for propellant production and life support, with smooth terrain providing safe touchdown.',
     primaryRisk: 'Higher latitude results in seasonal solar radiation drops during Martian winter.',
     provenance: 'NASA MRO SHARAD / Mars Odyssey THEMIS / MOLA DTM (Arcadia Sheet Ice Unit)',
-    imageUrl: 'https://images-assets.nasa.gov/image/PIA26321/PIA26321~orig.jpg',
+    imageUrl: 'https://images-assets.nasa.gov/image/PIA18400/PIA18400~orig.jpg',
     imageIdentifier: 'PSP_002134_2200_ORB_ARC',
     camera: 'MRO_HIRISE_RED',
     sol: 1840,

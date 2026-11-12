@@ -622,6 +622,57 @@ export class AStarGrid {
       }
     }
 
+    // TIER 3: Lowest Risk (Lease-cost hazard penetration traversal)
+    // Only attempt if Tier 1 & 2 failed and option is enabled
+    if (options.allowHazardPenetration) {
+      const penetrationCost = (x, y) => {
+        const base = rawCost ? rawCost(x, y) : 1.0;
+        // Obstacle cores are extremely expensive but technically passable
+        const isCore = isCoreBlocked(x, y);
+        const isBuffer = rawBlocked(x, y);
+        if (isCore) return base + 500.0;
+        if (isBuffer) return base + 15.0;
+        return base;
+      };
+
+      const neverBlocked = () => false; // Allow search to proceed everywhere
+
+      const tier3 = this._searchCore(start, goal, neverBlocked, penetrationCost, 60000);
+      if (tier3.success && tier3.path && tier3.path.length >= 2) {
+        const smoothed = smoothPathCollisionFree(tier3.path, neverBlocked);
+        const finalPath = smoothed.length >= 2 ? smoothed : tier3.path;
+        finalPath[0] = { x: start.x, y: start.y };
+        finalPath[finalPath.length - 1] = { x: goal.x, y: goal.y };
+        const len = calculatePathLength(finalPath);
+
+        return {
+          success: true,
+          mode: 'hazard_penetration',
+          statusLabel: 'LEAST RISK PATH CALCULATED',
+          warning: 'No safe corridor exists. Generated lowest-risk path through obstacle field.',
+          path: finalPath,
+          rawPath: [...tier3.path],
+          pixelLength: len,
+          steps: finalPath.length - 1,
+          totalCost: parseFloat(tier3.totalCost.toFixed(2)),
+          iterations: tier1.iterations + (tier2 ? tier2.iterations : 0) + tier3.iterations,
+          exploredNodes: tier3.exploredNodes,
+          exploredCount: tier3.closedCount,
+          diagnostics: {
+            gridWidth: this.width,
+            gridHeight: this.height,
+            start,
+            goal,
+            mode: 'hazard_penetration',
+            iterations: tier1.iterations + (tier2 ? tier2.iterations : 0) + tier3.iterations,
+            exploredCount: tier3.closedCount,
+            startBlockedOnCore: startBlocked,
+            goalBlockedOnCore: goalBlocked
+          }
+        };
+      }
+    }
+
     // HONEST NO-SAFE-ROUTE TERMINATION
     // Under no circumstances should A* draw a straight line or penetrate obstacles when no safe path exists.
     return {

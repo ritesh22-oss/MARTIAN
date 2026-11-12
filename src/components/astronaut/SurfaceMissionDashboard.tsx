@@ -464,28 +464,28 @@ export const SurfaceMissionDashboard: React.FC = () => {
             <div className="space-y-3 font-mono text-xs">
               <div className="flex justify-between items-center p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
                 <span className="text-slate-400">Ambient Surface Temp:</span>
-                {activeSession.environmentalObservations?.ambientTempC !== null && activeSession.environmentalObservations?.isAvailable !== false ? (
-                  <span className="text-white font-bold">{activeSession.environmentalObservations.ambientTempC} °C</span>
+                {activeSession.environmentalObservations?.ambientTempC?.value !== null && activeSession.environmentalObservations?.isAvailable !== false ? (
+                  <span className="text-white font-bold">{activeSession.environmentalObservations.ambientTempC.value} °C</span>
                 ) : (
                   <span className="text-amber-400 font-bold text-[11px]">DATA UNAVAILABLE</span>
                 )}
               </div>
               <div className="flex justify-between items-center p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
                 <span className="text-slate-400">Atmospheric Pressure:</span>
-                {activeSession.environmentalObservations?.atmosPressurePa !== null && activeSession.environmentalObservations?.isAvailable !== false ? (
-                  <span className="text-white font-bold">{activeSession.environmentalObservations.atmosPressurePa} Pa</span>
+                {activeSession.environmentalObservations?.atmosPressurePa?.value !== null && activeSession.environmentalObservations?.isAvailable !== false ? (
+                  <span className="text-white font-bold">{activeSession.environmentalObservations.atmosPressurePa.value} Pa</span>
                 ) : (
                   <span className="text-amber-400 font-bold text-[11px]">DATA UNAVAILABLE</span>
                 )}
               </div>
               <div className="flex justify-between items-center p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
                 <span className="text-slate-400">Solar Activity Level:</span>
-                <span className="text-cyan-300 font-bold">{activeSession.environmentalObservations.solarFlareStatus}</span>
+                <span className="text-cyan-300 font-bold">{activeSession.environmentalObservations.solarFlareStatus.value}</span>
               </div>
               <div className="flex justify-between items-center p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
                 <span className="text-slate-400">Dust Optical Depth (Tau):</span>
-                {activeSession.environmentalObservations?.dustTau !== null && activeSession.environmentalObservations?.isAvailable !== false ? (
-                  <span className="text-emerald-400 font-bold">{activeSession.environmentalObservations.dustTau} (Nominal)</span>
+                {activeSession.environmentalObservations?.dustTau?.value !== null && activeSession.environmentalObservations?.isAvailable !== false ? (
+                  <span className="text-emerald-400 font-bold">{activeSession.environmentalObservations.dustTau.value} (Nominal)</span>
                 ) : (
                   <span className="text-amber-400 font-bold text-[11px]">DATA UNAVAILABLE</span>
                 )}
@@ -494,8 +494,8 @@ export const SurfaceMissionDashboard: React.FC = () => {
                 <span className="text-slate-400 shrink-0">Data Source:</span>
                 <span className={`font-bold truncate text-[10px] max-w-[170px] ${
                   activeSession.environmentalObservations?.isAvailable === false ? 'text-amber-400' : 'text-slate-200'
-                }`} title={activeSession.environmentalObservations.source}>
-                  {activeSession.environmentalObservations.source}
+                }`} title={activeSession.environmentalObservations?.ambientTempC?.source || 'N/A'}>
+                  {activeSession.environmentalObservations?.ambientTempC?.source || 'N/A'}
                 </span>
               </div>
             </div>

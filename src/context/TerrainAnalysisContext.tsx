@@ -306,7 +306,7 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
   const [selectedRouteIndex, setSelectedRouteIndex] = useState<number>(0);
   const [autoObstacles, setAutoObstacles] = useState<ObstacleNode[]>([]);
   const [segmentedHazards, setSegmentedHazards] = useState<SegmentedHazard[]>([]);
-  const [safetyClearancePx, setSafetyClearancePxState] = useState<number>(12);
+  const [safetyClearancePx, setSafetyClearancePxState] = useState<number>(6);
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -348,9 +348,9 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
       };
     }
     return {
-      id: 'PSP_001414_1780_JEZERO',
-      title: 'Jezero Crater Western Delta',
-      url: '/assets/aistudio/vis_0_f6a9756b.png'
+      id: '',
+      title: '',
+      url: ''
     };
   }, [
     selectedObservation,
@@ -380,6 +380,10 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
     setClassStats(null);
 
     const startTime = performance.now();
+    if (!activeImage.url) {
+      setIsLoading(false);
+      return;
+    }
     const img = new Image();
     img.crossOrigin = 'anonymous';
     
@@ -812,7 +816,7 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
 
   // Multi-Path Obstacle-Aware Solver
   const candidates = useMemo(() => {
-    if (isLoading || error || !occupancyGrid || !costGrid) return [];
+    if (isLoading || error || !occupancyGrid || !costGrid || !startPoint || !destinationPoint) return [];
 
     const solver = new AStarGrid(256, 256);
     const results: RouteCandidate[] = [];
@@ -1121,6 +1125,16 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
             adaptedNote: ` (Adapted to ${minMargin}px clearance through narrow rock corridor)`
           };
         }
+      }
+
+      // 3. Lowest Risk Fallback: Permit controlled hazard penetration if no clear corridor exists
+      search = solver.findPath(start, goal, checkBlockedFn, costFn, { isCoreBlocked, allowHazardPenetration: true });
+      if (search && search.success && search.path && search.path.length >= 2) {
+        return {
+          path: search.path,
+          clearance: 0,
+          adaptedNote: ' (EMERGENCY LEAST-RISK PATH: Obstacle penetration required)'
+        };
       }
 
       return { path: null, clearance: clearanceMargin, adaptedNote: '' };

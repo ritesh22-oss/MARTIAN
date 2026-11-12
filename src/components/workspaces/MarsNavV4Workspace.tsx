@@ -70,7 +70,6 @@ import {
 } from 'lucide-react';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { sharedExplorationStore } from '../../services/sharedExplorationStore';
-import NASAImageFeed from '../NASAImageFeed';
 import { useTerrainAnalysis } from '../../context/TerrainAnalysisContext';
 import { apiGet, apiPost } from '../../utils/apiClient';
 import { AStarGrid, calculatePathLength, smoothPathCollisionFree } from '../../utils/astar';
@@ -206,6 +205,7 @@ const MASK_CLASSES = [
 ];
 
 import { MarsRoverIcon } from '../MarsRoverIcon';
+import ImageAcquisitionPanel from '../ImageAcquisitionPanel';
 
 export default function MarsNavV4Workspace() {
   const {
@@ -260,10 +260,6 @@ export default function MarsNavV4Workspace() {
   >('select');
   const [inspectedCoords, setInspectedCoords] = useState<{ x: number; y: number } | null>(null);
 
-  // NASA Feed Modal
-  const [nasaImages, setNasaImages] = useState<any[]>([]);
-  const [nasaBrowserOpen, setNasaBrowserOpen] = useState<boolean>(false);
-  const [loadingNasa, setLoadingNasa] = useState<boolean>(false);
 
   // Image Loading & Status
   const [imageStatus, setImageStatus] = useState<'empty' | 'loading' | 'loaded' | 'error'>(() => {
@@ -293,11 +289,11 @@ export default function MarsNavV4Workspace() {
   const [showSelectedRoute, setShowSelectedRoute] = useState<boolean>(true);
   const [showAltRoutes, setShowAltRoutes] = useState<boolean>(false);
   const [showEmergencyPath, setShowEmergencyPath] = useState<boolean>(false);
-  const [showWaypoints, setShowWaypoints] = useState<boolean>(true);
-  const [showRestrictedZones, setShowRestrictedZones] = useState<boolean>(true);
-  const [showDirectionArrows, setShowDirectionArrows] = useState<boolean>(true);
-  const [showSquareTargetBoxes, setShowSquareTargetBoxes] = useState<boolean>(true);
-  const [showLegend, setShowLegend] = useState<boolean>(true);
+  const [showWaypoints, setShowWaypoints] = useState<boolean>(false);
+  const [showRestrictedZones, setShowRestrictedZones] = useState<boolean>(false);
+  const [showDirectionArrows, setShowDirectionArrows] = useState<boolean>(false);
+  const [showSquareTargetBoxes, setShowSquareTargetBoxes] = useState<boolean>(false);
+  const [showLegend, setShowLegend] = useState<boolean>(false);
   const [routeMenuOpen, setRouteMenuOpen] = useState<boolean>(false);
   const [obstaclePlacementWarning, setObstaclePlacementWarning] = useState<string | null>(null);
 
@@ -680,22 +676,7 @@ export default function MarsNavV4Workspace() {
     addTimelineEvent('checkpoint', 'Field Note Saved', `Saved note "${noteFormTitle}" at X:${noteFormCoords.x}, Y:${noteFormCoords.y}`);
   };
 
-  const fetchNasaFeed = async () => {
-    setLoadingNasa(true);
-    try {
-      const { data, error, isHtml } = await apiGet<any>('/api/nasa/mars2020/raw?num=12');
-      if (error || isHtml || !data) {
-        throw new Error(error || 'Empty NASA feed response');
-      }
-      if (data.images && data.images.length > 0) {
-        setNasaImages(data.images);
-      }
-    } catch (err) {
-      console.warn('Failed fetching NASA live feed:', err);
-    } finally {
-      setLoadingNasa(false);
-    }
-  };
+
 
   const getSafeImageUrl = (url: string) => {
     if (!url) return '';
@@ -1662,7 +1643,7 @@ export default function MarsNavV4Workspace() {
       console.warn('[MARSWALK_OPS] NASA image sync error:', err);
     });
 
-    setNasaBrowserOpen(false);
+
   };
 
   // Export JSON Report
@@ -1944,13 +1925,7 @@ export default function MarsNavV4Workspace() {
             <span>Upload Image</span>
           </button>
 
-          <button
-            onClick={() => setNasaBrowserOpen(true)}
-            className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-mono flex items-center gap-1.5 cursor-pointer transition-colors"
-          >
-            <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-            <span>Select NASA Image</span>
-          </button>
+
 
           <button
             onClick={() => {
@@ -2865,15 +2840,7 @@ export default function MarsNavV4Workspace() {
                     />
 
                     {/* ANALYSIS OVERLAY (ONLY WHEN DISPLAYMODE === 'analysis' AND HASANALYZED IS TRUE) */}
-                    {displayMode === 'analysis' && !hasAnalyzed && (
-                      <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 text-center pointer-events-none">
-                        <div className="p-3 bg-slate-900/90 border border-cyan-500/40 rounded-xl max-w-xs space-y-2 pointer-events-auto">
-                          <Cpu className="w-6 h-6 text-cyan-400 mx-auto" />
-                          <p className="font-bold text-white text-xs">Model Inference Not Executed</p>
-                          <p className="text-[10px] text-slate-400">Click "DETECT HAZARDS" in the top toolbar to run the AI4Mars model pipeline.</p>
-                        </div>
-                      </div>
-                    )}
+                    {/* Analysis overlay handled via displayMode selection */}
 
                     {/* HIGH-PRECISION SVG ROUTE & ANNOTATIONS LAYER */}
                     <svg
@@ -2898,7 +2865,7 @@ export default function MarsNavV4Workspace() {
                       </defs>
 
                       {/* Active Drawing Polygon Preview */}
-                      {activeDrawingPolygon.length > 0 && (
+                      {displayMode === 'annotations' && activeDrawingPolygon.length > 0 && (
                         <g>
                           <polyline
                             points={activeDrawingPolygon.map(v => `${v.x},${v.y}`).join(' ')}
@@ -2924,166 +2891,19 @@ export default function MarsNavV4Workspace() {
                         </g>
                       )}
 
-                      {/* Notes & Measurements Layer */}
-                      {(displayMode === 'annotations' || displayMode === 'route' || activeTool === 'measure' || activeTool === 'note') && (
-                        <>
-                          {/* Active Measure Start Live Vector & Badge Preview */}
-                          {activeMeasureStart && cursorPos && (() => {
-                            const livePx = Math.round(Math.hypot(cursorPos.x - activeMeasureStart.x, cursorPos.y - activeMeasureStart.y));
-                            const isCalibrated = Boolean(imageProvenance && (imageProvenance.source?.includes('NASA') || imageProvenance.source?.includes('HiRISE')));
-                            const liveM = isCalibrated ? (livePx * spatialScaleMetersPerPx).toFixed(1) : null;
-                            const midX = (activeMeasureStart.x + cursorPos.x) / 2;
-                            const midY = (activeMeasureStart.y + cursorPos.y) / 2;
-                            return (
-                              <g className="animate-pulse">
-                                <line
-                                  x1={activeMeasureStart.x}
-                                  y1={activeMeasureStart.y}
-                                  x2={cursorPos.x}
-                                  y2={cursorPos.y}
-                                  stroke="#00F0FF"
-                                  strokeWidth="2"
-                                  strokeDasharray="3 3"
-                                />
-                                <circle cx={activeMeasureStart.x} cy={activeMeasureStart.y} r="3.5" fill="#00F0FF" stroke="#ffffff" strokeWidth="1" />
-                                <circle cx={cursorPos.x} cy={cursorPos.y} r="3.5" fill="#00F0FF" stroke="#ffffff" strokeWidth="1" />
-
-                                <rect
-                                  x={midX - 32}
-                                  y={midY - 7}
-                                  width="64"
-                                  height="14"
-                                  rx="3"
-                                  fill="rgba(5, 10, 25, 0.92)"
-                                  stroke="#00F0FF"
-                                  strokeWidth="0.8"
-                                />
-                                <text
-                                  x={midX}
-                                  y={midY + 2.5}
-                                  fill="#00F0FF"
-                                  fontSize="4.5"
-                                  fontWeight="bold"
-                                  textAnchor="middle"
-                                >
-                                  {liveM !== null ? `${livePx} px (${liveM} m)` : `${livePx} px | Scale unavailable`}
-                                </text>
-                              </g>
-                            );
-                          })()}
-
-                          {/* Saved Distance Measurements */}
-                          {measurementsList.filter(m => m.visible !== false).map(m => {
-                            const midX = (m.startX + m.endX) / 2;
-                            const midY = (m.startY + m.endY) / 2;
-                            const isSelected = selectedItem?.type === 'measure' && selectedItem.id === m.id;
-                            return (
-                              <g key={m.id} className="cursor-pointer">
-                                <line
-                                  x1={m.startX}
-                                  y1={m.startY}
-                                  x2={m.endX}
-                                  y2={m.endY}
-                                  stroke={isSelected ? '#00F0FF' : '#14b8a6'}
-                                  strokeWidth={isSelected ? '2.5' : '1.8'}
-                                  strokeDasharray="3 2"
-                                />
-                                <circle cx={m.startX} cy={m.startY} r="3" fill="#14b8a6" stroke="#ffffff" strokeWidth="0.8" />
-                                <circle cx={m.endX} cy={m.endY} r="3" fill="#14b8a6" stroke="#ffffff" strokeWidth="0.8" />
-
-                                <rect
-                                  x={midX - 34}
-                                  y={midY - 6.5}
-                                  width="68"
-                                  height="13"
-                                  rx="3"
-                                  fill="rgba(8, 12, 26, 0.92)"
-                                  stroke={isSelected ? '#00F0FF' : '#14b8a6'}
-                                  strokeWidth="0.8"
-                                />
-                                <text
-                                  x={midX}
-                                  y={midY + 2}
-                                  fill={isSelected ? '#00F0FF' : '#5eead4'}
-                                  fontSize="4.2"
-                                  fontWeight="bold"
-                                  textAnchor="middle"
-                                >
-                                  {m.isPhysicalCalibrated && m.physicalDistM !== null
-                                    ? `${m.distPx} px (${m.physicalDistM} m)`
-                                    : `${m.distPx} px | Scale unavailable`}
-                                </text>
-                              </g>
-                            );
-                          })}
-
-                          {/* Saved Field Notes Pins */}
-                          {notesList.map((n, idx) => {
-                            const isSelected = selectedItem?.type === 'note' && selectedItem.id === n.id;
-                            return (
-                              <g key={n.id} transform={`translate(${n.x}, ${n.y})`} className="cursor-pointer">
-                                {isSelected && (
-                                  <circle r="9" fill="rgba(168, 85, 247, 0.25)" stroke="#a855f7" strokeWidth="1" className="animate-ping" />
-                                )}
-                                <circle r="4.5" fill="#a855f7" stroke="#ffffff" strokeWidth="1.2" />
-                                <text y="1.5" fill="#ffffff" fontSize="4.2" fontWeight="bold" textAnchor="middle">
-                                  {n.pinNumber || idx + 1}
-                                </text>
-                                <rect x="-1" y="-12" width="46" height="10" rx="2" fill="rgba(24, 15, 45, 0.92)" stroke="#c084fc" strokeWidth="0.7" />
-                                <text x="22" y="-5" fill="#e9d5ff" fontSize="3.8" fontWeight="bold" textAnchor="middle">
-                                  {n.title.length > 14 ? `${n.title.substring(0, 12)}..` : n.title}
-                                </text>
-                              </g>
-                            );
-                          })}
-
-                          {/* Target pulse location ring */}
-                          {locatedTarget && (
-                            <g transform={`translate(${locatedTarget.x}, ${locatedTarget.y})`}>
-                              <circle r="14" fill="rgba(0, 240, 255, 0.2)" stroke="#00F0FF" strokeWidth="2" className="animate-ping" />
-                              <circle r="6" fill="#00F0FF" stroke="#ffffff" strokeWidth="1.5" />
-                            </g>
-                          )}
-                        </>
+                      {/* Target pulse location ring */}
+                      {displayMode === 'annotations' && locatedTarget && (
+                        <g transform={`translate(${locatedTarget.x}, ${locatedTarget.y})`}>
+                          <circle r="14" fill="rgba(0, 240, 255, 0.2)" stroke="#00F0FF" strokeWidth="2" className="animate-ping" />
+                          <circle r="6" fill="#00F0FF" stroke="#ffffff" strokeWidth="1.5" />
+                        </g>
                       )}
 
-                      {/* Alternative Routes (Dimmed) */}
-                      {(displayMode === 'route' || displayMode === 'annotations') && showAltRoutes && Boolean(startPoint) && Boolean(destinationPoint) && analysis.routes.map((route, rIdx) => {
-                        if (rIdx === analysis.selectedRouteIndex || route.isBlocked || !route.waypoints || route.waypoints.length < 2) return null;
-                        return (
-                          <polyline
-                            key={route.id}
-                            points={route.waypoints.map(p => `${p.x},${p.y}`).join(' ')}
-                            fill="none"
-                            stroke="#64748b"
-                            strokeWidth="1.2"
-                            strokeDasharray="2 2"
-                            opacity="0.6"
-                            className="transition-opacity hover:opacity-100 cursor-pointer"
-                            onClick={() => setSelectedRouteIndex(rIdx)}
-                          />
-                        );
-                      })}
-
                       {/* 4. PLANNED ROVER ROUTE LAYER (CYAN) */}
-                      {(showSelectedRoute || displayMode === 'route') && Boolean(startPoint) && Boolean(destinationPoint) && !activeRoute?.isBlocked && activePath.length > 1 && (
-                        /* Valid safe obstacle-avoiding route */
+                      {(displayMode === 'route') && Boolean(startPoint) && Boolean(destinationPoint) && !activeRoute?.isBlocked && activePath.length > 1 && (
                         <g pointerEvents="none">
                           <polyline points={activePath.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000000" strokeWidth="4.2" strokeLinecap="round" strokeLinejoin="round" />
                           <polyline points={activePath.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#00f0ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" filter="url(#shadowOutline)" />
-
-                          {/* Small waypoint markers along the route */}
-                          {showWaypoints && routeNodes.filter((_, i) => i > 0 && i < routeNodes.length - 1 && i % 4 === 0).map((wp, idx) => (
-                            <g key={`route-wp-${idx}`} transform={`translate(${wp.x}, ${wp.y})`}>
-                              <circle r="2.2" fill="#00f0ff" stroke="#030712" strokeWidth="0.6" />
-                              <circle r="0.9" fill="#ffffff" />
-                            </g>
-                          ))}
-
-                          {/* Direction indicators along route */}
-                          {showDirectionArrows && routeNodes.map((nd, idx) => (
-                            <circle key={idx} cx={nd.x} cy={nd.y} r="1.4" fill="#ffffff" stroke="#0096c7" strokeWidth="0.5" />
-                          ))}
 
                           {/* Animated Miniature 2D Mars Rover Marker */}
                           {(isPlaying || traversalProgress > 0) && (
@@ -3094,13 +2914,9 @@ export default function MarsNavV4Workspace() {
                         </g>
                       )}
 
-                      {/* 5. DISTINCT START BASE PIN (BLUE TEARDROP MAP PIN) */}
+                      {/* 5. DISTINCT START BASE PIN */}
                       {startPoint && (
                         <g transform={`translate(${startPoint.x}, ${startPoint.y})`} className="cursor-grab">
-                          <rect x="-18" y="-30" width="36" height="9" rx="2" fill="rgba(3, 10, 30, 0.95)" stroke="#3b82f6" strokeWidth="0.8" />
-                          <text x="0" y="-23.5" fill="#93c5fd" fontSize="3.8" fontWeight="bold" textAnchor="middle">
-                            START
-                          </text>
                           <path
                             d="M 0 0 C -5 -6, -7 -10, -7 -13 C -7 -17, -3 -20, 0 -20 C 3 -20, 7 -17, 7 -13 C 7 -10, 5 -6, 0 0 Z"
                             fill="#2563eb"
@@ -3109,17 +2925,12 @@ export default function MarsNavV4Workspace() {
                             filter="url(#startGlow)"
                           />
                           <path d="M -2.5 -11.5 L 2.5 -11.5 L 0 -15.5 Z" fill="#ffffff" />
-                          <circle cx="0" cy="-10" r="1.2" fill="#ffffff" />
                         </g>
                       )}
 
-                      {/* 6. DISTINCT DESTINATION TARGET PIN (ORANGE TEARDROP MAP PIN) */}
+                      {/* 6. DISTINCT DESTINATION TARGET PIN */}
                       {destinationPoint && (
                         <g transform={`translate(${destinationPoint.x}, ${destinationPoint.y})`} className="cursor-grab">
-                          <rect x="-24" y="-30" width="48" height="9" rx="2" fill="rgba(30, 10, 3, 0.95)" stroke="#f97316" strokeWidth="0.8" />
-                          <text x="0" y="-23.5" fill="#fdba74" fontSize="3.5" fontWeight="bold" textAnchor="middle">
-                            DESTINATION
-                          </text>
                           <path
                             d="M 0 0 C -5 -6, -7 -10, -7 -13 C -7 -17, -3 -20, 0 -20 C 3 -20, 7 -17, 7 -13 C 7 -10, 5 -6, 0 0 Z"
                             fill="#ea580c"
@@ -3130,26 +2941,6 @@ export default function MarsNavV4Workspace() {
                           <path d="M -2 -14 L 3 -12.5 L -2 -11 Z" fill="#ffffff" />
                           <line x1="-2" y1="-15" x2="-2" y2="-9" stroke="#ffffff" strokeWidth="1" strokeLinecap="round" />
                         </g>
-                      )}
-
-                      {/* Custom User Waypoints & Science Stops */}
-                      {showWaypoints && (
-                        <>
-                          {checkpointsList.map((cp, idx) => (
-                            <g key={cp.id} transform={`translate(${cp.x}, ${cp.y})`}>
-                              <rect x="-8" y="-8" width="16" height="16" fill="rgba(59, 130, 246, 0.2)" stroke="#3b82f6" strokeWidth="0.8" strokeDasharray="2 1" />
-                              <circle r="4.5" fill="#3b82f6" stroke="#ffffff" strokeWidth="1" />
-                              <text y="1.5" fill="#ffffff" fontSize="4.5" fontWeight="bold" textAnchor="middle">{idx + 1}</text>
-                            </g>
-                          ))}
-
-                          {scienceStopsList.map((sci) => (
-                            <g key={sci.id} transform={`translate(${sci.x}, ${sci.y})`}>
-                              <polygon points="0,-7 6,0 0,7 -6,0" fill="#8b5cf6" stroke="#c084fc" strokeWidth="1" />
-                              <text y="1.5" fill="#ffffff" fontSize="4" fontWeight="bold" textAnchor="middle">🔬</text>
-                            </g>
-                          ))}
-                        </>
                       )}
                     </svg>
 
@@ -3283,75 +3074,7 @@ export default function MarsNavV4Workspace() {
                   </button>
                 </div>
               ) : (
-                /* UPLOAD-FIRST EMPTY WORKSPACE STATE */
-                <div className="flex flex-col items-center justify-center gap-6 px-6 py-8 w-full max-w-lg mx-auto">
-                  {/* Icon + Headline */}
-                  <div className="flex flex-col items-center gap-3 text-center">
-                    <div className="relative">
-                      <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700/80 flex items-center justify-center shadow-2xl">
-                        <Compass className="w-10 h-10 text-cyan-400/70" />
-                      </div>
-                      <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center shadow-lg">
-                        <ImageIcon className="w-3.5 h-3.5 text-white" />
-                      </div>
-                    </div>
-                    <div>
-                      <h3 className="text-white font-bold text-sm tracking-tight">Your terrain workspace is ready</h3>
-                      <p className="text-slate-400 text-xs font-mono mt-1 leading-relaxed max-w-xs">
-                        Choose a terrain image to begin your EVA analysis
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Option A — Upload */}
-                  <button
-                    onClick={() => {
-                      if (fileInputRef.current) fileInputRef.current.value = '';
-                      fileInputRef.current?.click();
-                    }}
-                    className="group w-full flex items-center gap-4 p-4 rounded-xl bg-gradient-to-r from-orange-950/60 to-amber-950/40 border border-orange-500/40 hover:border-orange-400/70 hover:from-orange-900/60 hover:to-amber-900/50 transition-all shadow-lg cursor-pointer text-left"
-                  >
-                    <div className="shrink-0 w-10 h-10 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center group-hover:bg-orange-500/30 transition-colors">
-                      <Upload className="w-5 h-5 text-orange-300" />
-                    </div>
-                    <div className="min-w-0">
-                      <span className="block text-orange-200 font-bold text-xs uppercase tracking-wider">Upload Image</span>
-                      <span className="block text-slate-400 text-[11px] font-mono mt-0.5">PNG, JPG, JPEG, WebP · Max 25 MB</span>
-                    </div>
-                    <div className="ml-auto shrink-0 text-orange-500/60 group-hover:text-orange-400 transition-colors">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                    </div>
-                  </button>
-
-                  {/* Divider */}
-                  <div className="w-full flex items-center gap-3">
-                    <div className="flex-1 h-px bg-slate-800" />
-                    <span className="text-slate-600 text-[10px] font-mono uppercase tracking-wider">or</span>
-                    <div className="flex-1 h-px bg-slate-800" />
-                  </div>
-
-                  {/* Option B — NASA Feed */}
-                  <button
-                    onClick={() => setNasaBrowserOpen(true)}
-                    className="group w-full flex items-center gap-4 p-4 rounded-xl bg-gradient-to-r from-cyan-950/60 to-teal-950/40 border border-cyan-500/40 hover:border-cyan-400/70 hover:from-cyan-900/60 hover:to-teal-900/50 transition-all shadow-lg cursor-pointer text-left"
-                  >
-                    <div className="shrink-0 w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center group-hover:bg-cyan-500/30 transition-colors">
-                      <Radio className="w-5 h-5 text-cyan-300 animate-pulse" />
-                    </div>
-                    <div className="min-w-0">
-                      <span className="block text-cyan-200 font-bold text-xs uppercase tracking-wider">Select NASA Image</span>
-                      <span className="block text-slate-400 text-[11px] font-mono mt-0.5">Live feed · Mars 2020 Perseverance rover</span>
-                    </div>
-                    <div className="ml-auto shrink-0 text-cyan-500/60 group-hover:text-cyan-400 transition-colors">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                    </div>
-                  </button>
-
-                  {/* Drag-and-drop hint */}
-                  <p className="text-slate-600 text-[10px] font-mono text-center">
-                    ↓ Or drag &amp; drop an image file directly onto this panel
-                  </p>
-                </div>
+                <ImageAcquisitionPanel onImageSelected={() => {}} />
               )}
             </div>
           )}
@@ -3366,38 +3089,14 @@ export default function MarsNavV4Workspace() {
               <div className="flex items-center gap-1 bg-black/50 p-1 rounded-xl border border-slate-800">
                 <button
                   onClick={() => setRightPanelTab('context')}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                     rightPanelTab === 'context'
                       ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   <Sliders className="w-3.5 h-3.5" />
-                  <span>Analysis</span>
-                </button>
-
-                <button
-                  onClick={() => setRightPanelTab('measurements')}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                    rightPanelTab === 'measurements'
-                      ? 'bg-teal-500/20 text-teal-300 border border-teal-500/40 shadow-sm'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <Ruler className="w-3.5 h-3.5" />
-                  <span>Measurements ({measurementsList.length})</span>
-                </button>
-
-                <button
-                  onClick={() => setRightPanelTab('field_notes')}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                    rightPanelTab === 'field_notes'
-                      ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>Field Notes ({notesList.length})</span>
+                  <span>Mission Analysis Telemetry</span>
                 </button>
               </div>
             </div>
@@ -4278,20 +3977,6 @@ export default function MarsNavV4Workspace() {
         </div>
       </div>
 
-      {/* NASA Raw Feed Browser Modal */}
-      {nasaBrowserOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 lg:p-8">
-          <div className="w-full max-w-5xl max-h-[90vh] flex flex-col my-auto">
-            <NASAImageFeed
-              onClose={() => setNasaBrowserOpen(false)}
-              onSelectImage={(img) => {
-                handleSelectNasaImage(img);
-                setNasaBrowserOpen(false);
-              }}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

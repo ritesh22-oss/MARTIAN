@@ -660,3 +660,47 @@ export async function processTerrainIntelligence(
     linkedDatasetsCount: provenanceList.length + (environmentalData.hasMatchingSensorData ? 4 : 0)
   };
 }
+
+/**
+ * Maps computer vision obstacles to detailed safety hazards.
+ */
+export function mapCVObstaclesToHazards(obstacles: DetectedTerrainObstacle[]): any[] {
+  return obstacles.map(obs => {
+    let riskLevel: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL' = 'LOW';
+    let mobilityImpact = 'Clearance advised.';
+    let severity = 'Minor';
+
+    if (obs.physicalWidthM && obs.physicalWidthM > 1.5) {
+      riskLevel = 'HIGH';
+      mobilityImpact = 'Direct obstruction; requires >3m avoidance radius.';
+      severity = 'Major Obstacle';
+    } else if (obs.physicalWidthM && obs.physicalWidthM > 0.8) {
+      riskLevel = 'MODERATE';
+      mobilityImpact = 'Navigational caution; restrict speed during traverse.';
+      severity = 'Moderate';
+    }
+
+    if (obs.classification === 'bedrock_ridge') {
+      riskLevel = obs.physicalWidthM && obs.physicalWidthM > 2.0 ? 'CRITICAL' : 'HIGH';
+      mobilityImpact = 'Severe vertical discontinuity; traversal prohibited.';
+      severity = 'Significant Ridge';
+    }
+
+    return {
+      id: `hz_${obs.id}`,
+      label: obs.label,
+      classification: obs.classification === 'unstable_regolith' ? 'loose_regolith' : obs.classification,
+      riskLevel,
+      confidence: obs.confidence,
+      normX: obs.normX,
+      normY: obs.normY,
+      normWidth: obs.normWidth,
+      normHeight: obs.normHeight,
+      areaPct: parseFloat((obs.normWidth * obs.normHeight * 100).toFixed(2)),
+      severity,
+      mobilityImpact,
+      reason: `Detected ${obs.classification} feature with confirmed contrast signature.`
+    };
+  });
+}
+

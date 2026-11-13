@@ -175,15 +175,16 @@ export async function processTerrainIntelligence(
   if (uploadedFile) {
     isCustomUpload = true;
     validation = await validateUploadedImageFile(uploadedFile);
-    isLocationVerified = validation.hasSpatialMetadata;
+    isLocationVerified = validation.hasSpatialMetadata && Boolean(customProvenance?.lat && customProvenance?.lon);
 
+    const objectUrl = URL.createObjectURL(uploadedFile);
     activeRecord = {
       id: `UPLOAD_${Date.now()}`,
       regionId: regionId as any,
-      regionName: isLocationVerified ? regionId.toUpperCase() + ' Sector' : 'User Uploaded Terrain',
+      regionName: isLocationVerified ? `${regionId.toUpperCase()} Sector` : 'User Uploaded Terrain (Ungeoreferenced)',
       title: uploadedFile.name,
-      assetUrl: URL.createObjectURL(uploadedFile),
-      thumbnailUrl: URL.createObjectURL(uploadedFile),
+      assetUrl: objectUrl,
+      thumbnailUrl: objectUrl,
       sourcePageUrl: 'User Photo Upload / CV Inspection',
       mission: 'User Image Upload',
       instrument: 'Optical Sensor / Digital Camera',
@@ -193,66 +194,72 @@ export async function processTerrainIntelligence(
       resolution: validation.spatialResolutionMPerPx ? `${validation.spatialResolutionMPerPx} m/px` : 'Uncalibrated (Pixel Space)',
       spatialScaleMetersPerPx: validation.spatialResolutionMPerPx || undefined,
       coordinates: {
-        lat: isLocationVerified ? 18.38 : 0,
-        lon: isLocationVerified ? 77.42 : 0,
-        latFormatted: isLocationVerified ? '18.3800° N' : 'LOCATION UNVERIFIED',
-        lonFormatted: isLocationVerified ? '77.4200° E' : 'LOCATION UNVERIFIED'
+        lat: isLocationVerified ? Number(customProvenance.lat) : 0,
+        lon: isLocationVerified ? Number(customProvenance.lon) : 0,
+        latFormatted: isLocationVerified ? `${Number(customProvenance.lat).toFixed(4)}° N` : 'LOCATION UNVERIFIED',
+        lonFormatted: isLocationVerified ? `${Number(customProvenance.lon).toFixed(4)}° E` : 'LOCATION UNVERIFIED'
       },
-      quadrangle: isLocationVerified ? 'Diacria Quadrangle' : 'Unverified Spatial Quadrangle',
-      imageType: validation.classification === 'ELEVATION_RASTER' ? 'Digital Elevation Model (DTM)' : 'Orbital Optical (Visible)',
-      viewType: 'orbital',
+      quadrangle: isLocationVerified ? 'Georeferenced Sector' : 'Coordinates Unavailable',
+      imageType: validation.classification === 'ELEVATION_RASTER' ? 'Digital Elevation Model (DTM)' : 'Surface Rover Frame',
+      viewType: 'rover',
       spectrumType: 'visible',
       sourceCredit: 'User File Input Stream',
-      geographicMatchLevel: isLocationVerified ? 'exact-footprint' : 'quadrangle-level',
+      geographicMatchLevel: isLocationVerified ? 'exact-footprint' : 'regional-footprint',
       status: 'verified-archive-record'
     };
   } else if (customImageUri) {
-    isCustomUpload = true;
-    isLocationVerified = !!customProvenance?.lat;
+    isCustomUpload = customProvenance?.selectionOrigin === 'upload';
+    const hasCoords =
+      typeof customProvenance?.lat === 'number' &&
+      typeof customProvenance?.lon === 'number' &&
+      Number.isFinite(customProvenance.lat) &&
+      Number.isFinite(customProvenance.lon) &&
+      (customProvenance?.coordinateScope === 'exact_verified' || customProvenance?.coordinateScope === 'mission_landing_basin');
+    isLocationVerified = hasCoords;
     validation = {
-      fileName: customProvenance?.title || 'Active Session Photograph',
-      format: 'JPEG',
-      fileSizeBytes: 1850000,
-      fileSizeFormatted: '1.85 MB',
-      width: 1920,
-      height: 1080,
-      aspectRatio: '16:9',
+      fileName: customProvenance?.title || customProvenance?.identifier || 'Active Session Photograph',
+      format: customImageUri.toLowerCase().includes('.png') ? 'PNG' : 'JPEG',
+      fileSizeBytes: 0,
+      fileSizeFormatted: 'Stream',
+      width: 0,
+      height: 0,
+      aspectRatio: 'Native',
       hasSpatialMetadata: isLocationVerified,
       spatialResolutionMPerPx: customProvenance?.resolutionMeters || null,
       spatialReferenceSystem: isLocationVerified ? 'Mars 2000 Equirectangular' : 'None (Pixel coordinates)',
       classification: 'OPTICAL_PHOTO',
-      classificationDescription: 'Active Session Terrain Photo',
+      classificationDescription: 'Optical Surface Photograph (Reflectance Image)',
       canDeriveNativeElevation: false,
-      validationNotes: [isLocationVerified ? 'Georeferenced session photo.' : 'Standard 2D photo without spatial reference header.']
+      validationNotes: [isLocationVerified ? 'Mission coordinates linked to observation.' : 'Standard 2D photo without orbital spatial footprint.']
     };
 
     activeRecord = {
       id: customProvenance?.identifier || `SESSION_${Date.now()}`,
       regionId: regionId as any,
-      regionName: customProvenance?.regionName || (isLocationVerified ? 'Jezero Delta Sector' : 'Active Session Frame'),
-      title: customProvenance?.title || 'MarsWalk Active Photograph',
+      regionName: customProvenance?.locationLabel || customProvenance?.targetRegion || (isLocationVerified ? 'Mission Landing Basin' : 'Unlocated Surface Frame'),
+      title: customProvenance?.title || customProvenance?.identifier || 'MarsWalk Active Photograph',
       assetUrl: customImageUri,
       thumbnailUrl: customImageUri,
       sourcePageUrl: customProvenance?.sourceUrl || 'MarsWalk Session Feed',
       mission: customProvenance?.mission || customProvenance?.rover || 'NASA Mars Rover Mission',
-      instrument: customProvenance?.camera || 'Mastcam-Z / Hazcam',
-      observationDate: customProvenance?.acquisitionUtc?.split('T')[0] || customProvenance?.observationDate || '2023-04-12',
-      releaseDate: customProvenance?.releaseDate || '2023-04-15',
+      instrument: customProvenance?.camera || 'Rover Optical Camera',
+      observationDate: customProvenance?.acquisitionUtc ? String(customProvenance.acquisitionUtc).split('T')[0] : 'Unknown',
+      releaseDate: customProvenance?.releaseDate || 'Unknown',
       description: customProvenance?.description || 'Active photograph from MarsWalk Ops session.',
-      resolution: customProvenance?.resolution || (isLocationVerified ? '0.25 m/pixel' : 'Uncalibrated'),
+      resolution: customProvenance?.resolution || 'Uncalibrated (Pixel Space)',
       spatialScaleMetersPerPx: customProvenance?.resolutionMeters || undefined,
       coordinates: {
-        lat: customProvenance?.lat || (isLocationVerified ? 18.38 : 0),
-        lon: customProvenance?.lon || (isLocationVerified ? 77.42 : 0),
-        latFormatted: isLocationVerified ? `${customProvenance?.lat?.toFixed(4)}° N` : 'LOCATION UNVERIFIED',
-        lonFormatted: isLocationVerified ? `${customProvenance?.lon?.toFixed(4)}° E` : 'LOCATION UNVERIFIED'
+        lat: isLocationVerified ? Number(customProvenance.lat) : 0,
+        lon: isLocationVerified ? Number(customProvenance.lon) : 0,
+        latFormatted: isLocationVerified ? `${Number(customProvenance.lat).toFixed(4)}° N` : 'LOCATION UNVERIFIED',
+        lonFormatted: isLocationVerified ? `${Number(customProvenance.lon).toFixed(4)}° E` : 'LOCATION UNVERIFIED'
       },
-      quadrangle: isLocationVerified ? 'Jezero Quadrangle (MC-13)' : 'Unverified Quadrangle',
-      imageType: 'Orbital Optical (Visible)',
+      quadrangle: isLocationVerified ? 'Mission Landing Basin Context' : 'Coordinates Unavailable',
+      imageType: 'Surface Rover Frame',
       viewType: 'rover',
       spectrumType: 'visible',
       sourceCredit: customProvenance?.source || 'NASA / JPL-Caltech',
-      geographicMatchLevel: isLocationVerified ? 'exact-footprint' : 'quadrangle-level',
+      geographicMatchLevel: customProvenance?.coordinateScope === 'exact_verified' ? 'exact-footprint' : 'regional-footprint',
       status: 'verified-archive-record'
     };
   } else if (imageRecord) {
@@ -324,64 +331,70 @@ export async function processTerrainIntelligence(
     };
   }
 
-  // 2. Perform Real Computer Vision Feature Analysis on Active Image
+  // 2. Perform Real Computer Vision Feature Analysis on Active Image (CORS-safe via proxy)
   let cvAnalysis: TerrainFeatureExtractionResult;
   try {
-    const imgEl = new Image();
-    imgEl.crossOrigin = 'anonymous';
-    imgEl.src = activeRecord.assetUrl;
-    await new Promise((resolve) => {
-      imgEl.onload = resolve;
-      imgEl.onerror = resolve;
-      setTimeout(resolve, 800);
+    const safeAssetUrl =
+      activeRecord.assetUrl.startsWith('data:') ||
+      activeRecord.assetUrl.startsWith('blob:') ||
+      activeRecord.assetUrl.startsWith('/')
+        ? activeRecord.assetUrl
+        : `/api/nasa/proxy-image?url=${encodeURIComponent(activeRecord.assetUrl)}`;
+
+    const imgEl = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      if (!safeAssetUrl.startsWith('data:') && !safeAssetUrl.startsWith('blob:') && !safeAssetUrl.startsWith('/')) {
+        el.crossOrigin = 'anonymous';
+      }
+      const timer = setTimeout(() => reject(new Error('Image CV decode timeout')), 12000);
+      el.onload = () => {
+        clearTimeout(timer);
+        if (el.naturalWidth > 0 && el.naturalHeight > 0) resolve(el);
+        else reject(new Error('Zero dimension image'));
+      };
+      el.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error('Image CV decode failed'));
+      };
+      el.src = safeAssetUrl;
+      if (el.complete && el.naturalWidth > 0) {
+        clearTimeout(timer);
+        resolve(el);
+      }
     });
 
+    validation = {
+      ...validation,
+      width: imgEl.naturalWidth || validation.width,
+      height: imgEl.naturalHeight || validation.height,
+      aspectRatio: `${((imgEl.naturalWidth || 1) / Math.max(1, imgEl.naturalHeight || 1)).toFixed(2)}:1`
+    };
     cvAnalysis = analyzeImageTerrainFeatures(imgEl, validation, []);
-  } catch (err) {
+  } catch {
     cvAnalysis = {
       validation,
-      detectedObstacles: [
-        {
-          id: 'obs_1',
-          classification: 'boulder',
-          label: 'Primary Boulder Cluster',
-          confidence: 0.82,
-          normX: 0.35,
-          normY: 0.42,
-          normWidth: 0.08,
-          normHeight: 0.06,
-          pixelX: 180,
-          pixelY: 120,
-          pixelWidth: 32,
-          pixelHeight: 24,
-          physicalWidthM: validation.spatialResolutionMPerPx ? 0.8 : null,
-          physicalHeightM: validation.spatialResolutionMPerPx ? 0.6 : null,
-          dimensionsNote: validation.spatialResolutionMPerPx ? '0.8m × 0.6m (Scale: 0.25m/px)' : 'Scale reference unavailable',
-          intersectsPlannedRoute: false,
-          distanceToRoutePixels: 45,
-          intersectingWaypointIndex: null
-        }
-      ],
-      surfaceTextureScore: 0.48,
-      shadowContrastRatio: 0.18,
+      detectedObstacles: [],
+      surfaceTextureScore: 0,
+      shadowContrastRatio: 0,
       intersectingObstacleCount: 0,
-      dominantFeature: 'Stratified Regolith Bedrock',
+      dominantFeature: 'Image Pixel Decode Unavailable',
+      pixelComposition: { soilPct: 0, bedrockPct: 0, sandPct: 0, rockPct: 0 },
       dataSuitability: {
         elevationAnalysis: validation.canDeriveNativeElevation,
         slopeCalculation: validation.canDeriveNativeElevation,
-        surfaceRoughness: true,
-        obstacleClearance: true,
-        roverTraversability: validation.canDeriveNativeElevation,
-        notes: 'CV analysis completed on reflectance image.'
+        surfaceRoughness: false,
+        obstacleClearance: false,
+        roverTraversability: false,
+        notes: 'Unable to decode image pixel buffer for CV inspection.'
       }
     };
   }
 
-  // 3. Construct Dynamic Geological Targets from CV & NASA Metadata (No hardcoded fake scores!)
+  // 3. Construct Geological Targets strictly from CV observations (no hardcoded Sedimentary Delta fallback)
   const geologicalTargets: IntelligenceGeologicalTarget[] = cvAnalysis.detectedObstacles.map((obs, idx) => {
-    const calculatedConfidence = Math.min(97, Math.max(62, Math.round(obs.confidence * 92 + (isLocationVerified ? 5 : 0))));
-    const latVal = isLocationVerified ? parseFloat((activeRecord.coordinates.lat + (obs.normY - 0.5) * 0.02).toFixed(4)) : null;
-    const lonVal = isLocationVerified ? parseFloat((activeRecord.coordinates.lon + (obs.normX - 0.5) * 0.02).toFixed(4)) : null;
+    const calculatedConfidence = Math.min(97, Math.max(58, Math.round(obs.confidence * 92)));
+    const latVal = isLocationVerified ? parseFloat((activeRecord.coordinates.lat + (obs.normY - 0.5) * 0.002).toFixed(5)) : null;
+    const lonVal = isLocationVerified ? parseFloat((activeRecord.coordinates.lon + (obs.normX - 0.5) * 0.002).toFixed(5)) : null;
 
     return {
       id: `tgt_${activeRecord.id}_${idx + 1}`,
@@ -389,160 +402,64 @@ export async function processTerrainIntelligence(
       lat: latVal,
       lon: lonVal,
       classification: obs.classification === 'bedrock_ridge'
-        ? 'Stratified Lithic Escarpment'
+        ? 'Stratified Lithic Escarpment (Visual)'
         : obs.classification === 'rock_cluster'
-        ? 'Impact Breccia Cluster'
-        : 'Indurated Regolith Block',
+        ? 'Rock / Boulder Cluster (Visual)'
+        : 'Discrete Rock / Boulder Feature (Visual)',
       supportingImage: activeRecord.thumbnailUrl || activeRecord.assetUrl,
       dataSource: activeRecord.sourceCredit,
       instrument: activeRecord.instrument,
       confidencePct: calculatedConfidence,
-      relevance: obs.dimensionsNote
-        ? `CV detected feature with verified dimensions: ${obs.dimensionsNote}.`
-        : `CV contrast signature detected in ${activeRecord.instrument} frame.`,
+      relevance: obs.traversalRelevance || obs.dimensionsNote,
       recommendedMethod: obs.classification === 'bedrock_ridge'
-        ? 'Handheld Spectrometer & Abrading Tool'
-        : 'Micro-XRF Scan & Core Sample Drill',
+        ? 'Optical Multi-Angle Inspection & Spectrometer Follow-up'
+        : 'Stand-off Optical Target Documentation',
       status: idx === 0 ? 'In Progress' : 'Planned',
-      dataNature: isLocationVerified ? 'Observed' : 'Derived',
+      dataNature: 'Derived',
       notes: [
         `Observation source: ${activeRecord.sourcePageUrl}`,
         `Instrument: ${activeRecord.instrument}`,
-        `Spatial scale: ${activeRecord.resolution}`
+        `Detection method: ${obs.detectionMethod}`
       ],
       photoUrls: [activeRecord.assetUrl]
     };
   });
 
-  if (geologicalTargets.length === 0) {
-    geologicalTargets.push({
-      id: `tgt_${activeRecord.id}_cat_1`,
-      name: `Outcrop Target — ${activeRecord.title.substring(0, 30)}`,
-      lat: isLocationVerified ? activeRecord.coordinates.lat : null,
-      lon: isLocationVerified ? activeRecord.coordinates.lon : null,
-      classification: 'Sedimentary Delta Formation',
-      supportingImage: activeRecord.thumbnailUrl || activeRecord.assetUrl,
-      dataSource: activeRecord.sourceCredit,
-      instrument: activeRecord.instrument,
-      confidencePct: 88,
-      relevance: activeRecord.description,
-      recommendedMethod: 'Multi-spectral imaging & in-situ XRF',
-      status: 'Planned',
-      dataNature: isLocationVerified ? 'Observed' : 'Derived',
-      notes: [`Source URL: ${activeRecord.sourcePageUrl}`],
-      photoUrls: [activeRecord.assetUrl]
-    });
-  }
+  // 4. Honest Environmental Sensor Status (never fabricate live MEDA/REMS/RAD station readings)
+  const environmentalData: TerrainIntelligenceResult['environmentalData'] = {
+    hasMatchingSensorData: false,
+    statusLabel: isLocationVerified
+      ? 'NO LIVE IN-SITU WEATHER TELEMETRY ENDPOINT (ARCHIVAL REFERENCE ONLY)'
+      : 'IN-SITU SENSOR DATA UNAVAILABLE FOR THIS IMAGE',
+    surfaceTemp: null,
+    pressure: null,
+    wind: null,
+    dust: null,
+    gravity: { value: '3.721 m/s² (Mars Reference)', nature: 'Observed' },
+    solarExposure: null,
+    radiation: {
+      hasMatchingObservation: false,
+      statusText: 'NO MATCHING RADIATION OBSERVATION',
+      doseRate: 'Unavailable',
+      equivalentYearly: 'Unavailable',
+      locationName: isLocationVerified ? activeRecord.regionName : 'Coordinates Unavailable',
+      date: 'N/A',
+      source: 'No live NASA RAD/MEDA endpoint',
+      instrument: 'None',
+      freshness: 'Unavailable',
+      nature: 'Unknown'
+    }
+  };
 
-  // 4. In-Situ Environmental Sensor Dataset Resolution
-  const normRegion = regionId.toLowerCase();
-  const isJezero = normRegion.includes('jezero');
-  const isGale = normRegion.includes('gale');
-
-  let environmentalData: TerrainIntelligenceResult['environmentalData'];
-
-  if (isJezero && isLocationVerified) {
-    environmentalData = {
-      hasMatchingSensorData: true,
-      statusLabel: 'VERIFIED OBSERVATION (NASA Mars 2020 MEDA / RAD)',
-      surfaceTemp: { value: '-62.4', unit: '°C', date: '2026-11-10', source: 'NASA Mars 2020 (Perseverance)', instrument: 'MEDA (Mars Environmental Dynamics Analyzer)', nature: 'Observed' },
-      pressure: { value: '612', unit: 'Pa (0.006 atm)', date: '2026-11-10', source: 'NASA Mars 2020 (Perseverance)', instrument: 'MEDA Barometer', nature: 'Observed' },
-      wind: { speed: '6.8 m/s', direction: '210° SW', date: '2026-11-10', source: 'NASA Mars 2020 (Perseverance)', instrument: 'MEDA Wind Sensors', nature: 'Observed' },
-      dust: { tau: '0.42', condition: 'Nominal Clear Sky', date: '2026-11-10', source: 'NASA Mars 2020 (Perseverance)', instrument: 'MEDA RDS Optical Sensor', nature: 'Observed' },
-      gravity: { value: '3.721 m/s² (0.38 g)', nature: 'Observed' },
-      solarExposure: { value: '540', unit: 'W/m²', date: '2026-11-10', source: 'NASA MEDA Solar Radiometer', nature: 'Observed' },
-      radiation: {
-        hasMatchingObservation: true,
-        statusText: 'VERIFIED OBSERVATION',
-        doseRate: '0.64 mGy/day',
-        equivalentYearly: '186.9 mSv/yr',
-        locationName: 'Jezero Crater Basin Regional Baseline',
-        date: '2026-11-11',
-        source: 'NASA MSL RAD / Mars 2020 Calibration Baseline',
-        instrument: 'Energetic Particle Detector (RAD)',
-        freshness: '14 mins ago',
-        nature: 'Observed'
-      }
-    };
-  } else if (isGale && isLocationVerified) {
-    environmentalData = {
-      hasMatchingSensorData: true,
-      statusLabel: 'VERIFIED OBSERVATION (NASA MSL REMS / RAD)',
-      surfaceTemp: { value: '-58.1', unit: '°C', date: 'Sol 4010', source: 'NASA MSL Curiosity', instrument: 'REMS (Rover Environmental Monitoring Station)', nature: 'Observed' },
-      pressure: { value: '740', unit: 'Pa (0.007 atm)', date: 'Sol 4010', source: 'NASA MSL Curiosity', instrument: 'REMS Pressure Sensor', nature: 'Observed' },
-      wind: { speed: '4.2 m/s', direction: '180° S', date: 'Sol 4010', source: 'NASA MSL Curiosity', instrument: 'REMS Anemometer', nature: 'Observed' },
-      dust: { tau: '0.55', condition: 'Moderate Dust Activity', date: 'Sol 4010', source: 'NASA MSL Curiosity', instrument: 'Mastcam Tau Measurement', nature: 'Observed' },
-      gravity: { value: '3.721 m/s² (0.38 g)', nature: 'Observed' },
-      solarExposure: { value: '520', unit: 'W/m²', date: 'Sol 4010', source: 'NASA MSL REMS UV Sensor', nature: 'Observed' },
-      radiation: {
-        hasMatchingObservation: true,
-        statusText: 'VERIFIED OBSERVATION',
-        doseRate: '0.68 mGy/day',
-        equivalentYearly: '198.6 mSv/yr',
-        locationName: 'Gale Crater / Mount Sharp (MSL RAD Station)',
-        date: 'Sol 4010',
-        source: 'NASA MSL RAD (Radiation Assessment Detector)',
-        instrument: 'Silicon Detector Telemetry',
-        freshness: 'Sol 4010 Direct Telemetry',
-        nature: 'Observed'
-      }
-    };
-  } else if (isLocationVerified) {
-    // Other verified Mars regions with regional orbital & climate models
-    environmentalData = {
-      hasMatchingSensorData: false,
-      statusLabel: 'MODEL ESTIMATE / REGIONAL CLIMATE DATA',
-      surfaceTemp: { value: '-65.0', unit: '°C (Regional Model)', date: 'Seasonal Mean', source: 'NASA Mars Climate Database (MCD v6)', instrument: 'THEMIS Orbital Infrared Baseline', nature: 'Modeled' },
-      pressure: { value: '590', unit: 'Pa (Elevation Scaled)', date: 'Seasonal Mean', source: 'MOLA Topographic Atmospheric Model', instrument: 'MOLA Altimeter Grid', nature: 'Modeled' },
-      wind: { speed: '8.5 m/s', direction: 'Variable Regional Flow', date: 'Seasonal Model', source: 'NASA Mars Global Climate Model', instrument: 'Orbital Dynamics', nature: 'Modeled' },
-      dust: { tau: '0.50', condition: 'Regional Optical Baseline', date: 'Orbital Average', source: 'MRO MCS Dust Sounder', instrument: 'Mars Climate Sounder', nature: 'Derived' },
-      gravity: { value: '3.721 m/s² (0.38 g)', nature: 'Observed' },
-      solarExposure: { value: '490', unit: 'W/m²', date: 'Solar Constant Model', source: 'NASA JPL Solar Insolation Table', nature: 'Modeled' },
-      radiation: {
-        hasMatchingObservation: false,
-        statusText: 'NO MATCHING RADIATION OBSERVATION',
-        doseRate: '0.65 mGy/day (Regional Model)',
-        equivalentYearly: '189.8 mSv/yr',
-        locationName: `${activeRecord.regionName} (Un-stationed Field)`,
-        date: 'Current Season Model',
-        source: 'NASA MSL RAD Surface Radiation Model',
-        instrument: 'Extrapolated Orbit-Surface Model',
-        freshness: 'Regional Extrapolation',
-        nature: 'Modeled'
-      }
-    };
-  } else {
-    // Unverified user upload or unlinked location
-    environmentalData = {
-      hasMatchingSensorData: false,
-      statusLabel: 'DATA UNAVAILABLE FOR SELECTED REGION',
-      surfaceTemp: null,
-      pressure: null,
-      wind: null,
-      dust: null,
-      gravity: { value: '3.721 m/s² (0.38 g)', nature: 'Observed' },
-      solarExposure: null,
-      radiation: {
-        hasMatchingObservation: false,
-        statusText: 'NO MATCHING RADIATION OBSERVATION',
-        doseRate: 'Unavailable',
-        equivalentYearly: 'Unavailable',
-        locationName: 'Unverified Location',
-        date: 'N/A',
-        source: 'No Station In Vicinity',
-        instrument: 'None',
-        freshness: 'No Direct Sensor Match',
-        nature: 'Unknown'
-      }
-    };
-  }
-
-  // 5. Calculate Topographic Slope & Surface Properties
+  // 5. Topographic Slope & Surface Properties (never invent 4.2° / 11.5° for 2D photos)
   const canDeriveSlope = validation.canDeriveNativeElevation;
-  const slopeMeanDeg = canDeriveSlope ? 4.2 : null;
-  const slopeMaxDeg = canDeriveSlope ? 11.5 : null;
+  const slopeMeanDeg: number | null = null;
+  const slopeMaxDeg: number | null = null;
   const roughnessScore = cvAnalysis.surfaceTextureScore;
-  const regolithTraversabilityIndex = Math.max(20, Math.min(95, Math.round(100 - (roughnessScore * 45 + cvAnalysis.shadowContrastRatio * 25))));
+  const regolithTraversabilityIndex = Math.max(
+    15,
+    Math.min(96, Math.round(100 - (roughnessScore * 45 + cvAnalysis.shadowContrastRatio * 25 + Math.min(20, cvAnalysis.detectedObstacles.length * 2.5))))
+  );
 
   // 6. Calculate Safety Risk Level
   let riskLevel: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL' | 'INSUFFICIENT DATA' = 'LOW';
@@ -565,26 +482,12 @@ export async function processTerrainIntelligence(
       sourceUrl: activeRecord.sourcePageUrl,
       acquisitionDate: activeRecord.observationDate,
       spatialResolution: activeRecord.resolution,
-      matchLevel: isLocationVerified ? 'exact-footprint' : 'unverified'
+      matchLevel: isLocationVerified ? 'regional-footprint' : 'unverified'
     }
   ];
 
-  if (isLocationVerified) {
-    provenanceList.push({
-      sourceName: 'USGS Astrogeology / MOLA Topographic Datum',
-      agencyCredit: 'NASA / USGS',
-      mission: 'Mars Global Surveyor',
-      instrument: 'MOLA (Mars Orbiter Laser Altimeter)',
-      observationId: 'MOLA_MEGDR_128',
-      sourceUrl: 'https://astrogeology.usgs.gov/search/map/Mars/GlobalSurfaces/Mars_MOLA_DEM_64ppd_30Oct2014',
-      acquisitionDate: '2001-05-15',
-      spatialResolution: '463 meters/pixel',
-      matchLevel: 'regional-footprint'
-    });
-  }
-
   return {
-    engineVersion: '2.5.0-PHOTO-INTEGRATED',
+    engineVersion: '3.0.0-SCIENTIFIC-INTEGRITY',
     processedAt,
     regionId,
     regionName: activeRecord.regionName,
@@ -594,9 +497,9 @@ export async function processTerrainIntelligence(
       regionName: activeRecord.regionName,
       lat: isLocationVerified ? activeRecord.coordinates.lat : null,
       lon: isLocationVerified ? activeRecord.coordinates.lon : null,
-      elevM: isLocationVerified ? -2450 : null,
+      elevM: null,
       formattedCoords: isLocationVerified ? `${activeRecord.coordinates.lat.toFixed(4)}° N, ${activeRecord.coordinates.lon.toFixed(4)}° E` : 'LOCATION UNVERIFIED',
-      formattedElev: isLocationVerified ? '-2450m MOLA' : 'ELEVATION DATA UNAVAILABLE',
+      formattedElev: 'DEM CALIBRATION UNAVAILABLE',
       nature: isLocationVerified ? 'Observed' : 'Unknown'
     },
     activeImage: {
@@ -637,8 +540,8 @@ export async function processTerrainIntelligence(
         isAvailable: canDeriveSlope
       },
       roughnessScore,
-      elevationVariationM: canDeriveSlope ? 14.5 : null,
-      rockDensity: roughnessScore > 0.5 ? 'Dense Boulder Scree' : 'Sparse Dispersed Sub-meter Blocks',
+      elevationVariationM: null,
+      rockDensity: roughnessScore > 0.5 ? 'Dense Boulder Scree' : 'Sparse Dispersed Clasts',
       obstacleCount: cvAnalysis.detectedObstacles.length,
       traversabilityIndex: regolithTraversabilityIndex,
       looseRegolithRisk: roughnessScore > 0.55 ? 'High' : 'Moderate',
@@ -649,15 +552,15 @@ export async function processTerrainIntelligence(
       obstacleCount: cvAnalysis.detectedObstacles.length,
       maxSlopeHazard: slopeMaxDeg !== null ? `${slopeMaxDeg}°` : 'ELEVATION DATA UNAVAILABLE',
       rockDensityLabel: roughnessScore > 0.5 ? 'High Density Rock Field' : 'Low Density Regolith',
-      looseTerrainRisk: roughnessScore > 0.55 ? 'Loose Regolith & Sand Drift' : 'Stable Bedrock Base',
+      looseTerrainRisk: roughnessScore > 0.55 ? 'Loose Regolith & Sand Drift' : 'Stable Regolith Matrix',
       emergencyReturnFeasible: regolithTraversabilityIndex >= 40,
       assessmentNotes: [
         `Risk level evaluated as ${riskLevel}.`,
-        isLocationVerified ? 'Spatial coordinates and regional MOLA datum verified.' : 'Image lacks embedded spatial reference headers — coordinates unverified.'
+        isLocationVerified ? 'Mission coordinates associated with orbital context.' : 'Image lacks spatial reference headers — coordinates unavailable.'
       ]
     },
     provenanceList,
-    linkedDatasetsCount: provenanceList.length + (environmentalData.hasMatchingSensorData ? 4 : 0)
+    linkedDatasetsCount: provenanceList.length
   };
 }
 
@@ -667,39 +570,51 @@ export async function processTerrainIntelligence(
 export function mapCVObstaclesToHazards(obstacles: DetectedTerrainObstacle[]): any[] {
   return obstacles.map(obs => {
     let riskLevel: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL' = 'LOW';
-    let mobilityImpact = 'Clearance advised.';
+    let mobilityImpact = obs.traversalRelevance || 'Clearance advised.';
     let severity = 'Minor';
 
-    if (obs.physicalWidthM && obs.physicalWidthM > 1.5) {
+    if (obs.sizeCategory === 'massive_boulder') {
+      riskLevel = 'CRITICAL';
+      severity = 'Massive Rock Formation';
+    } else if (obs.sizeCategory === 'large_boulder' || obs.sizeCategory === 'crater_depression' || (obs.physicalWidthM && obs.physicalWidthM > 1.5)) {
       riskLevel = 'HIGH';
-      mobilityImpact = 'Direct obstruction; requires >3m avoidance radius.';
       severity = 'Major Obstacle';
-    } else if (obs.physicalWidthM && obs.physicalWidthM > 0.8) {
+    } else if (obs.sizeCategory === 'rock_cluster' || obs.sizeCategory === 'medium_rock' || (obs.physicalWidthM && obs.physicalWidthM > 0.8)) {
       riskLevel = 'MODERATE';
-      mobilityImpact = 'Navigational caution; restrict speed during traverse.';
       severity = 'Moderate';
     }
 
-    if (obs.classification === 'bedrock_ridge') {
-      riskLevel = obs.physicalWidthM && obs.physicalWidthM > 2.0 ? 'CRITICAL' : 'HIGH';
-      mobilityImpact = 'Severe vertical discontinuity; traversal prohibited.';
+    if (obs.classification === 'bedrock_ridge' || obs.sizeCategory === 'bedrock_ridge') {
+      riskLevel = (obs.normWidth * obs.normHeight > 0.035) ? 'CRITICAL' : 'HIGH';
       severity = 'Significant Ridge';
     }
+
+    const riskColor = obs.riskColor || (riskLevel === 'CRITICAL' || riskLevel === 'HIGH' ? '#ef4444' : riskLevel === 'MODERATE' ? '#f97316' : '#eab308');
 
     return {
       id: `hz_${obs.id}`,
       label: obs.label,
       classification: obs.classification === 'unstable_regolith' ? 'loose_regolith' : obs.classification,
+      sizeCategory: obs.sizeCategory,
+      hazardStatus: obs.hazardStatus,
+      traversalRelevance: obs.traversalRelevance,
+      detectionMethod: obs.detectionMethod,
+      dimensionsNote: obs.dimensionsNote,
       riskLevel,
+      riskColor,
       confidence: obs.confidence,
       normX: obs.normX,
       normY: obs.normY,
       normWidth: obs.normWidth,
       normHeight: obs.normHeight,
+      pixelX: obs.pixelX,
+      pixelY: obs.pixelY,
+      pixelWidth: obs.pixelWidth,
+      pixelHeight: obs.pixelHeight,
       areaPct: parseFloat((obs.normWidth * obs.normHeight * 100).toFixed(2)),
       severity,
       mobilityImpact,
-      reason: `Detected ${obs.classification} feature with confirmed contrast signature.`
+      reason: `${obs.detectionMethod}: ${obs.sizeCategory?.replace('_', ' ')} (${obs.hazardStatus}).`
     };
   });
 }

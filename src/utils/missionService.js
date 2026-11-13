@@ -249,8 +249,9 @@ export function setLocalActiveMissionId(id) {
 /**
  * Saves or updates a mission record to Firestore (if logged in and quota not exceeded) and localStorage
  */
-export async function saveMissionRecord(mission) {
+export async function saveMissionRecord(mission, options = {}) {
   if (!mission || !mission.id) return null;
+  const { localOnly = false } = options;
   
   // 0. Prevent redundant writes if data is identical (excluding timestamps)
   const localList = getLocalMissions();
@@ -277,8 +278,8 @@ export async function saveMissionRecord(mission) {
   }
   setLocalMissions(localList);
 
-  // 2. Persist to Firestore if signed in and quota not exceeded
-  if (auth.currentUser && !isFirestoreQuotaExceeded()) {
+  // 2. Persist to Firestore if signed in, not localOnly, and quota not exceeded
+  if (!localOnly && auth.currentUser && !isFirestoreQuotaExceeded()) {
     const userId = auth.currentUser.uid;
     try {
       const docRef = doc(db, 'users', userId, 'missions', updatedMission.id);

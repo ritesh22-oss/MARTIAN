@@ -247,7 +247,7 @@ export const SurfaceMissionDashboard: React.FC = () => {
               <img
                 src={activeSession.imageMetadata.url}
                 alt={activeSession.imageMetadata.fileName}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain bg-black"
                 onError={() => setImageError(true)}
               />
             )}
@@ -303,7 +303,7 @@ export const SurfaceMissionDashboard: React.FC = () => {
           </div>
           <div className="text-lg font-bold text-white truncate">{suitDetails.name}</div>
           <div className="text-xs font-mono text-slate-400">
-            Mass: <strong className="text-slate-200">{suitDetails.totalMassKg} kg</strong> · Speed: <strong className="text-slate-200">{suitDetails.maxSpeedMs} m/s</strong>
+            Mass: <strong className="text-slate-200">{suitDetails.totalMassKg !== null ? `${suitDetails.totalMassKg} kg` : 'Missing Data'}</strong> · Speed: <strong className="text-slate-200">{suitDetails.maxSpeedMs !== null ? `${suitDetails.maxSpeedMs} m/s` : 'Missing Data'}</strong>
           </div>
         </div>
 
@@ -313,10 +313,10 @@ export const SurfaceMissionDashboard: React.FC = () => {
             <Compass className="w-4 h-4 text-cyan-400" />
           </div>
           <div className="text-xl font-bold font-mono text-cyan-300">
-            {((activeSession.activeRoute?.distanceM || currentRoute.distanceM) / 1000).toFixed(2)} km
+            {(((activeSession.activeRoute?.distanceM ?? currentRoute.distanceM) ?? 0) / 1000).toFixed(2)} km
           </div>
           <div className="text-xs font-mono text-slate-400">
-            Est Time: <strong className="text-slate-200">{activeSession.activeRoute?.timeMins || currentRoute.timeMins} mins</strong> · Slope Max: <strong className="text-slate-200">{activeSession.terrainAnalysis?.slopeMaxDeg || currentRoute.maxSlopeDeg}°</strong>
+            Est Time: <strong className="text-slate-200">{activeSession.activeRoute?.timeMins ?? currentRoute.timeMins ?? 0} mins</strong> · Slope Max: <strong className="text-slate-200">{activeSession.terrainAnalysis?.slopeMaxDeg ?? currentRoute.maxSlopeDeg ?? 0}°</strong>
           </div>
         </div>
 
@@ -326,10 +326,10 @@ export const SurfaceMissionDashboard: React.FC = () => {
             <Sun className="w-4 h-4 text-amber-400" />
           </div>
           <div className="text-xl font-bold font-mono text-amber-300">
-            {activeSession.environmentalObservations?.isAvailable !== false && activeSession.environmentalObservations?.radiationDoseMgyDay !== null ? (
+            {activeSession.environmentalObservations?.isAvailable !== false && activeSession.environmentalObservations?.radiationDoseMgyDay?.value !== null && activeSession.environmentalObservations?.radiationDoseMgyDay?.value !== undefined ? (
               <>
-                {activeSession.environmentalObservations?.radiationDoseMgyDay ?? spaceWeather.mslRadSurfaceDoseRate}{' '}
-                <span className="text-xs text-amber-400 font-normal">mGy/day</span>
+                {activeSession.environmentalObservations.radiationDoseMgyDay.value ?? spaceWeather.mslRadSurfaceDoseRate}{' '}
+                <span className="text-xs text-amber-400 font-normal">{activeSession.environmentalObservations.radiationDoseMgyDay.unit || 'mGy/day'}</span>
               </>
             ) : (
               <span className="text-amber-400 text-sm font-bold">NO SENSOR LINK</span>
@@ -522,11 +522,11 @@ export const SurfaceMissionDashboard: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">MSL RAD Surface Dose:</span>
-                <span className="text-white font-bold">{spaceWeather.mslRadSurfaceDoseRate} mGy/day</span>
+                <span className="text-white font-bold">{spaceWeather.mslRadSurfaceDoseRate !== null ? `${spaceWeather.mslRadSurfaceDoseRate} mGy/day` : 'Unavailable (No Link)'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Equivalent Yearly Dose:</span>
-                <span className="text-cyan-300 font-bold">{(spaceWeather.mslRadSurfaceDoseRate * 365.25 * 0.8).toFixed(1)} mSv/yr</span>
+                <span className="text-cyan-300 font-bold">{spaceWeather.mslRadSurfaceDoseRate !== null ? `${(spaceWeather.mslRadSurfaceDoseRate * 365.25 * 0.8).toFixed(1)} mSv/yr` : 'Unavailable'}</span>
               </div>
             </div>
 

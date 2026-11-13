@@ -10,6 +10,8 @@ import {
   GroundTruthRecord
 } from '../services/ai4marsDatasetService';
 
+const EMPTY_ROUTES: RouteCandidate[] = [];
+
 export function logRouteDiagnostics(sourceModule: string, data: {
   imageId: string;
   imageWidth: number;
@@ -175,6 +177,11 @@ export interface TerrainAnalysisResult {
   matchedGtRecord: GroundTruthRecord | null;
   activeRouteFeasible: boolean;
   blockedReason: string | null;
+  isDemCalibrated: boolean;
+  demCalibrationSource: string;
+  demElevationRange: [number, number] | null;
+  demResolutionMeters: number | null;
+  isSingle2dOpticalPhoto: boolean;
 }
 
 export interface RoverPosTelemetry {
@@ -296,7 +303,7 @@ export function generateOccupancyGrid(
 const TerrainAnalysisContext = createContext<TerrainAnalysisContextType | undefined>(undefined);
 
 export function TerrainAnalysisProvider({ children }: { children: React.ReactNode }) {
-  const { selectedObservation, selectedRegion, sharedSession, settings, updateSharedSession } = useWorkspace();
+  const { selectedObservation, selectedRegion, sharedSession, settings, updateSharedSession, selectedDtmData } = useWorkspace();
 
   // Sync points and manual obstacles with global sharedSession
   const startPoint = sharedSession.startPoint;
@@ -405,83 +412,74 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
       const nh = img.naturalHeight || 768;
       setImageDims({ width: nw, height: nh });
       
-      // Honest Baseline: Pixel Analysis & Classification
-      const canvas = document.createElement('canvas');
-      canvas.width = 256;
-      canvas.height = 256;
-      const ctx = canvas.getContext('2d');
+      // Aspect-ratio-preserving pixel analysis & classification before mapping to 256x256 A* navigation grid
+      const maxAnalysisSide = 320;
+      const aspectScale = Math.min(1, maxAnalysisSide / Math.max(nw, nh));
+      const workW = Math.max(32, Math.round(nw * aspectScale));
+      const workH = Math.max(32, Math.round(nh * aspectScale));
+
+      const workCanvas = document.createElement('canvas');
+      workCanvas.width = workW;
+      workCanvas.height = workH;
+      const ctx = workCanvas.getContext('2d', { willReadFrequently: true });
       if (ctx) {
-        ctx.drawImage(img, 0, 0, 256, 256);
-        const imgData = ctx.getImageData(0, 0, 256, 256);
+        ctx.drawImage(img, 0, 0, workW, workH);
+        const imgData = ctx.getImageData(0, 0, workW, workH);
         const data = imgData.data;
-        
-        const predGrid = new Uint8Array(256 * 256);
-        const grid = new Float32Array(256 * 256);
-        const textures = new Float32Array(256 * 256);
-        const obstacleClusters: { x: number; y: number; count: number; lum: number }[] = [];
-        const grayGrid = new Float32Array(256 * 256);
-        const edgeGrid = new Float32Array(256 * 256);
+        const workTotal = workW * workH;
 
-        // Pass 1: Compute Grayscale and Sobel Edge Gradients
-        for (let y = 0; y < 256; y++) {
-          for (let x = 0; x < 256; x++) {
-            const idx = y * 256 + x;
-            const i = idx * 4;
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
-            grayGrid[idx] = 0.299 * r + 0.587 * g + 0.114 * b;
-          }
-        }
+        const workGray = new Float32Array(workTotal);
+        const workEdge = new Float32Array(workTotal);
+        const workRawClass = new Uint8Array(workTotal);
 
-        for (let y = 1; y < 255; y++) {
-          for (let x = 1; x < 255; x++) {
-            const idx = y * 256 + x;
-            const gx =
-              -grayGrid[(y - 1) * 256 + (x - 1)] + grayGrid[(y - 1) * 256 + (x + 1)] +
-              -2 * grayGrid[y * 256 + (x - 1)] + 2 * grayGrid[y * 256 + (x + 1)] +
-              -grayGrid[(y + 1) * 256 + (x - 1)] + grayGrid[(y + 1) * 256 + (x + 1)];
-
-            const gy =
-              -grayGrid[(y - 1) * 256 + (x - 1)] - 2 * grayGrid[(y - 1) * 256 + x] - grayGrid[(y - 1) * 256 + (x + 1)] +
-              grayGrid[(y + 1) * 256 + (x - 1)] + 2 * grayGrid[(y + 1) * 256 + x] + grayGrid[(y + 1) * 256 + (x + 1)];
-
-            edgeGrid[idx] = Math.sqrt(gx * gx + gy * gy);
-          }
-        }
-
-        // Pass 2: Feature-Based Terrain Classification (Boulders, Bedrock, Sand, Soil)
-        // Compute dynamic luminance statistics for adaptive Martian contrast scaling
+        // Pass 1: Compute Grayscale and Sobel Edge Gradients on aspect-preserved buffer
         let sumGray = 0;
         let sumGraySq = 0;
-        for (let i = 0; i < 256 * 256; i++) {
-          const val = grayGrid[i];
-          sumGray += val;
-          sumGraySq += val * val;
+        for (let i = 0; i < workTotal; i++) {
+          const p = i * 4;
+          const lum = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
+          workGray[i] = lum;
+          sumGray += lum;
+          sumGraySq += lum * lum;
         }
-        const meanImgLum = sumGray / (256 * 256);
-        const stdImgLum = Math.sqrt(Math.max(1, (sumGraySq / (256 * 256)) - (meanImgLum * meanImgLum)));
 
-        const rawClassGrid = new Uint8Array(256 * 256);
-        for (let y = 0; y < 256; y++) {
-          for (let x = 0; x < 256; x++) {
-            const idx = y * 256 + x;
-            const i = idx * 4;
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
-            const gray = grayGrid[idx];
-            const edge = edgeGrid[idx];
+        for (let y = 1; y < workH - 1; y++) {
+          for (let x = 1; x < workW - 1; x++) {
+            const idx = y * workW + x;
+            const gx =
+              -workGray[(y - 1) * workW + (x - 1)] + workGray[(y - 1) * workW + (x + 1)] +
+              -2 * workGray[y * workW + (x - 1)] + 2 * workGray[y * workW + (x + 1)] +
+              -workGray[(y + 1) * workW + (x - 1)] + workGray[(y + 1) * workW + (x + 1)];
+
+            const gy =
+              -workGray[(y - 1) * workW + (x - 1)] - 2 * workGray[(y - 1) * workW + x] - workGray[(y - 1) * workW + (x + 1)] +
+              workGray[(y + 1) * workW + (x - 1)] + 2 * workGray[(y + 1) * workW + x] + workGray[(y + 1) * workW + (x + 1)];
+
+            workEdge[idx] = Math.sqrt(gx * gx + gy * gy);
+          }
+        }
+
+        const meanImgLum = sumGray / workTotal;
+        const stdImgLum = Math.sqrt(Math.max(1, (sumGraySq / workTotal) - (meanImgLum * meanImgLum)));
+
+        // Pass 2: Feature-Based Terrain Classification on aspect-preserved buffer
+        for (let y = 0; y < workH; y++) {
+          for (let x = 0; x < workW; x++) {
+            const idx = y * workW + x;
+            const p = idx * 4;
+            const r = data[p];
+            const b = data[p + 2];
+            const gray = workGray[idx];
+            const edge = workEdge[idx];
             const warmth = r - b;
 
-            // Local 5x5 variance check around pixel
             let sumL = 0, sumL2 = 0, nL = 0;
             for (let dy = -2; dy <= 2; dy++) {
               for (let dx = -2; dx <= 2; dx++) {
                 const ny = y + dy;
                 const nx = x + dx;
-                if (ny >= 0 && ny < 256 && nx >= 0 && nx < 256) {
-                  const val = grayGrid[ny * 256 + nx];
+                if (ny >= 0 && ny < workH && nx >= 0 && nx < workW) {
+                  const val = workGray[ny * workW + nx];
                   sumL += val;
                   sumL2 += val * val;
                   nL++;
@@ -491,27 +489,41 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
             const meanL = sumL / nL;
             const varL = sumL2 / nL - meanL * meanL;
 
-            // Robust statistical detection of authentic Martian boulders, craters, and escarpments
-            // True rocks exhibit distinct sunlit highlight faces or deep cast shadows paired with sharp edge gradients
             const isHighlightRock = gray > (meanImgLum + 1.15 * stdImgLum) && edge > 60 && varL > 200;
             const isShadowRock = gray < Math.max(30, meanImgLum - 1.15 * stdImgLum) && edge > 50 && varL > 180;
             const isSharpBoulderTexture = edge > 85 && varL > 280;
             const isDeepPit = gray < Math.max(25, meanImgLum - 1.45 * stdImgLum) && edge > 45 && varL > 220;
             const isSteepGradient = edge > 115 && varL > 320;
 
-            if (isHighlightRock || isShadowRock || isSharpBoulderTexture) {
-              rawClassGrid[idx] = 3; // Rock / Boulder (Blocked)
-            } else if (isDeepPit) {
-              rawClassGrid[idx] = 3; // Crater / Deep Shadow Pit (Blocked)
-            } else if (isSteepGradient) {
-              rawClassGrid[idx] = 3; // Steep Slope Escarpment (Blocked)
+            if (isHighlightRock || isShadowRock || isSharpBoulderTexture || isDeepPit || isSteepGradient) {
+              workRawClass[idx] = 3;
             } else if (gray > (meanImgLum + 0.3 * stdImgLum) && varL < 160 && edge < 35) {
-              rawClassGrid[idx] = 1; // Bedrock (Firm safe ground)
+              workRawClass[idx] = 1;
             } else if (warmth > 14 && varL < 220 && edge < 40) {
-              rawClassGrid[idx] = 2; // Sand / Dunes (High slip penalty)
+              workRawClass[idx] = 2;
             } else {
-              rawClassGrid[idx] = 0; // Flat Soil / Regolith (Normal cost)
+              workRawClass[idx] = 0;
             }
+          }
+        }
+
+        const predGrid = new Uint8Array(256 * 256);
+        const grid = new Float32Array(256 * 256);
+        const textures = new Float32Array(256 * 256);
+        const grayGrid = new Float32Array(256 * 256);
+        const edgeGrid = new Float32Array(256 * 256);
+        const rawClassGrid = new Uint8Array(256 * 256);
+
+        // Resample aspect-preserved classification/gradients into normalized 256x256 navigation grid
+        for (let y = 0; y < 256; y++) {
+          const sy = Math.min(workH - 1, Math.floor((y / 256) * workH));
+          for (let x = 0; x < 256; x++) {
+            const sx = Math.min(workW - 1, Math.floor((x / 256) * workW));
+            const dstIdx = y * 256 + x;
+            const srcIdx = sy * workW + sx;
+            grayGrid[dstIdx] = workGray[srcIdx];
+            edgeGrid[dstIdx] = workEdge[srcIdx];
+            rawClassGrid[dstIdx] = workRawClass[srcIdx];
           }
         }
 
@@ -556,12 +568,15 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
         const detectedHazards: SegmentedHazard[] = [];
         const detectedObstacles: ObstacleNode[] = [];
         let obstacleIdCounter = 1;
+        const bfsQueue = new Int32Array(256 * 256);
 
         for (let y = 1; y < 255; y++) {
           for (let x = 1; x < 255; x++) {
             const rootIdx = y * 256 + x;
             if (rawCoreGrid[rootIdx] === 1 && visited[rootIdx] === 0) {
-              const queue = [rootIdx];
+              let qHead = 0;
+              let qTail = 0;
+              bfsQueue[qTail++] = rootIdx;
               visited[rootIdx] = 1;
               const clusterX: number[] = [];
               const clusterY: number[] = [];
@@ -569,8 +584,9 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
               let sumY = 0;
               let edgeSum = 0;
 
-              while (queue.length > 0 && clusterX.length < 1200) {
-                const curr = queue.shift()!;
+              // Support complete multiscale formations up to massive bedrock outcrops (up to 35,000 pixels)
+              while (qHead < qTail && clusterX.length < 35000) {
+                const curr = bfsQueue[qHead++];
                 const cx = curr % 256;
                 const cy = Math.floor(curr / 256);
                 clusterX.push(cx);
@@ -583,7 +599,7 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
                 for (const n of nbrs) {
                   if (n >= 0 && n < 256 * 256 && visited[n] === 0 && rawCoreGrid[n] === 1) {
                     visited[n] = 1;
-                    queue.push(n);
+                    bfsQueue[qTail++] = n;
                   }
                 }
               }
@@ -598,6 +614,8 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
                 const maxX = Math.max(...clusterX);
                 const minY = Math.min(...clusterY);
                 const maxY = Math.max(...clusterY);
+                const spanX = maxX - minX;
+                const spanY = maxY - minY;
                 const centroid = {
                   x: Math.round(sumX / clusterX.length),
                   y: Math.round(sumY / clusterY.length)
@@ -605,7 +623,7 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
 
                 // Build irregular perimeter polygon
                 const angleBins: { [bin: number]: Point } = {};
-                const numBins = 10;
+                const numBins = 12;
                 for (let i = 0; i < clusterX.length; i++) {
                   const px = clusterX[i];
                   const py = clusterY[i];
@@ -624,13 +642,15 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
                   rawPoly.push({ ...rawPoly[0] });
                 }
 
-                const rad = Math.min(18, Math.max(3, Math.round(Math.sqrt(clusterX.length / Math.PI))));
+                // True enclosing radius reflects the actual extent of massive boulders and outcrops
+                const rad = Math.max(4, Math.round(Math.max(spanX / 2, spanY / 2, Math.sqrt(clusterX.length / Math.PI))));
                 const avgEdge = edgeSum / clusterX.length;
-                const type = avgEdge > 35 ? 'rock' : 'hole';
+                const isMassive = clusterX.length >= 450 || spanX >= 35 || spanY >= 35;
+                const type = avgEdge > 35 ? (isMassive ? 'rock' : 'rock') : 'hole';
 
                 const hazard: SegmentedHazard = {
                   id: `hazard-${obstacleIdCounter}`,
-                  name: `${type === 'rock' ? 'Basaltic Boulder' : 'Terrain Pit / Crater'} #${obstacleIdCounter}`,
+                  name: `${isMassive ? 'Massive Outcrop / Formation' : type === 'rock' ? 'Basaltic Boulder' : 'Terrain Pit / Crater'} #${obstacleIdCounter}`,
                   type,
                   polygon: rawPoly.length >= 3 ? rawPoly : [
                     { x: centroid.x - rad, y: centroid.y - rad },
@@ -700,15 +720,55 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
         }
 
         // Compute cost grid: Flat soil 1.0, Bedrock 1.3, Sand 2.8, Blocked 50.0
+        // When calibrated orbital/HiRISE DTM is available for an orbital map view, add DEM slope weighting
+        const provSource = (sharedSession.imageProvenance?.source || '').toLowerCase();
+        const provRover = (sharedSession.imageProvenance?.rover || '').toLowerCase();
+        const isSurfaceRoverPhoto = Boolean(sharedSession?.terrainImage) && (
+          provSource.includes('user upload') ||
+          provSource.includes('mars feed') ||
+          provRover.includes('perseverance') ||
+          provRover.includes('curiosity') ||
+          provRover.includes('opportunity') ||
+          provRover.includes('spirit')
+        );
+        const hasCalibratedDtm = Boolean(selectedDtmData?.elevationGrid?.length) && !isSurfaceRoverPhoto;
+        const dtmGrid = selectedDtmData?.elevationGrid;
+        const dtmRows = dtmGrid?.length || 0;
+        const dtmCols = dtmGrid?.[0]?.length || 0;
+        const dtmAvg = selectedDtmData?.avgElevation ?? -2500;
+        const cellSpanM = Math.max(0.5, (selectedDtmData?.resolutionMeters || 1) * 4);
+
         const computedCosts = new Float32Array(256 * 256);
-        for (let i = 0; i < 256 * 256; i++) {
-          const cls = predGrid[i];
-          let baseCost = 1.0;
-          if (cls === 1) baseCost = 1.3;
-          else if (cls === 2) baseCost = 2.8;
-          else if (cls === 3) baseCost = 50.0;
-          const roughnessPenalty = textures[i] ? (1.0 - textures[i]) * settings.roughnessWeight : 0;
-          computedCosts[i] = baseCost + roughnessPenalty;
+        for (let y = 0; y < 256; y++) {
+          for (let x = 0; x < 256; x++) {
+            const i = y * 256 + x;
+            const cls = predGrid[i];
+            let baseCost = 1.0;
+            if (cls === 1) baseCost = 1.3;
+            else if (cls === 2) baseCost = 2.8;
+            else if (cls === 3) baseCost = 50.0;
+            const roughnessPenalty = textures[i] ? (1.0 - textures[i]) * settings.roughnessWeight : 0;
+
+            let slopePenalty = 0;
+            if (hasCalibratedDtm && dtmGrid && dtmRows > 2 && dtmCols > 2) {
+              const gy = Math.min(dtmRows - 2, Math.max(1, Math.round((y / 255) * (dtmRows - 1))));
+              const gx = Math.min(dtmCols - 2, Math.max(1, Math.round((x / 255) * (dtmCols - 1))));
+              const eR = dtmGrid[gy][gx + 1] ?? dtmAvg;
+              const eL = dtmGrid[gy][gx - 1] ?? dtmAvg;
+              const eD = dtmGrid[gy + 1][gx] ?? dtmAvg;
+              const eU = dtmGrid[gy - 1][gx] ?? dtmAvg;
+              const dzdx = (eR - eL) / (2 * cellSpanM);
+              const dzdy = (eD - eU) / (2 * cellSpanM);
+              const slopeDeg = Math.atan(Math.hypot(dzdx, dzdy)) * (180 / Math.PI);
+              if (slopeDeg > settings.maxSlopeLimitDeg) {
+                slopePenalty = 12.0 * settings.slopeWeight;
+              } else {
+                slopePenalty = (slopeDeg / Math.max(1, settings.maxSlopeLimitDeg)) * 1.8 * settings.slopeWeight;
+              }
+            }
+
+            computedCosts[i] = baseCost + roughnessPenalty + slopePenalty;
+          }
         }
 
         // Generate occupancy grid with initial safety clearance based on cleaned core obstacles
@@ -805,7 +865,7 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
       setError('Failed to load or decode active image resource.');
       setIsLoading(false);
     };
-  }, [activeImage.url, activeImage.id, recalcTrigger, settings]);
+  }, [activeImage.url, activeImage.id, recalcTrigger, settings, selectedDtmData?.id]);
 
   // Update occupancy grid whenever safetyClearancePx changes
   useEffect(() => {
@@ -813,6 +873,33 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
       setOccupancyGrid(generateOccupancyGrid(obstacleCoreGrid, predClassGrid, safetyClearancePx));
     }
   }, [safetyClearancePx, obstacleCoreGrid, predClassGrid]);
+
+  const isSingle2dOpticalPhoto = useMemo(() => {
+    const provSource = (sharedSession?.imageProvenance?.source || '').toLowerCase();
+    const provRover = (sharedSession?.imageProvenance?.rover || '').toLowerCase();
+    if (!sharedSession?.terrainImage) return false;
+    return (
+      provSource.includes('user upload') ||
+      provSource.includes('mars feed') ||
+      provRover.includes('perseverance') ||
+      provRover.includes('curiosity') ||
+      provRover.includes('opportunity') ||
+      provRover.includes('spirit')
+    );
+  }, [sharedSession?.terrainImage, sharedSession?.imageProvenance?.source, sharedSession?.imageProvenance?.rover]);
+
+  const isDemCalibrated = Boolean(selectedDtmData?.elevationGrid?.length) && !isSingle2dOpticalPhoto;
+  const demCalibrationSource = isDemCalibrated
+    ? (selectedDtmData?.title || 'USGS STAC HiRISE DTM')
+    : isSingle2dOpticalPhoto
+      ? 'Uncalibrated 2D Optical Surface Photo (No Stereo/Orbital DEM)'
+      : 'No Calibrated DEM Loaded';
+  const demElevationRange: [number, number] | null = isDemCalibrated && selectedDtmData
+    ? [Math.round(selectedDtmData.minElevation), Math.round(selectedDtmData.maxElevation)]
+    : null;
+  const demResolutionMeters: number | null = isDemCalibrated && selectedDtmData
+    ? selectedDtmData.resolutionMeters
+    : null;
 
   // Multi-Path Obstacle-Aware Solver
   const candidates = useMemo(() => {
@@ -1011,7 +1098,27 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
         else soilSteps++;
 
         const roughness = textureGrid ? 1.0 - textureGrid[pIdx] : 0.2;
-        const slope = Math.round(roughness * 22 * 10) / 10;
+        let slope = Math.round(roughness * 22 * 10) / 10;
+        if (selectedDtmData?.elevationGrid?.length && !isSingle2dOpticalPhoto) {
+          const dtmRows = selectedDtmData.elevationGrid.length;
+          const dtmCols = selectedDtmData.elevationGrid[0]?.length || 0;
+          if (dtmRows > 2 && dtmCols > 2) {
+            const avgE = selectedDtmData.avgElevation ?? -2500;
+            const gy = Math.min(dtmRows - 2, Math.max(1, Math.round((p.y / 255) * (dtmRows - 1))));
+            const gx = Math.min(dtmCols - 2, Math.max(1, Math.round((p.x / 255) * (dtmCols - 1))));
+            const spanM = Math.max(0.5, (selectedDtmData.resolutionMeters || 1) * 4);
+            const eR = selectedDtmData.elevationGrid[gy][gx + 1] ?? avgE;
+            const eL = selectedDtmData.elevationGrid[gy][gx - 1] ?? avgE;
+            const eD = selectedDtmData.elevationGrid[gy + 1][gx] ?? avgE;
+            const eU = selectedDtmData.elevationGrid[gy - 1][gx] ?? avgE;
+            const dzdx = (eR - eL) / (2 * spanM);
+            const dzdy = (eD - eU) / (2 * spanM);
+            const demSlope = Math.atan(Math.hypot(dzdx, dzdy)) * (180 / Math.PI);
+            if (Number.isFinite(demSlope)) {
+              slope = Math.round(demSlope * 10) / 10;
+            }
+          }
+        }
         const slip = 0.05 + (roughness * 0.4) + (slope / 45) * 0.2;
 
         const isUnsafe = Math.abs(slope) > settings.maxSlopeLimitDeg;
@@ -1127,16 +1234,8 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
         }
       }
 
-      // 3. Lowest Risk Fallback: Permit controlled hazard penetration if no clear corridor exists
-      search = solver.findPath(start, goal, checkBlockedFn, costFn, { isCoreBlocked, allowHazardPenetration: true });
-      if (search && search.success && search.path && search.path.length >= 2) {
-        return {
-          path: search.path,
-          clearance: 0,
-          adaptedNote: ' (EMERGENCY LEAST-RISK PATH: Obstacle penetration required)'
-        };
-      }
-
+      // 3. Strict Safety Protocol: Do NOT penetrate obstacles or boulders.
+      // If no collision-free path exists even with reduced clearance, honestly terminate with no path.
       return { path: null, clearance: clearanceMargin, adaptedNote: '' };
     };
 
@@ -1282,7 +1381,9 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
     settings,
     textureGrid,
     sharedSession.scienceTargets,
-    sharedSession.uncertaintyPenalty
+    sharedSession.uncertaintyPenalty,
+    selectedDtmData,
+    isSingle2dOpticalPhoto
   ]);
 
   const [customGtMask, setCustomGtMask] = useState<{ grid: Uint8Array; title: string } | null>(null);
@@ -1326,13 +1427,18 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
     } else {
       if (lastSyncedRouteKeyRef.current !== 'blocked') {
         lastSyncedRouteKeyRef.current = 'blocked';
-        updateSharedSession({
-          astarComputedPath: [],
-          activeSyncRoute: null
-        });
+        if (
+          sharedSession.activeSyncRoute !== null ||
+          (sharedSession.astarComputedPath && sharedSession.astarComputedPath.length > 0)
+        ) {
+          updateSharedSession({
+            astarComputedPath: [],
+            activeSyncRoute: null
+          });
+        }
       }
     }
-  }, [candidates, selectedRouteIndex, imageDims.width, imageDims.height, updateSharedSession]);
+  }, [candidates, selectedRouteIndex, imageDims.width, imageDims.height, updateSharedSession, sharedSession.activeSyncRoute, sharedSession.astarComputedPath]);
 
   const setSafetyClearancePx = useCallback((px: number) => {
     const clamped = Math.max(4, Math.min(28, Math.round(px)));
@@ -1370,7 +1476,53 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
   const activeRouteFeasible = Boolean(primaryRoute && !primaryRoute.isBlocked && primaryRoute.waypoints.length > 0);
   const blockedReason = primaryRoute && primaryRoute.isBlocked ? primaryRoute.explanation : null;
 
-  const analysis: TerrainAnalysisResult = {
+  const combinedObstacles = useMemo(
+    () => [...autoObstacles, ...manualObstacles],
+    [autoObstacles, manualObstacles]
+  );
+
+  const resolvedRoutes = useMemo<RouteCandidate[]>(() => {
+    if (candidates.length > 0) return candidates;
+    if (sharedSession?.activeSyncRoute?.waypoints?.length) {
+      const stratId = (sharedSession.activeSyncRoute.strategy || 'alpha') as 'alpha' | 'beta' | 'gamma' | 'delta';
+      return [{
+        id: stratId,
+        strategyId: stratId,
+        color: '#00f0ff',
+        name: sharedSession.activeSyncRoute.name,
+        waypoints: sharedSession.activeSyncRoute.waypoints.map(w => ({
+          index: w.index,
+          x: w.x,
+          y: w.y,
+          distanceM: w.distanceM,
+          slope: w.slope,
+          roughness: w.roughness,
+          slip: w.slip,
+          obstaclePenalty: (w as any).obstaclePenalty || 0,
+          isUnsafe: Boolean(w.isUnsafe),
+          isBlockedCell: Boolean(w.isBlockedCell),
+          stepCost: w.stepCost,
+          cumulativeCost: w.cumulativeCost
+        })),
+        totalCost: sharedSession.activeSyncRoute.totalCost || 0,
+        totalLengthM: sharedSession.activeSyncRoute.totalDistanceM,
+        totalLengthPx: 0,
+        directDistanceM: sharedSession.activeSyncRoute.totalDistanceM,
+        maxSlope: 8,
+        unsafeCount: 0,
+        isBlocked: false,
+        difficulty: 'Safe',
+        explanation: 'Walk Ops Synchronized Route',
+        estimatedDurationMins: Math.round(sharedSession.activeSyncRoute.totalDistanceM / 40),
+        obstacleCountNearPath: 0,
+        minClearancePx: safetyClearancePx,
+        validationStatus: 'VALIDATED_COLLISION_FREE'
+      }];
+    }
+    return EMPTY_ROUTES;
+  }, [candidates, sharedSession?.activeSyncRoute, safetyClearancePx]);
+
+  const analysis: TerrainAnalysisResult = useMemo(() => ({
     imageId: activeImage.id,
     imageTitle: activeImage.title,
     imageUrl: activeImage.url,
@@ -1382,44 +1534,56 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
     destinationPoint,
     effectiveStartPoint,
     effectiveDestinationPoint,
-    obstacles: [...autoObstacles, ...manualObstacles],
+    obstacles: combinedObstacles,
     segmentedHazards,
     occupancyGrid,
     terrainClassGrid: predClassGrid,
     costGrid,
     safetyClearancePx,
     selectedRouteIndex: Math.min(selectedRouteIndex, Math.max(0, candidates.length - 1)),
-    routes: candidates.length > 0 ? candidates : (sharedSession?.activeSyncRoute?.waypoints?.length ? [{
-      id: sharedSession.activeSyncRoute.routeId,
-      name: sharedSession.activeSyncRoute.name,
-      waypoints: sharedSession.activeSyncRoute.waypoints.map(w => ({
-        index: w.index,
-        x: w.x,
-        y: w.y,
-        distanceM: w.distanceM,
-        slope: w.slope,
-        roughness: w.roughness,
-        slip: w.slip,
-        obstaclePenalty: (w as any).obstaclePenalty || 0,
-        isUnsafe: Boolean(w.isUnsafe),
-        isBlockedCell: Boolean(w.isBlockedCell),
-        stepCost: w.stepCost,
-        cumulativeCost: w.cumulativeCost
-      })),
-      totalCost: sharedSession.activeSyncRoute.totalCost || 0,
-      totalLengthM: sharedSession.activeSyncRoute.totalDistanceM,
-      maxSlope: 8,
-      unsafeCount: 0,
-      isBlocked: false,
-      difficulty: 'Safe',
-      explanation: 'Walk Ops Synchronized Route'
-    }] : []),
+    routes: resolvedRoutes,
     lastAnalyzedTime,
     classStats,
     matchedGtRecord,
     activeRouteFeasible,
-    blockedReason
-  };
+    blockedReason,
+    isDemCalibrated,
+    demCalibrationSource,
+    demElevationRange,
+    demResolutionMeters,
+    isSingle2dOpticalPhoto
+  }), [
+    activeImage.id,
+    activeImage.title,
+    activeImage.url,
+    imageDims.width,
+    imageDims.height,
+    isLoading,
+    error,
+    startPoint,
+    destinationPoint,
+    effectiveStartPoint,
+    effectiveDestinationPoint,
+    combinedObstacles,
+    segmentedHazards,
+    occupancyGrid,
+    predClassGrid,
+    costGrid,
+    safetyClearancePx,
+    selectedRouteIndex,
+    candidates.length,
+    resolvedRoutes,
+    lastAnalyzedTime,
+    classStats,
+    matchedGtRecord,
+    activeRouteFeasible,
+    blockedReason,
+    isDemCalibrated,
+    demCalibrationSource,
+    demElevationRange,
+    demResolutionMeters,
+    isSingle2dOpticalPhoto
+  ]);
 
   const setStartPoint = useCallback((pt: { x: number; y: number } | null) => {
     updateSharedSession({ startPoint: pt });
@@ -1719,36 +1883,65 @@ export function TerrainAnalysisProvider({ children }: { children: React.ReactNod
     setSimSpeedState(speed);
   }, []);
 
+  const contextValue = useMemo(() => ({
+    analysis,
+    setStartPoint,
+    setDestinationPoint,
+    clearStartPoint,
+    clearDestinationPoint,
+    swapStartAndDestination,
+    setSelectedRouteIndex,
+    safetyClearancePx,
+    setSafetyClearancePx,
+    validateCoordinateTraversability,
+    addObstacle,
+    removeObstacle,
+    clearObstacles,
+    recalculateAnalysis,
+    uploadCustomGroundTruthMask,
+    clearCustomGroundTruthMask,
+    isPlaying,
+    traversalProgress,
+    simSpeed,
+    traversalStatus,
+    startTraversal,
+    pauseTraversal,
+    resumeTraversal,
+    resetTraversal,
+    setTraversalProgress,
+    setSimSpeed,
+    roverPos
+  }), [
+    analysis,
+    setStartPoint,
+    setDestinationPoint,
+    clearStartPoint,
+    clearDestinationPoint,
+    swapStartAndDestination,
+    safetyClearancePx,
+    setSafetyClearancePx,
+    validateCoordinateTraversability,
+    addObstacle,
+    removeObstacle,
+    clearObstacles,
+    recalculateAnalysis,
+    uploadCustomGroundTruthMask,
+    clearCustomGroundTruthMask,
+    isPlaying,
+    traversalProgress,
+    simSpeed,
+    traversalStatus,
+    startTraversal,
+    pauseTraversal,
+    resumeTraversal,
+    resetTraversal,
+    setTraversalProgress,
+    setSimSpeed,
+    roverPos
+  ]);
+
   return (
-    <TerrainAnalysisContext.Provider value={{
-      analysis,
-      setStartPoint,
-      setDestinationPoint,
-      clearStartPoint,
-      clearDestinationPoint,
-      swapStartAndDestination,
-      setSelectedRouteIndex,
-      safetyClearancePx,
-      setSafetyClearancePx,
-      validateCoordinateTraversability,
-      addObstacle,
-      removeObstacle,
-      clearObstacles,
-      recalculateAnalysis,
-      uploadCustomGroundTruthMask,
-      clearCustomGroundTruthMask,
-      isPlaying,
-      traversalProgress,
-      simSpeed,
-      traversalStatus,
-      startTraversal,
-      pauseTraversal,
-      resumeTraversal,
-      resetTraversal,
-      setTraversalProgress,
-      setSimSpeed,
-      roverPos
-    }}>
+    <TerrainAnalysisContext.Provider value={contextValue}>
       {children}
     </TerrainAnalysisContext.Provider>
   );

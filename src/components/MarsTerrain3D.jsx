@@ -1,56 +1,123 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
 import { ChevronLeft, ChevronRight, PanelLeftOpen, PanelRightOpen, Eye, EyeOff } from 'lucide-react';
 import { createDetailedMarsRover } from '../utils/roverModel';
+import { getTrekTilePreviewUrl } from '../services/marsGeospatialService';
 
-export default function MarsTerrain3D({ onOpenMissions }) {
+/**
+ * @param {{
+ *   onOpenMissions?: () => void;
+ *   selectedDtmData?: any;
+ *   activeTerrainSource?: string;
+ *   selectedRegion?: any;
+ *   overlayLayerId?: string;
+ *   onOverlayStatus?: (status: { status: string; message: string }) => void;
+ * }} props
+ */
+export default function MarsTerrain3D({
+  onOpenMissions,
+  selectedDtmData = null,
+  activeTerrainSource = 'hirise-jezero',
+  selectedRegion = null,
+  overlayLayerId = 'hypsometric',
+  onOverlayStatus
+}) {
   const [leftPanelOpen, setLeftPanelOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
 
+  const terrainConfigRef = useRef({
+    dtmData: selectedDtmData,
+    terrainSource: activeTerrainSource,
+    centerCoords: selectedRegion?.centerCoords || { lat: 18.3842, lon: 77.5819 },
+    regionName: selectedRegion?.name || 'Jezero Crater',
+    overlayLayerId,
+    onOverlayStatus
+  });
+
+  terrainConfigRef.current = {
+    dtmData: selectedDtmData,
+    terrainSource: activeTerrainSource,
+    centerCoords: selectedRegion?.centerCoords || { lat: 18.3842, lon: 77.5819 },
+    regionName: selectedRegion?.name || 'Jezero Crater',
+    overlayLayerId,
+    onOverlayStatus
+  };
+
+  useEffect(() => {
+    const sim = window.MarsSimulator;
+    if (sim && typeof sim.updateTerrainConfig === 'function') {
+      sim.updateTerrainConfig(terrainConfigRef.current);
+    }
+  }, [selectedDtmData, activeTerrainSource, selectedRegion, overlayLayerId]);
+
   useEffect(() => {
     const container = document.getElementById('threejs-container-ANIMATION_5');
-    if (!container || container.dataset.initialized === 'true') return;
+    if (!container) return;
+    if (container.dataset.initialized === 'true') return;
     container.dataset.initialized = 'true';
 
     container.innerHTML = '';
 
-    const initThree = () => {
-      if (!window.THREE) {
-        const script = document.createElement('script');
-        script.src = 'https://ajax.googleapis.com/ajax/libs/threejs/r125/three.min.js';
-        script.onload = () => runSimulation();
-        document.head.appendChild(script);
-      } else {
-        runSimulation();
-      }
-    };
+    let rafId = 0;
+    let isDisposed = false;
+    let renderer = null;
+    let activeOverlayTex = null;
+    let activeOverlayUrl = '';
+    let marsNoiseTex = null;
+    let terrainGeo = null;
+    let terrainMat = null;
+    let resizeHandler = null;
+    let ptrMoveHandler = null;
+    let ptrUpHandler = null;
+    let ptrDownHandler = null;
+    let wheelHandler = null;
+    let slopeHeatmapActive = false;
 
     const runSimulation = () => {
-      const THREE = window.THREE;
-      if (!THREE || !container) return;
+      if (!container || isDisposed) return;
 
       const width = container.clientWidth || window.innerWidth;
       const height = container.clientHeight || window.innerHeight;
 
+      const isSoftwareGl = (() => {
+        try {
+          const probe = document.createElement('canvas').getContext('webgl2');
+          if (!probe) return true;
+          const ext = probe.getExtension('WEBGL_debug_renderer_info');
+          const param = ext ? ext.UNMASKED_RENDERER_WEBGL : probe.RENDERER;
+          const gpu = String(probe.getParameter(param) || '');
+          probe.getExtension('WEBGL_lose_context')?.loseContext();
+          return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
+        } catch {
+          return false;
+        }
+      })();
+
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x180905);
-      scene.fog = new THREE.FogExp2(0xc85929, 0.0075);
+      scene.fog = new THREE.FogExp2(0xc85929, 0.0065);
 
       const camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 1200);
       camera.position.set(32, 20, 42);
 
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+      renderer = new THREE.WebGLRenderer({
+        antialias: !isSoftwareGl,
+        alpha: true,
+        powerPreference: 'high-performance'
+      });
       renderer.setSize(width, height);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      renderer.shadowMap.enabled = true;
+      renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.shadowMap.enabled = !isSoftwareGl;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.25;
+      renderer.toneMappingExposure = 1.2;
       container.appendChild(renderer.domElement);
 
       // Lighting
-      const sunLight = new THREE.DirectionalLight(0xffecd0, 3.8);
+      const sunLight = new THREE.DirectionalLight(0xffecd0, 3.6);
       sunLight.position.set(65, 42, -50);
-      sunLight.castShadow = true;
+      sunLight.castShadow = !isSoftwareGl;
       sunLight.shadow.mapSize.width = 2048;
       sunLight.shadow.mapSize.height = 2048;
       sunLight.shadow.camera.near = 0.5;
@@ -69,13 +136,12 @@ export default function MarsTerrain3D({ onOpenMissions }) {
       const hemiLight = new THREE.HemisphereLight(0xfa8d52, 0x1a0602, 1.1);
       scene.add(hemiLight);
 
-      // Terrain Elevation Function
       const terrainSize = 220;
-      const terrainSegments = 220;
-      const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
+      const terrainSegments = 180;
+      terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
       terrainGeo.rotateX(-Math.PI / 2);
 
-      function getMarsElevation(x, z) {
+      function getProceduralElevation(x, z) {
         let y = Math.sin(x * 0.028) * Math.cos(z * 0.024) * 4.6;
         y += Math.cos(x * 0.015 - z * 0.018) * 3.2;
         y += Math.sin(x * 0.075 + z * 0.045) * 1.35;
@@ -102,59 +168,116 @@ export default function MarsTerrain3D({ onOpenMissions }) {
         return y;
       }
 
+      function sampleRealDtmMeters(x, z, dtm) {
+        const grid = dtm?.elevationGrid;
+        if (!grid || grid.length < 2) return null;
+        const rows = grid.length;
+        const cols = grid[0].length;
+        const u = Math.min(1, Math.max(0, (x + terrainSize * 0.5) / terrainSize));
+        const v = Math.min(1, Math.max(0, (z + terrainSize * 0.5) / terrainSize));
+        const fc = u * (cols - 1);
+        const fr = v * (rows - 1);
+        const c0 = Math.floor(fc);
+        const r0 = Math.floor(fr);
+        const c1 = Math.min(cols - 1, c0 + 1);
+        const r1 = Math.min(rows - 1, r0 + 1);
+        const tc = fc - c0;
+        const tr = fr - r0;
+        const avg = typeof dtm.avgElevation === 'number' ? dtm.avgElevation : -2500;
+        const g = (r, c) => {
+          const val = grid[r]?.[c];
+          return typeof val === 'number' && Number.isFinite(val) ? val : avg;
+        };
+        const top = g(r0, c0) * (1 - tc) + g(r0, c1) * tc;
+        const bot = g(r1, c0) * (1 - tc) + g(r1, c1) * tc;
+        return top * (1 - tr) + bot * tr;
+      }
+
+      function getMarsElevation(x, z) {
+        const cfg = terrainConfigRef.current;
+        if (cfg.terrainSource !== 'procedural' && cfg.dtmData?.elevationGrid) {
+          const realM = sampleRealDtmMeters(x, z, cfg.dtmData);
+          if (realM !== null) {
+            const avg = typeof cfg.dtmData.avgElevation === 'number' ? cfg.dtmData.avgElevation : realM;
+            const relief = Math.max(1, (cfg.dtmData.maxElevation ?? avg + 10) - (cfg.dtmData.minElevation ?? avg - 10));
+            // Scale elevation differences smoothly to navigable 3D world Y relief while preserving real slopes
+            const visualSpan = Math.min(24, Math.max(8, relief * 0.14));
+            return ((realM - avg) / relief) * visualSpan;
+          }
+        }
+        return getProceduralElevation(x, z);
+      }
+
+      function getActualElevationMeters(x, z) {
+        const cfg = terrainConfigRef.current;
+        if (cfg.terrainSource !== 'procedural' && cfg.dtmData?.elevationGrid) {
+          const realM = sampleRealDtmMeters(x, z, cfg.dtmData);
+          if (realM !== null) {
+            return { meters: realM, isRealDtm: true };
+          }
+        }
+        return {
+          meters: Math.round(getProceduralElevation(x, z) * 3.8 - 2548),
+          isRealDtm: false
+        };
+      }
+
       const posAttr = terrainGeo.attributes.position;
+      const marsColorBuffer = new THREE.Float32BufferAttribute(new Float32Array(posAttr.count * 3), 3);
+      const slopeColorBuffer = new THREE.Float32BufferAttribute(new Float32Array(posAttr.count * 3), 3);
+      terrainGeo.setAttribute('color', marsColorBuffer);
+
       const colIronLow = new THREE.Color(0x6e210b);
-      const colHematite = new THREE.Color(0x993514);
       const colOchre = new THREE.Color(0xbf491b);
       const colSunLit = new THREE.Color(0xe26a2c);
       const colRimSand = new THREE.Color(0xf2914b);
+      const colSafe = new THREE.Color(0x10b981);
+      const colModerate = new THREE.Color(0xf59e0b);
+      const colHazard = new THREE.Color(0xef4444);
+      const _tmpCol = new THREE.Color();
 
-      const marsColors = [];
-      for (let i = 0; i < posAttr.count; i++) {
-        const vx = posAttr.getX(i);
-        const vz = posAttr.getZ(i);
-        const vy = getMarsElevation(vx, vz);
-        posAttr.setY(i, vy);
+      function rebuildTerrainVerticesAndColors() {
+        for (let i = 0; i < posAttr.count; i++) {
+          const vx = posAttr.getX(i);
+          const vz = posAttr.getZ(i);
+          const vy = getMarsElevation(vx, vz);
+          posAttr.setY(i, vy);
 
-        const normY = (vy + 6.0) / 16.0;
-        const col = new THREE.Color().lerpColors(colIronLow, colOchre, Math.min(Math.max(normY, 0), 1));
-        if (vy > 0.8) col.lerp(colSunLit, 0.5);
-        if (vy > 3.0) col.lerp(colRimSand, 0.45);
-
-        const noise = (Math.sin(vx * 1.7) * Math.cos(vz * 1.7)) * 0.04;
-        col.r += noise;
-        col.g += noise * 0.7;
-
-        marsColors.push(col.r, col.g, col.b);
-      }
-
-      terrainGeo.computeVertexNormals();
-      const normAttr = terrainGeo.attributes.normal;
-      const slopeColors = [];
-      const colSafe = new THREE.Color(0x10b981);     // Safe green (<5 deg)
-      const colModerate = new THREE.Color(0xf59e0b); // Moderate amber (5-15 deg)
-      const colHazard = new THREE.Color(0xef4444);   // Hazardous red (>15 deg)
-
-      for (let i = 0; i < posAttr.count; i++) {
-        const ny = normAttr.getY(i);
-        const slopeDeg = Math.acos(Math.min(Math.max(ny, 0), 1)) * (180 / Math.PI);
-        const scol = new THREE.Color();
-        if (slopeDeg < 5) {
-          scol.copy(colSafe);
-        } else if (slopeDeg < 15) {
-          const t = (slopeDeg - 5) / 10;
-          scol.lerpColors(colSafe, colModerate, t);
-        } else {
-          const t = Math.min(1, (slopeDeg - 15) / 20);
-          scol.lerpColors(colModerate, colHazard, t);
+          const normY = (vy + 6.0) / 16.0;
+          _tmpCol.lerpColors(colIronLow, colOchre, Math.min(Math.max(normY, 0), 1));
+          if (vy > 0.8) _tmpCol.lerp(colSunLit, 0.5);
+          if (vy > 3.0) _tmpCol.lerp(colRimSand, 0.45);
+          const noise = (Math.sin(vx * 1.7) * Math.cos(vz * 1.7)) * 0.035;
+          marsColorBuffer.setXYZ(
+            i,
+            Math.min(1, Math.max(0, _tmpCol.r + noise)),
+            Math.min(1, Math.max(0, _tmpCol.g + noise * 0.7)),
+            _tmpCol.b
+          );
         }
-        slopeColors.push(scol.r, scol.g, scol.b);
+        posAttr.needsUpdate = true;
+        terrainGeo.computeVertexNormals();
+        terrainGeo.computeBoundingBox();
+        terrainGeo.computeBoundingSphere();
+
+        const normAttr = terrainGeo.attributes.normal;
+        for (let i = 0; i < posAttr.count; i++) {
+          const ny = normAttr.getY(i);
+          const slopeDeg = Math.acos(Math.min(Math.max(ny, 0), 1)) * (180 / Math.PI);
+          if (slopeDeg < 5) {
+            _tmpCol.copy(colSafe);
+          } else if (slopeDeg < 15) {
+            _tmpCol.lerpColors(colSafe, colModerate, (slopeDeg - 5) / 10);
+          } else {
+            _tmpCol.lerpColors(colModerate, colHazard, Math.min(1, (slopeDeg - 15) / 20));
+          }
+          slopeColorBuffer.setXYZ(i, _tmpCol.r, _tmpCol.g, _tmpCol.b);
+        }
+        marsColorBuffer.needsUpdate = true;
+        slopeColorBuffer.needsUpdate = true;
+        terrainGeo.setAttribute('color', slopeHeatmapActive ? slopeColorBuffer : marsColorBuffer);
+        terrainGeo.attributes.color.needsUpdate = true;
       }
-
-      const marsColorBuffer = new THREE.Float32BufferAttribute(marsColors, 3);
-      const slopeColorBuffer = new THREE.Float32BufferAttribute(slopeColors, 3);
-
-      terrainGeo.setAttribute('color', marsColorBuffer);
 
       const canvasTex = document.createElement('canvas');
       canvasTex.width = 512;
@@ -172,12 +295,12 @@ export default function MarsTerrain3D({ onOpenMissions }) {
         dArr[i + 3] = 255;
       }
       ctx.putImageData(imgData, 0, 0);
-      const marsNoiseTex = new THREE.CanvasTexture(canvasTex);
+      marsNoiseTex = new THREE.CanvasTexture(canvasTex);
       marsNoiseTex.wrapS = THREE.RepeatWrapping;
       marsNoiseTex.wrapT = THREE.RepeatWrapping;
       marsNoiseTex.repeat.set(36, 36);
 
-      const terrainMat = new THREE.MeshStandardMaterial({
+      terrainMat = new THREE.MeshStandardMaterial({
         vertexColors: true,
         roughness: 0.88,
         metalness: 0.12,
@@ -185,6 +308,7 @@ export default function MarsTerrain3D({ onOpenMissions }) {
         bumpScale: 0.08,
         flatShading: false
       });
+      rebuildTerrainVerticesAndColors();
       const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
       terrainMesh.receiveShadow = true;
       scene.add(terrainMesh);
@@ -218,8 +342,11 @@ export default function MarsTerrain3D({ onOpenMissions }) {
 
         rock.scale.set(sx, sy, sz);
         rock.position.set(rx, ry + sy * 0.35, rz);
+        rock.userData.baseX = rx;
+        rock.userData.baseZ = rz;
+        rock.userData.sy = sy;
         rock.rotation.set(Math.random() * 0.6, Math.random() * Math.PI * 2, Math.random() * 0.6);
-        rock.castShadow = true;
+        rock.castShadow = !isSoftwareGl;
         rock.receiveShadow = true;
         rockGroup.add(rock);
       }
@@ -262,6 +389,7 @@ export default function MarsTerrain3D({ onOpenMissions }) {
       ];
 
       const hazardMeshGroup = new THREE.Group();
+      const hazardElements = [];
       hazards.forEach(h => {
         const hy = getMarsElevation(h.x, h.z) + 0.16;
         const ringGeo = new THREE.RingGeometry(h.radius * 0.72, h.radius, 36);
@@ -278,6 +406,7 @@ export default function MarsTerrain3D({ onOpenMissions }) {
         const lineMat = new THREE.LineBasicMaterial({ color: 0xff453a, transparent: true, opacity: 0.85 });
         const beacon = new THREE.Line(lineGeo, lineMat);
         hazardMeshGroup.add(beacon);
+        hazardElements.push({ h, ring, beacon });
       });
       scene.add(hazardMeshGroup);
 
@@ -341,6 +470,111 @@ export default function MarsTerrain3D({ onOpenMissions }) {
       const endMarker = createMarker(straightEnd, 0x30d158);
       scene.add(startMarker);
       scene.add(endMarker);
+
+      function regroundSceneEntities() {
+        rockGroup.children.forEach(rock => {
+          const rx = rock.userData.baseX ?? rock.position.x;
+          const rz = rock.userData.baseZ ?? rock.position.z;
+          const sy = rock.userData.sy ?? 0.5;
+          rock.position.y = getMarsElevation(rx, rz) + sy * 0.35;
+        });
+
+        hazardElements.forEach(({ h, ring, beacon }) => {
+          const hy = getMarsElevation(h.x, h.z) + 0.16;
+          ring.position.y = hy;
+          const attr = beacon.geometry.attributes.position;
+          attr.setXYZ(0, h.x, hy, h.z);
+          attr.setXYZ(1, h.x, hy + 5.2, h.z);
+          attr.needsUpdate = true;
+        });
+
+        const optAttr = optimalLine.geometry.attributes.position;
+        for (let i = 0; i < optAttr.count; i++) {
+          const px = optAttr.getX(i);
+          const pz = optAttr.getZ(i);
+          optAttr.setY(i, getMarsElevation(px, pz) + 0.22);
+        }
+        optAttr.needsUpdate = true;
+
+        const altAttr = altLine.geometry.attributes.position;
+        for (let i = 0; i < altAttr.count; i++) {
+          const px = altAttr.getX(i);
+          const pz = altAttr.getZ(i);
+          altAttr.setY(i, getMarsElevation(px, pz) + 0.2);
+        }
+        altAttr.needsUpdate = true;
+        altLine.computeLineDistances();
+
+        startMarker.position.y = getMarsElevation(straightStart.x, straightStart.z);
+        endMarker.position.y = getMarsElevation(straightEnd.x, straightEnd.z);
+      }
+
+      const textureLoader = new THREE.TextureLoader();
+      function applySurfaceOverlay(layerId, centerCoords, onStatus) {
+        if (!layerId || layerId === 'hypsometric') {
+          activeOverlayUrl = '';
+          if (activeOverlayTex) {
+            activeOverlayTex.dispose();
+            activeOverlayTex = null;
+          }
+          terrainMat.map = null;
+          terrainMat.vertexColors = true;
+          terrainMat.needsUpdate = true;
+          onStatus?.({ status: 'hypsometric', message: 'Hypsometric DEM elevation & slope shading active' });
+          return;
+        }
+
+        const lat = centerCoords?.lat ?? 18.3842;
+        const lon = centerCoords?.lon ?? 77.5819;
+        const tileUrl = getTrekTilePreviewUrl({
+          layerId,
+          lat,
+          lon,
+          spanDeg: layerId === 'trek_jezero_ctx_6m' ? 0.22 : 0.45,
+          width: 1024,
+          height: 1024
+        });
+
+        if (tileUrl === activeOverlayUrl && activeOverlayTex) return;
+        activeOverlayUrl = tileUrl;
+        onStatus?.({ status: 'loading', message: `Streaming ${layerId} from NASA/USGS...` });
+
+        textureLoader.load(
+          tileUrl,
+          (tex) => {
+            if (isDisposed || tileUrl !== activeOverlayUrl) {
+              tex.dispose();
+              return;
+            }
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.wrapS = THREE.ClampToEdgeWrapping;
+            tex.wrapT = THREE.ClampToEdgeWrapping;
+            tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+            tex.needsUpdate = true;
+            if (activeOverlayTex) activeOverlayTex.dispose();
+            activeOverlayTex = tex;
+            terrainMat.map = tex;
+            terrainMat.vertexColors = slopeHeatmapActive;
+            terrainMat.needsUpdate = true;
+            onStatus?.({ status: 'loaded', message: `Orbital overlay draped (${lat.toFixed(2)}°, ${lon.toFixed(2)}°E)` });
+          },
+          undefined,
+          () => {
+            if (isDisposed || tileUrl !== activeOverlayUrl) return;
+            if (activeOverlayTex) {
+              activeOverlayTex.dispose();
+              activeOverlayTex = null;
+            }
+            terrainMat.map = null;
+            terrainMat.vertexColors = true;
+            terrainMat.needsUpdate = true;
+            onStatus?.({
+              status: 'error',
+              message: `${layerId} imagery unavailable outside mission coverage bounds; reverted to DEM shading.`
+            });
+          }
+        );
+      }
 
       // Realistic NASA Mars 2020 Perseverance Exploration Rover Assembly
       const roverContainer = new THREE.Group();
@@ -425,15 +659,35 @@ export default function MarsTerrain3D({ onOpenMissions }) {
           camTargetMode = viewMode;
         },
         toggleSlopeHeatmap: function(active) {
-          let slopeHeatmapActive = active;
-          if (typeof slopeHeatmapActive !== 'boolean') {
-            slopeHeatmapActive = terrainGeo.attributes.color === marsColorBuffer;
-          }
+          if (typeof active === 'boolean') slopeHeatmapActive = active;
+          else slopeHeatmapActive = !slopeHeatmapActive;
           terrainGeo.setAttribute('color', slopeHeatmapActive ? slopeColorBuffer : marsColorBuffer);
           terrainGeo.attributes.color.needsUpdate = true;
+          terrainMat.vertexColors = slopeHeatmapActive || !activeOverlayTex;
+          terrainMat.needsUpdate = true;
           return slopeHeatmapActive;
+        },
+        setSurfaceOverlay: function(layerId, lat, lon) {
+          applySurfaceOverlay(layerId, { lat, lon }, terrainConfigRef.current.onOverlayStatus);
+        },
+        updateTerrainConfig: function(cfg) {
+          if (cfg) terrainConfigRef.current = cfg;
+          rebuildTerrainVerticesAndColors();
+          regroundSceneEntities();
+          applySurfaceOverlay(
+            terrainConfigRef.current.overlayLayerId,
+            terrainConfigRef.current.centerCoords,
+            terrainConfigRef.current.onOverlayStatus
+          );
         }
       };
+
+      // Apply initial config if DTM/overlay already set
+      applySurfaceOverlay(
+        terrainConfigRef.current.overlayLayerId,
+        terrainConfigRef.current.centerCoords,
+        terrainConfigRef.current.onOverlayStatus
+      );
 
       let isDragging = false;
       let prevPointerX = 0;
@@ -441,13 +695,14 @@ export default function MarsTerrain3D({ onOpenMissions }) {
       let spherical = { radius: 48, theta: 0.85, phi: 1.05 };
       const targetLookAt = new THREE.Vector3(0, 2, 0);
 
-      renderer.domElement.addEventListener('pointerdown', (e) => {
+      ptrDownHandler = (e) => {
         isDragging = true;
         prevPointerX = e.clientX;
         prevPointerY = e.clientY;
-      });
+      };
+      renderer.domElement.addEventListener('pointerdown', ptrDownHandler);
 
-      window.addEventListener('pointermove', (e) => {
+      ptrMoveHandler = (e) => {
         if (!isDragging) return;
         const dx = e.clientX - prevPointerX;
         const dy = e.clientY - prevPointerY;
@@ -456,29 +711,33 @@ export default function MarsTerrain3D({ onOpenMissions }) {
 
         spherical.theta -= dx * 0.0055;
         spherical.phi = Math.max(0.18, Math.min(Math.PI / 2.05, spherical.phi - dy * 0.0055));
-      });
+      };
+      window.addEventListener('pointermove', ptrMoveHandler);
 
-      window.addEventListener('pointerup', () => { isDragging = false; });
-      window.addEventListener('pointercancel', () => { isDragging = false; });
+      ptrUpHandler = () => { isDragging = false; };
+      window.addEventListener('pointerup', ptrUpHandler);
+      window.addEventListener('pointercancel', ptrUpHandler);
 
-      renderer.domElement.addEventListener('wheel', (e) => {
+      wheelHandler = (e) => {
         e.preventDefault();
         spherical.radius = Math.max(10, Math.min(115, spherical.radius + e.deltaY * 0.04));
-      }, { passive: false });
+      };
+      renderer.domElement.addEventListener('wheel', wheelHandler, { passive: false });
 
-      function onResize() {
+      resizeHandler = () => {
         const w = container.clientWidth || window.innerWidth;
         const h = container.clientHeight || window.innerHeight;
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
         renderer.setSize(w, h);
-      }
-      window.addEventListener('resize', onResize);
+      };
+      window.addEventListener('resize', resizeHandler);
 
       let lastTime = performance.now();
 
       function animate(time) {
-        requestAnimationFrame(animate);
+        if (isDisposed) return;
+        rafId = requestAnimationFrame(animate);
 
         const delta = (time - lastTime) * 0.001;
         lastTime = time;
@@ -583,13 +842,16 @@ export default function MarsTerrain3D({ onOpenMissions }) {
           const estSec = Math.round((1.0 - progress) * 240);
           const mins = Math.floor(estSec / 60);
           const secs = estSec % 60;
+          const baseLat = terrainConfigRef.current.centerCoords?.lat ?? 18.3842;
+          const baseLon = terrainConfigRef.current.centerCoords?.lon ?? 77.5819;
+          const elevSample = getActualElevationMeters(roverPos.x, roverPos.z);
           window.updateTelemetryHUD({
             status: missionActive ? 'EXPLORING / ACTIVE DRIVE' : 'TELEOP IDLE / HOLD',
             isActive: missionActive,
             progressPct: Math.round(progress * 100),
-            lat: (18.3842 + roverPos.z * 0.001).toFixed(4) + '° N',
-            lon: (77.5819 + roverPos.x * 0.001).toFixed(4) + '° E',
-            elevation: Math.round(groundY * 3.8 - 2548) + ' m (Jezero Floor)',
+            lat: `${Math.abs(baseLat + roverPos.z * 0.0005).toFixed(4)}° ${baseLat >= 0 ? 'N' : 'S'}`,
+            lon: `${(baseLon + roverPos.x * 0.0005).toFixed(4)}° E`,
+            elevation: `${Math.round(elevSample.meters).toLocaleString()} m (${elevSample.isRealDtm ? 'USGS STAC DEM' : 'Synthetic Model'})`,
             tilt: `${(Math.abs(pitch) * (180 / Math.PI)).toFixed(1)}° / ${(Math.abs(roll) * (180 / Math.PI)).toFixed(1)}°`,
             traveledMeters: traveled,
             remainingM: remaining,
@@ -625,9 +887,31 @@ export default function MarsTerrain3D({ onOpenMissions }) {
       if (pb) pb.style.width = `${data.progressPct}%`;
     };
 
-    initThree();
+    runSimulation();
 
     return () => {
+      isDisposed = true;
+      cancelAnimationFrame(rafId);
+      if (resizeHandler) window.removeEventListener('resize', resizeHandler);
+      if (ptrMoveHandler) window.removeEventListener('pointermove', ptrMoveHandler);
+      if (ptrUpHandler) {
+        window.removeEventListener('pointerup', ptrUpHandler);
+        window.removeEventListener('pointercancel', ptrUpHandler);
+      }
+      if (renderer?.domElement) {
+        if (ptrDownHandler) renderer.domElement.removeEventListener('pointerdown', ptrDownHandler);
+        if (wheelHandler) renderer.domElement.removeEventListener('wheel', wheelHandler);
+      }
+      if (activeOverlayTex) activeOverlayTex.dispose();
+      if (marsNoiseTex) marsNoiseTex.dispose();
+      if (terrainGeo) terrainGeo.dispose();
+      if (terrainMat) terrainMat.dispose();
+      if (renderer) renderer.dispose();
+      if (container) {
+        delete container.dataset.initialized;
+        container.innerHTML = '';
+      }
+      delete window.MarsSimulator;
       delete window.updateTelemetryHUD;
     };
   }, []);
@@ -687,9 +971,10 @@ export default function MarsTerrain3D({ onOpenMissions }) {
             </button>
 
             <div className="flex items-center gap-2">
-              <span className="px-2.5 py-1 text-[10px] font-bold bg-orange-500/20 border border-orange-500 text-[#ffb59d] flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
-                AUTONAV V4.2 ENGAGED
+              <span className="px-2.5 py-1 text-[10px] font-bold bg-orange-500/20 border border-orange-500 text-[#ffb59d]">
+                {activeTerrainSource !== 'procedural' && selectedDtmData?.elevationGrid
+                  ? `STAC DEM · ${Math.round(selectedDtmData.minElevation)}..${Math.round(selectedDtmData.maxElevation)}m`
+                  : 'SYNTHETIC PREVIEW'}
               </span>
             </div>
           </div>
@@ -700,7 +985,7 @@ export default function MarsTerrain3D({ onOpenMissions }) {
           {!leftPanelOpen && (
             <button
               onClick={() => setLeftPanelOpen(true)}
-              className="pointer-events-auto absolute left-2 top-4 z-30 flex items-center gap-2 px-3 py-2 bg-[#0b0e14]/95 hover:bg-[#151c29] border border-orange-500/50 hover:border-orange-400 text-[#ffb59d] hover:text-white rounded-lg shadow-2xl shadow-black/80 backdrop-blur-xl transition-all duration-200 group cursor-pointer animate-fade-in"
+              className="pointer-events-auto absolute left-2 top-4 z-30 flex items-center gap-2 px-3 py-2 bg-[#0b0e14]/95 hover:bg-[#151c29] border border-orange-500/50 hover:border-orange-400 text-[#ffb59d] hover:text-white rounded-lg shadow-2xl shadow-black/80 transition-all duration-200 group cursor-pointer animate-fade-in"
               title="Slide open Telemetry Panel"
             >
               <PanelLeftOpen className="w-4 h-4 text-orange-400 group-hover:scale-110 transition-transform" />
@@ -717,13 +1002,10 @@ export default function MarsTerrain3D({ onOpenMissions }) {
                 : '-translate-x-[120%] opacity-0 pointer-events-none'
             }`}
           >
-            <div className="border border-white/10 bg-[#0b0e14]/90 backdrop-blur-xl p-3 shadow-lg">
+            <div className="border border-white/10 bg-[#0b0e14]/95 p-3 shadow-lg">
               <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-2.5">
                 <div className="flex items-center gap-2">
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ffb59d] opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#ffb59d]" />
-                  </span>
+                  <span className="inline-flex rounded-full h-2 w-2 bg-[#ffb59d]" />
                   <span className="text-xs text-[#ffb59d] font-bold" id="telemetry-status">STATUS: ACTIVE DRIVE</span>
                 </div>
                 <div className="flex items-center gap-2">

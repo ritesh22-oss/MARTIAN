@@ -1,5 +1,5 @@
 import { doc, writeBatch, collection } from 'firebase/firestore';
-import { db, auth, isFirestoreQuotaExceeded } from '../firebase';
+import { db, auth, isFirestoreQuotaExceeded, markFirestoreQuotaExceeded } from '../firebase';
 
 /**
  * AI4Mars Ground-Truth Dataset Matcher & Supervised Evaluation Service
@@ -90,7 +90,7 @@ export const VERIFIED_GT_REGISTRY: Record<string, GroundTruthRecord> = SHARED_RE
 export async function seedVerifiedDatasetsToFirestore() {
   const SEED_KEY = 'marsnav_datasets_seeded_v1';
   if (localStorage.getItem(SEED_KEY) === 'true') return;
-  if (isFirestoreQuotaExceeded()) return;
+  if (!auth.currentUser || isFirestoreQuotaExceeded()) return;
 
   try {
     const batch = writeBatch(db);
@@ -104,7 +104,10 @@ export async function seedVerifiedDatasetsToFirestore() {
     await batch.commit();
     localStorage.setItem(SEED_KEY, 'true');
     console.log('MARSNAV: Verified benchmark datasets successfully seeded to Firestore.');
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'resource-exhausted' || (error?.message && error.message.includes('resource-exhausted'))) {
+      markFirestoreQuotaExceeded();
+    }
     console.warn('MARSNAV: Firestore seeding skipped or failed:', error);
   }
 }

@@ -1,12 +1,23 @@
 /**
  * SHARED ACTIVE EXPLORATION SESSION STORE
- * Central reactive store for live MarsWalk Ops <-> Surface Mission Dashboard & Explorer data synchronization.
- * Holds active image ID, analysis ID, image metadata, AI vision model results,
- * geological targets, environmental observations, automated waypoints, and automated footprint trails.
+ * Single authoritative reactive store for live MarsWalk Ops <-> Surface Mission Dashboard & Explorer synchronization.
+ * Drives active image metadata/provenance, AI+CV segmentation & boulder detections, terrain regions,
+ * USGS geological identification, automated waypoints, and dynamic A* traversal routes with zero fabricated fallbacks.
  */
 
 import { computeObstacleAwareRoute } from '../utils/marsPathfinding';
-import { processTerrainIntelligence, mapCVObstaclesToHazards } from './centralTerrainEngine';
+import { mapCVObstaclesToHazards } from './centralTerrainEngine';
+import {
+  analyzeCompleteTerrainImage,
+  CompleteTerrainIntelligenceReport,
+  CoordinateProvenanceScope,
+  TerrainRegionItem
+} from './terrainIntelligenceService';
+import {
+  ObstacleHazardStatus,
+  ObstacleSizeCategory,
+  validateUploadedImageFile
+} from './terrainVisionService';
 
 export type AnalysisLifecycleStatus =
   | 'waiting'
@@ -20,11 +31,31 @@ export type AnalysisLifecycleStatus =
   | 'partial'
   | 'failed';
 
+export interface ActiveImageProvenance {
+  source: string;
+  rover: string;
+  camera: string;
+  sol: number;
+  acquisitionUtc: string;
+  identifier: string;
+  sourceUrl: string;
+  site?: number;
+  drive?: string | number;
+  targetRegion?: string;
+  lat: number | null;
+  lon: number | null;
+  coordinateScope: CoordinateProvenanceScope;
+  locationLabel: string;
+  selectionOrigin: 'upload' | 'nasa' | 'region' | 'none';
+}
+
 export interface ExplorationTargetRecord {
   id: string;
   name: string;
-  lat: number;
-  lon: number;
+  lat: number | null;
+  lon: number | null;
+  xPct?: number;
+  yPct?: number;
   classification: string;
   supportingImage: string;
   dataSource: string;
@@ -54,15 +85,26 @@ export interface AutomatedRouteData {
   footprints: Array<{ xPct: number; yPct: number; angleDeg: number; isLeft: boolean }>;
   distanceMeters: number;
   estimatedMins: number;
-  maxSlopeDeg: number;
-  safetyScore: number;
-  status: 'GENERATED' | 'OPTIMIZED' | 'BLOCKED' | 'ROUTE VERIFIED' | 'NO SAFE ROUTE FOUND' | 'BLOCKED_ENDPOINT';
+  maxSlopeDeg: number | null;
+  slopeAvailable?: boolean;
+  safetyScore: number | null;
+  isComputable?: boolean;
+  isSimulated?: boolean;
+  unavailableReason?: string | null;
+  formulaDescription?: string;
+  status: 'GENERATED' | 'OPTIMIZED' | 'BLOCKED' | 'ROUTE VERIFIED' | 'NO SAFE ROUTE FOUND' | 'BLOCKED_ENDPOINT' | 'UNAVAILABLE';
 }
 
 export interface DetectedBoulder {
   id: string;
   label: string;
   classification: string;
+  sizeCategory?: ObstacleSizeCategory;
+  hazardStatus?: ObstacleHazardStatus;
+  riskLevel?: 'high' | 'moderate' | 'low';
+  riskColor?: string;
+  traversalRelevance?: string;
+  detectionMethod?: 'CV Localizer' | 'Gemini Vision';
   confidence: number;
   normX: number;
   normY: number;
@@ -81,12 +123,22 @@ export interface DetectedHazard {
   id: string;
   label: string;
   classification: 'boulder' | 'rock_cluster' | 'bedrock_ridge' | 'loose_regolith' | 'sand_trap' | 'depression' | 'steep_face' | 'narrow_passage';
+  sizeCategory?: ObstacleSizeCategory;
+  hazardStatus?: ObstacleHazardStatus;
+  traversalRelevance?: string;
+  detectionMethod?: 'CV Localizer' | 'Gemini Vision';
+  dimensionsNote?: string;
   riskLevel: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+  riskColor?: string;
   confidence: number;
   normX: number;
   normY: number;
   normWidth: number;
   normHeight: number;
+  pixelX?: number;
+  pixelY?: number;
+  pixelWidth?: number;
+  pixelHeight?: number;
   areaPct: number;
   severity: string;
   mobilityImpact: string;
@@ -107,6 +159,7 @@ export interface ActiveExplorationSession {
   activeImageId: string;
   activeAnalysisId: string;
   activeRegion: string;
+  provenance: ActiveImageProvenance;
   imageMetadata: {
     fileName: string;
     sizeBytes: number;
@@ -121,6 +174,14 @@ export interface ActiveExplorationSession {
     rockFormations: string[];
     boulders: DetectedBoulder[];
     hazards: DetectedHazard[];
+    regions: TerrainRegionItem[];
+    segmentationMaskUrl?: string;
+    pixelComposition: {
+      soilPct: number;
+      bedrockPct: number;
+      sandPct: number;
+      rockPct: number;
+    };
     sandAndRegolith: string;
     visibleFractures: string[];
     sedimentaryStructures: string[];
@@ -133,12 +194,16 @@ export interface ActiveExplorationSession {
     uncertainOrUnidentifiedFeatures: string[];
     geologicalRelevance: string;
     recommendedInvestigationMethod: string;
-    dataNature: 'Observed' | 'Derived' | 'Modeled';
+    aiAvailable: boolean;
+    aiStatusMessage?: string;
+    dataNature: 'Observed' | 'Derived' | 'Modeled' | 'Unavailable';
   };
+  terrainReport: CompleteTerrainIntelligenceReport | null;
   terrainAnalysis: {
-    slopeMeanDeg: number;
-    slopeMaxDeg: number;
-    regolithTraversabilityIndex: number;
+    slopeMeanDeg: number | null;
+    slopeMaxDeg: number | null;
+    slopeAvailable: boolean;
+    regolithTraversabilityIndex: number | null;
     boulderDensityPct: number;
     sandCoveragePct: number;
     passageWidthPx: number | null;
@@ -171,20 +236,21 @@ export interface ActiveExplorationSession {
   };
   elevationData: {
     hasNativeElevation: boolean;
-    elevationMinM: number;
-    elevationMaxM: number;
+    elevationMinM: number | null;
+    elevationMaxM: number | null;
     datum: string;
   };
   activeRoute: {
     code: string;
     name: string;
-    distanceM: number;
-    timeMins: number;
-    maxSlopeDeg: number;
-    safetyScorePct: number;
+    distanceM: number | null;
+    timeMins: number | null;
+    maxSlopeDeg: number | null;
+    safetyScorePct: number | null;
+    isSimulated: boolean;
     returnFeasible: boolean;
-    returnDistanceM: number;
-    returnDurationMins: number;
+    returnDistanceM: number | null;
+    returnDurationMins: number | null;
   };
   analysisStatus: AnalysisLifecycleStatus;
   statusMessage: string;
@@ -200,198 +266,171 @@ export interface DiagnosticLogEvent {
   details?: any;
 }
 
-// Initial Baseline Session State: NASA AI4MARS Rover Surface Observation (vis_0)
-const initialWaypoints: ExplorationWaypoint[] = [
-  { id: 'wp_start', name: 'EVA Base Egress Start', xPct: 15, yPct: 82, type: 'start', notes: 'Primary habitat egress point.', status: 'Investigated' },
-  { id: 'wp_sci_1', name: 'Primary Basalt Boulder Target', xPct: 42, yPct: 48, type: 'science', notes: 'High-priority LIBS sample analysis.', status: 'Pending' },
-  { id: 'wp_dest', name: 'Neretva Delta Stratified Outcrop', xPct: 85, yPct: 18, type: 'destination', notes: 'Primary lacustrine sedimentary target.', status: 'Pending' }
-];
+const unavailableRecord = (unit = ''): EnvironmentalObservationRecord => ({
+  value: null,
+  unit,
+  source: 'No active in-situ surface telemetry link',
+  instrument: 'Unavailable',
+  timestamp: 'N/A',
+  location: 'Unassigned',
+  nature: 'Unavailable'
+});
 
-const initialRouteData: AutomatedRouteData = {
-  path: [
-    { xPct: 15, yPct: 82 },
-    { xPct: 28, yPct: 65 },
-    { xPct: 42, yPct: 48 },
-    { xPct: 65, yPct: 32 },
-    { xPct: 85, yPct: 18 }
-  ],
-  footprints: [
-    { xPct: 17, yPct: 79, angleDeg: -45, isLeft: true },
-    { xPct: 20, yPct: 75, angleDeg: -40, isLeft: false },
-    { xPct: 24, yPct: 70, angleDeg: -35, isLeft: true },
-    { xPct: 28, yPct: 65, angleDeg: -30, isLeft: false },
-    { xPct: 35, yPct: 56, angleDeg: -28, isLeft: true },
-    { xPct: 42, yPct: 48, angleDeg: -25, isLeft: false },
-    { xPct: 53, yPct: 40, angleDeg: -22, isLeft: true },
-    { xPct: 65, yPct: 32, angleDeg: -20, isLeft: false },
-    { xPct: 75, yPct: 25, angleDeg: -18, isLeft: true },
-    { xPct: 85, yPct: 18, angleDeg: -15, isLeft: false }
-  ],
-  distanceMeters: 1120,
-  estimatedMins: 28,
-  maxSlopeDeg: 9.8,
-  safetyScore: 86,
-  status: 'OPTIMIZED'
+const emptyRouteData: AutomatedRouteData = {
+  path: [],
+  footprints: [],
+  distanceMeters: 0,
+  estimatedMins: 0,
+  maxSlopeDeg: null,
+  slopeAvailable: false,
+  safetyScore: null,
+  isComputable: false,
+  isSimulated: true,
+  unavailableReason: 'Select or upload a Martian surface image to compute obstacle-aware traverse routes.',
+  formulaDescription:
+    'Safety Score = 100 - (ObstacleProximityPenalty [0–40] + SurfaceRoughnessPenalty [0–30] + SandDriftPenalty [0–15] + SlopePenalty [0–25 if DEM calibrated])',
+  status: 'UNAVAILABLE'
 };
 
 const initialSession: ActiveExplorationSession = {
-  activeImageId: 'IMG_ROVER_VIS_0_F6A9756B',
-  activeAnalysisId: 'ANALYSIS_INIT_ROVER_VIS_0',
+  activeImageId: 'UNASSIGNED',
+  activeAnalysisId: 'NONE',
   activeRegion: 'jezero',
+  provenance: {
+    source: 'No Image Selected',
+    rover: 'N/A',
+    camera: 'N/A',
+    sol: 0,
+    acquisitionUtc: '',
+    identifier: '',
+    sourceUrl: '',
+    lat: null,
+    lon: null,
+    coordinateScope: 'unavailable',
+    locationLabel: 'No Active Location',
+    selectionOrigin: 'none'
+  },
   imageMetadata: {
-    fileName: 'vis_0_f6a9756b.png',
-    sizeBytes: 46178,
-    width: 1024,
-    height: 1024,
-    format: 'PNG',
-    url: '/assets/aistudio/vis_0_f6a9756b.png',
-    source: 'NASA AI4MARS / Curiosity & Perseverance NavCam (vis_0)'
+    fileName: 'No Surface Image Loaded',
+    sizeBytes: 0,
+    width: 0,
+    height: 0,
+    format: 'N/A',
+    url: '',
+    source: 'Awaiting image upload or NASA planetary archive selection'
   },
   imageAnalysis: {
-    visibleFeatures: [
-      'Large foreground basaltic boulder block',
-      'Sub-parallel planar layering in weathered face',
-      'Surrounding regolith gravel and pebbles',
-      'Aeolian dust mantling on windward rock crest'
-    ],
-    rockFormations: ['Jezero / Gale Basaltic Float Boulder'],
-    boulders: [
-      {
-        id: 'obs_1',
-        label: 'Primary Foreground Basalt Rock',
-        classification: 'boulder',
-        confidence: 0.94,
-        normX: 0.38,
-        normY: 0.46,
-        normWidth: 0.28,
-        normHeight: 0.32,
-        pixelX: 98,
-        pixelY: 118,
-        pixelWidth: 72,
-        pixelHeight: 82,
-        physicalWidthM: 1.4,
-        physicalHeightM: 0.9,
-        dimensionsNote: '1.4m × 0.9m boulder block (in-situ estimate)'
-      }
-    ],
-    hazards: [
-      {
-        id: 'hz_1',
-        label: 'Primary Foreground Basalt Rock',
-        classification: 'boulder',
-        riskLevel: 'MODERATE',
-        confidence: 0.94,
-        normX: 0.38,
-        normY: 0.46,
-        normWidth: 0.28,
-        normHeight: 0.32,
-        areaPct: 7.4,
-        severity: 'Moderate',
-        mobilityImpact: 'Requires 2m safety clearance; restricted passage width.',
-        reason: 'Large obstacle in primary navigation corridor.'
-      }
-    ],
-    sandAndRegolith: 'Pebbly coarse regolith mantle interbedded with indurated fine sand.',
-    visibleFractures: ['Sub-parallel jointing fractures on exposed rock crest'],
-    sedimentaryStructures: ['Planar horizontal bedding laminations in bedrock base'],
-    terrainObstacles: ['1.4m boulder block in foreground navigation corridor'],
-    surfaceTexture: 'Moderately rough with localized gravel and rock varnish.',
-    roughnessScore: 0.52,
-    shadowContrast: 0.22,
-    dominantFeature: 'Solitary Basaltic Float Boulder with Varnish',
-    imageQuality: 'High',
-    uncertainOrUnidentifiedFeatures: ['Shadowed depression under northwest rock overhang'],
-    geologicalRelevance: 'High priority target for LIBS and micro-XRF elemental composition scan.',
-    recommendedInvestigationMethod: 'Micro-XRF elemental scan and drill abrasion test.',
-    dataNature: 'Observed'
+    visibleFeatures: [],
+    rockFormations: [],
+    boulders: [],
+    hazards: [],
+    regions: [],
+    segmentationMaskUrl: undefined,
+    pixelComposition: { soilPct: 0, bedrockPct: 0, sandPct: 0, rockPct: 0 },
+    sandAndRegolith: 'Select or upload a surface image to inspect regolith and sand deposits.',
+    visibleFractures: [],
+    sedimentaryStructures: [],
+    terrainObstacles: [],
+    surfaceTexture: 'Not yet analyzed',
+    roughnessScore: 0,
+    shadowContrast: 0,
+    dominantFeature: 'No Image Loaded',
+    imageQuality: 'N/A',
+    uncertainOrUnidentifiedFeatures: [],
+    geologicalRelevance: 'Select or upload an image to run terrain and geological analysis.',
+    recommendedInvestigationMethod: 'Awaiting surface image.',
+    aiAvailable: false,
+    aiStatusMessage: 'No active image selected.',
+    dataNature: 'Unavailable'
   },
+  terrainReport: null,
   terrainAnalysis: {
-    slopeMeanDeg: 4.2,
-    slopeMaxDeg: 9.8,
-    regolithTraversabilityIndex: 76,
-    boulderDensityPct: 7.4,
-    sandCoveragePct: 12.8,
-    passageWidthPx: 42,
-    passageWidthM: 4.2,
+    slopeMeanDeg: null,
+    slopeMaxDeg: null,
+    slopeAvailable: false,
+    regolithTraversabilityIndex: null,
+    boulderDensityPct: 0,
+    sandCoveragePct: 0,
+    passageWidthPx: null,
+    passageWidthM: null,
     dataSuitability: {
       elevationAnalysis: false,
       slopeCalculation: false,
-      surfaceRoughness: true,
-      obstacleClearance: true,
-      roverTraversability: true,
-      notes: 'Surface rover NavCam optical frame with in-situ scale calibrated.'
+      surfaceRoughness: false,
+      obstacleClearance: false,
+      roverTraversability: false,
+      notes: 'Select or upload a Martian terrain image to evaluate surface suitability.'
     }
   },
-  geologicalTargets: [
-    {
-      id: 'tgt_init_1',
-      name: 'Primary Foreground Basalt Boulder',
-      lat: 18.3812,
-      lon: 77.4208,
-      classification: 'Basaltic Float Rock with Desert Varnish',
-      supportingImage: '/assets/aistudio/vis_0_f6a9756b.png',
-      dataSource: 'NASA AI4MARS / Rover NavCam (vis_0)',
-      instrument: 'SuperCam LIBS / PIXL Micro-XRF',
-      confidencePct: 94,
-      relevance: 'Weathered volcanic float block exhumed by impact or fluvial transport.',
-      recommendedMethod: 'Handheld Raman spectroscopy and drill core extraction.',
-      status: 'In Progress',
-      dataNature: 'Observed',
-      notes: ['Exposed surface shows dark ferromagnesian desert varnish patina.'],
-      photoUrls: ['/assets/aistudio/vis_0_f6a9756b.png']
-    }
-  ],
-  waypoints: initialWaypoints,
-  automatedRoute: initialRouteData,
+  geologicalTargets: [],
+  waypoints: [],
+  automatedRoute: emptyRouteData,
   environmentalObservations: {
-    ambientTempC: { value: -62.4, unit: '°C', source: 'NASA MEDA Station', instrument: 'MEDA ATS', timestamp: '2026-11-10T14:30:00Z', location: 'Jezero Crater', nature: 'Observed' },
-    groundTempC: { value: -55.2, unit: '°C', source: 'NASA MEDA Station', instrument: 'MEDA TIRS', timestamp: '2026-11-10T14:30:00Z', location: 'Jezero Crater', nature: 'Observed' },
-    atmosPressurePa: { value: 618.2, unit: 'Pa', source: 'NASA MEDA Station', instrument: 'MEDA PS', timestamp: '2026-11-10T14:30:00Z', location: 'Jezero Crater', nature: 'Observed' },
-    windSpeedMs: { value: 6.8, unit: 'm/s', source: 'NASA MEDA Station', instrument: 'MEDA WS', timestamp: '2026-11-10T14:30:00Z', location: 'Jezero Crater', nature: 'Observed' },
-    windDirectionDeg: { value: 210, unit: '°', source: 'NASA MEDA Station', instrument: 'MEDA WS', timestamp: '2026-11-10T14:30:00Z', location: 'Jezero Crater', nature: 'Observed' },
-    dustTau: { value: 0.45, unit: 'Tau', source: 'NASA MEDA Station', instrument: 'MEDA RDS', timestamp: '2026-11-10T14:30:00Z', location: 'Jezero Crater', nature: 'Observed' },
-    solarExposureWm2: { value: 590, unit: 'W/m²', source: 'NASA MEDA Station', instrument: 'MEDA RDS', timestamp: '2026-11-10T14:30:00Z', location: 'Jezero Crater', nature: 'Observed' },
-    radiationDoseMgyDay: { value: 0.64, unit: 'mGy/day', source: 'NASA MSL RAD', instrument: 'RAD', timestamp: '2026-11-11T09:15:00Z', location: 'Gale Crater (Regional Baseline)', nature: 'Observed' },
-    galacticCosmicRayMsvYr: { value: 210, unit: 'mSv/yr', source: 'NASA MSL RAD', instrument: 'RAD', timestamp: '2026-11-11T09:15:00Z', location: 'Gale Crater (Regional Baseline)', nature: 'Derived' },
-    solarFlareStatus: { value: 'Low Activity', unit: '', source: 'NASA Space Weather', instrument: 'DONKI', timestamp: '2026-11-12T08:00:00Z', location: 'Mars Orbit', nature: 'Observed' },
-    statusLabel: 'VERIFIED OBSERVATION (NASA Mars 2020 MEDA / RAD)',
-    isAvailable: true
+    ambientTempC: unavailableRecord('°C'),
+    groundTempC: unavailableRecord('°C'),
+    atmosPressurePa: unavailableRecord('Pa'),
+    windSpeedMs: unavailableRecord('m/s'),
+    windDirectionDeg: unavailableRecord('°'),
+    dustTau: unavailableRecord('Tau'),
+    solarExposureWm2: unavailableRecord('W/m²'),
+    radiationDoseMgyDay: unavailableRecord('mGy/day'),
+    galacticCosmicRayMsvYr: unavailableRecord('mSv/yr'),
+    solarFlareStatus: {
+      value: 'See Radiation & Space Weather Monitor',
+      unit: '',
+      source: 'NOAA SWPC / NASA DONKI',
+      instrument: 'Space Weather Stream',
+      timestamp: 'N/A',
+      location: '1 AU / Heliosphere',
+      nature: 'Unavailable'
+    },
+    statusLabel: 'NO IN-SITU SURFACE WEATHER TELEMETRY ATTACHED TO FRAME',
+    isAvailable: false
   },
   elevationData: {
     hasNativeElevation: false,
-    elevationMinM: -2462,
-    elevationMaxM: -2460,
-    datum: 'Mars 2000 MOLA Areoid'
+    elevationMinM: null,
+    elevationMaxM: null,
+    datum: 'MOLA Areoid (Calibrated DEM Unavailable)'
   },
   activeRoute: {
-    code: 'ALPHA-DIRECT',
-    name: 'ROUTE ALPHA — SHORTEST DISTANCE',
-    distanceM: 1120,
-    timeMins: 28,
-    maxSlopeDeg: 9.8,
-    safetyScorePct: 86,
-    returnFeasible: true,
-    returnDistanceM: 1120,
-    returnDurationMins: 22
+    code: 'UNCOMPUTED',
+    name: 'AWAITING TERRAIN IMAGE',
+    distanceM: null,
+    timeMins: null,
+    maxSlopeDeg: null,
+    safetyScorePct: null,
+    isSimulated: true,
+    returnFeasible: false,
+    returnDistanceM: null,
+    returnDurationMins: null
   },
-  analysisStatus: 'completed',
-  statusMessage: 'Baseline verified rover surface observation (vis_0) loaded.',
+  analysisStatus: 'waiting',
+  statusMessage: 'Select a NASA rover photograph or upload a Martian terrain image to run live analysis.',
   lastError: null,
   lastUpdated: new Date().toISOString()
 };
 
-// Global Store Single Instance
+function inferMimeType(urlOrName: string): string {
+  const lower = urlOrName.toLowerCase();
+  if (lower.endsWith('.png') || lower.includes('image/png')) return 'PNG';
+  if (lower.endsWith('.webp') || lower.includes('image/webp')) return 'WEBP';
+  if (lower.endsWith('.tif') || lower.endsWith('.tiff')) return 'TIFF';
+  return 'JPEG';
+}
+
 class SharedExplorationStore {
   private currentSession: ActiveExplorationSession = { ...initialSession };
   private listeners: Set<(session: ActiveExplorationSession) => void> = new Set();
   private diagnosticLogs: DiagnosticLogEvent[] = [];
-  private analysisCache: Map<string, any> = new Map();
-  private currentImageIdentifier: string | null = null;
-  private currentSeq: number = 0;
+  private sessionCache: Map<string, ActiveExplorationSession> = new Map();
+  private inFlightRequests: Map<string, Promise<ActiveExplorationSession>> = new Map();
+  private activeAbortController: AbortController | null = null;
+  private currentImageKey: string | null = null;
+  private currentSeq = 0;
 
   constructor() {
-    this.analysisCache.set(initialSession.activeImageId, { ...initialSession });
-    this.logDiagnostic('info', 'INITIALIZATION', 'Shared Exploration Session Store instantiated.');
+    this.logDiagnostic('info', 'INITIALIZATION', 'Shared Exploration Session Store ready (zero-mock baseline).');
   }
 
   public getSession(): ActiveExplorationSession {
@@ -413,7 +452,7 @@ class SharedExplorationStore {
       details
     };
     this.diagnosticLogs.unshift(event);
-    if (this.diagnosticLogs.length > 50) this.diagnosticLogs.pop();
+    if (this.diagnosticLogs.length > 60) this.diagnosticLogs.pop();
 
     const prefix = `[EXPLORATION_SYNC] [${stage}]`;
     if (level === 'error') console.error(prefix, message, details || '');
@@ -431,7 +470,9 @@ class SharedExplorationStore {
       ...partial,
       lastUpdated: new Date().toISOString()
     };
-    this.analysisCache.set(this.currentSession.activeImageId, this.currentSession);
+    if (this.currentImageKey && this.currentSession.analysisStatus === 'completed') {
+      this.sessionCache.set(this.currentImageKey, this.currentSession);
+    }
     this.notifyListeners();
   }
 
@@ -446,27 +487,23 @@ class SharedExplorationStore {
     this.logDiagnostic(
       status === 'failed' ? 'error' : status === 'completed' ? 'success' : 'info',
       'STATUS_CHANGE',
-      `Status -> ${status.toUpperCase()}: ${message}`,
+      `${status.toUpperCase()}: ${message}`,
       error ? { error } : undefined
     );
     this.notifyListeners();
   }
 
-  /**
-   * Updates a specific waypoint by ID and triggers route recalculation
-   */
   public updateWaypoint(waypointId: string, updates: Partial<ExplorationWaypoint>) {
-    const updatedWaypoints = this.currentSession.waypoints.map(wp => 
+    const updatedWaypoints = this.currentSession.waypoints.map(wp =>
       wp.id === waypointId ? { ...wp, ...updates } : wp
     );
-    
+
     this.currentSession = {
       ...this.currentSession,
       waypoints: updatedWaypoints,
       lastUpdated: new Date().toISOString()
     };
 
-    // If start or destination changed, recalculate the route
     const affectedWp = updatedWaypoints.find(wp => wp.id === waypointId);
     if (affectedWp?.type === 'start' || affectedWp?.type === 'destination') {
       this.recalculateRoute();
@@ -475,461 +512,551 @@ class SharedExplorationStore {
     }
   }
 
-  /**
-   * Recalculates the automated route based on current waypoints and detected boulders
-   */
   public recalculateRoute() {
     const start = this.currentSession.waypoints.find(wp => wp.type === 'start');
     const dest = this.currentSession.waypoints.find(wp => wp.type === 'destination');
-    
     if (!start || !dest) return;
 
-    this.logDiagnostic('info', 'ROUTE_RECALCULATION', `Recalculating route from ${start.name} to ${dest.name}...`);
-    
+    const hasImageData = Boolean(this.currentSession.imageMetadata.url);
     const aStarResult = computeObstacleAwareRoute(
-      this.currentSession.imageAnalysis.boulders, 
-      { xPct: start.xPct, yPct: start.yPct }, 
-      { xPct: dest.xPct, yPct: dest.yPct }
+      this.currentSession.imageAnalysis.boulders,
+      { xPct: start.xPct, yPct: start.yPct },
+      { xPct: dest.xPct, yPct: dest.yPct },
+      84,
+      {
+        hasImageData,
+        roughnessScore: this.currentSession.imageAnalysis.roughnessScore,
+        sandCoveragePct: this.currentSession.terrainAnalysis.sandCoveragePct,
+        slopeMaxDeg: this.currentSession.terrainAnalysis.slopeMaxDeg
+      }
     );
 
     this.currentSession = {
       ...this.currentSession,
       automatedRoute: {
-        path: aStarResult.path.length > 0 ? aStarResult.path : [{ xPct: start.xPct, yPct: start.yPct }, { xPct: dest.xPct, yPct: dest.yPct }],
+        path: aStarResult.path,
         footprints: aStarResult.footprints,
         distanceMeters: aStarResult.distanceMeters,
         estimatedMins: aStarResult.estimatedMins,
         maxSlopeDeg: aStarResult.maxSlopeDeg,
+        slopeAvailable: aStarResult.slopeAvailable,
         safetyScore: aStarResult.safetyScore,
+        isComputable: aStarResult.isComputable,
+        isSimulated: true,
+        unavailableReason: aStarResult.unavailableReason,
+        formulaDescription: aStarResult.formulaDescription,
         status: aStarResult.status
       },
       lastUpdated: new Date().toISOString()
     };
-
     this.notifyListeners();
   }
 
-  /**
-   * Automatically generates obstacle-aware waypoints and a footprint trail from detected boulders
-   */
   public generateAutomatedNavigationPlan(
-    boulders: DetectedBoulder[], 
-    customStart?: { xPct: number; yPct: number }, 
-    customDest?: { xPct: number; yPct: number }
+    boulders: DetectedBoulder[],
+    customStart?: { xPct: number; yPct: number },
+    customDest?: { xPct: number; yPct: number },
+    roughnessScore = this.currentSession.imageAnalysis.roughnessScore,
+    sandCoveragePct = this.currentSession.terrainAnalysis.sandCoveragePct,
+    hasImageData = Boolean(this.currentSession.imageMetadata.url)
   ): { waypoints: ExplorationWaypoint[]; automatedRoute: AutomatedRouteData } {
     const waypoints: ExplorationWaypoint[] = [];
-    
-    const startX = customStart?.xPct ?? 15;
+    const startX = customStart?.xPct ?? 14;
     const startY = customStart?.yPct ?? 82;
-    const destX = customDest?.xPct ?? 85;
+    const destX = customDest?.xPct ?? 86;
     const destY = customDest?.yPct ?? 18;
 
-    // 1. Start Point
     waypoints.push({
       id: 'wp_start',
-      name: 'EVA Base Egress Start',
-      xPct: startX,
-      yPct: startY,
+      name: 'Traverse Start Point',
+      xPct: Number(startX.toFixed(1)),
+      yPct: Number(startY.toFixed(1)),
       type: 'start',
-      notes: 'Primary habitat egress point.',
+      notes: 'Simulated EVA egress reference point within active image frame.',
       status: 'Investigated'
     });
 
-    // 2. Science waypoints / stand-off points around detected boulders
-    boulders.forEach((b, idx) => {
-      const standOffX = Math.round(Math.min(88, Math.max(12, b.normX * 100 + (b.normX > 0.5 ? 12 : -12))));
-      const standOffY = Math.round(Math.min(88, Math.max(12, b.normY * 100 - 8)));
+    boulders.slice(0, 6).forEach((b, idx) => {
+      const centerX = (b.normX + b.normWidth * 0.5) * 100;
+      const centerY = (b.normY + b.normHeight * 0.5) * 100;
+      const standOffX = Number(Math.min(92, Math.max(8, centerX + (centerX > 50 ? -9 : 9))).toFixed(1));
+      const standOffY = Number(Math.min(92, Math.max(8, centerY - 6)).toFixed(1));
       waypoints.push({
         id: `wp_sci_${idx + 1}`,
-        name: `Stand-off Target: ${b.label}`,
+        name: `Inspect: ${b.label}`,
         xPct: standOffX,
         yPct: standOffY,
         type: 'science',
-        notes: `Safe observation stand-off waypoint outside obstacle safety margin (${b.dimensionsNote}).`,
+        notes: `${b.detectionMethod || 'CV'} detection (${b.sizeCategory?.replace('_', ' ') || b.classification}) — ${b.traversalRelevance || b.dimensionsNote}`,
         associatedBoulderId: b.id,
         status: idx === 0 ? 'In Progress' : 'Pending'
       });
     });
 
-    // 3. Destination Point
     waypoints.push({
       id: 'wp_dest',
-      name: 'Neretva Delta Stratified Outcrop',
-      xPct: destX,
-      yPct: destY,
+      name: 'Traverse Objective Point',
+      xPct: Number(destX.toFixed(1)),
+      yPct: Number(destY.toFixed(1)),
       type: 'destination',
-      notes: 'Primary lacustrine sedimentary target.',
+      notes: 'Simulated traverse endpoint across active frame.',
       status: 'Pending'
     });
 
-    // Run A* True Obstacle-Free Pathfinding Engine
-    const aStarResult = computeObstacleAwareRoute(boulders, { xPct: startX, yPct: startY }, { xPct: destX, yPct: destY });
+    const aStarResult = computeObstacleAwareRoute(
+      boulders,
+      { xPct: startX, yPct: startY },
+      { xPct: destX, yPct: destY },
+      84,
+      {
+        hasImageData,
+        roughnessScore,
+        sandCoveragePct,
+        slopeMaxDeg: this.currentSession.terrainAnalysis.slopeMaxDeg
+      }
+    );
 
     const automatedRoute: AutomatedRouteData = {
-      path: aStarResult.path.length > 0 ? aStarResult.path : waypoints.map(w => ({ xPct: w.xPct, yPct: w.yPct })),
+      path: aStarResult.path,
       footprints: aStarResult.footprints,
       distanceMeters: aStarResult.distanceMeters,
       estimatedMins: aStarResult.estimatedMins,
       maxSlopeDeg: aStarResult.maxSlopeDeg,
+      slopeAvailable: aStarResult.slopeAvailable,
       safetyScore: aStarResult.safetyScore,
+      isComputable: aStarResult.isComputable,
+      isSimulated: true,
+      unavailableReason: aStarResult.unavailableReason,
+      formulaDescription: aStarResult.formulaDescription,
       status: aStarResult.status
     };
 
     return { waypoints, automatedRoute };
   }
 
-  private async extractBase64(fileOrUrl: File | string): Promise<{ base64: string; mimeType: string }> {
-    if (typeof fileOrUrl !== 'string') {
-      const mime = fileOrUrl.type || 'image/jpeg';
-      const b64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const res = reader.result as string;
-          resolve(res.includes(',') ? res.split(',')[1] : res);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(fileOrUrl);
-      });
-      return { base64: b64, mimeType: mime };
-    }
-
-    if (fileOrUrl.startsWith('data:')) {
-      const parts = fileOrUrl.split(',');
-      const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
-      return { base64: parts[1], mimeType: mime };
-    }
-
-    try {
-      const resp = await fetch(fileOrUrl);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const blob = await resp.blob();
-      const mime = blob.type || (fileOrUrl.endsWith('.png') ? 'image/png' : 'image/jpeg');
-      const b64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const res = reader.result as string;
-          resolve(res.includes(',') ? res.split(',')[1] : res);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-      return { base64: b64, mimeType: mime };
-    } catch {
-      return { base64: '', mimeType: fileOrUrl.endsWith('.png') ? 'image/png' : 'image/jpeg' };
-    }
-  }
-
   /**
-   * CENTRAL PIPELINE: Processes an uploaded photo file or image URL,
-   * invokes server-side Gemini AI Vision API, runs CV canvas extraction,
-   * automatically generates navigation waypoints and obstacle-aware footprint trails.
+   * SINGLE UNIFIED ANALYSIS PIPELINE:
+   * Immediately resets stale image results, cancels superseded requests via AbortController,
+   * executes analyzeCompleteTerrainImage() once (fused CV + Gemini Vision + USGS geology + Trek MOLA),
+   * and updates all exploration state synchronously.
    */
   public async processAndSyncImage(
     fileOrUrl: File | string,
     fileName?: string,
     regionId?: string,
     customStart?: { xPct: number; yPct: number },
-    customDest?: { xPct: number; yPct: number }
+    customDest?: { xPct: number; yPct: number },
+    provenanceInput?: Partial<ActiveImageProvenance> & { forceRefresh?: boolean }
   ): Promise<ActiveExplorationSession> {
-    const seq = ++this.currentSeq;
-    
-    // Create a stable identifier for the image
-    let imageSourceId = '';
-    if (typeof fileOrUrl === 'string') {
-      imageSourceId = fileOrUrl;
-    } else {
-      imageSourceId = `${fileOrUrl.name}_${fileOrUrl.size}_${fileOrUrl.lastModified}`;
+    if (!fileOrUrl || (typeof fileOrUrl === 'string' && fileOrUrl.trim() === '')) {
+      return this.currentSession;
     }
 
-    const isSameImage = this.currentImageIdentifier === imageSourceId;
-    this.currentImageIdentifier = imageSourceId;
+    const forceRefresh = Boolean(provenanceInput?.forceRefresh);
+    const isFile = typeof fileOrUrl !== 'string';
+    const rawIdentifier = isFile
+      ? `${fileOrUrl.name}_${fileOrUrl.size}_${fileOrUrl.lastModified}`
+      : (provenanceInput?.identifier || fileOrUrl);
 
-    const isUserUpload = typeof fileOrUrl !== 'string'
-      ? true
-      : (fileName?.includes('Upload') || fileName?.includes('Screenshot') || fileOrUrl.startsWith('blob:'));
+    const coordScope: CoordinateProvenanceScope =
+      provenanceInput?.coordinateScope ||
+      (typeof provenanceInput?.lat === 'number' && typeof provenanceInput?.lon === 'number'
+        ? 'exact_verified'
+        : 'unavailable');
 
-    let resolvedFileName = fileName || (typeof fileOrUrl === 'string' ? fileOrUrl.split('/').pop()?.split('?')[0] : fileOrUrl.name) || 'Mars_Surface_Photograph.jpg';
-    const activeRegion = regionId || this.currentSession.activeRegion || 'jezero';
+    const coordKey =
+      coordScope !== 'unavailable' && typeof provenanceInput?.lat === 'number' && typeof provenanceInput?.lon === 'number'
+        ? `${coordScope}:${provenanceInput.lat.toFixed(4)},${provenanceInput.lon.toFixed(4)}`
+        : 'no-coords';
 
-    // If it's the same image and we have an analysis, just update waypoints and route
-    if (isSameImage && this.currentSession.analysisStatus === 'completed') {
+    const cacheKey = `${rawIdentifier}::${coordKey}`;
+
+    // If identical image is already completed and we just changed start/dest, recalculate route locally
+    if (!forceRefresh && this.currentImageKey === cacheKey && this.currentSession.analysisStatus === 'completed') {
+      if (customStart || customDest) {
+        const { waypoints, automatedRoute } = this.generateAutomatedNavigationPlan(
+          this.currentSession.imageAnalysis.boulders,
+          customStart,
+          customDest,
+          this.currentSession.imageAnalysis.roughnessScore,
+          this.currentSession.terrainAnalysis.sandCoveragePct,
+          true
+        );
+        this.currentSession = {
+          ...this.currentSession,
+          waypoints,
+          automatedRoute,
+          lastUpdated: new Date().toISOString()
+        };
+        this.notifyListeners();
+      }
+      return this.currentSession;
+    }
+
+    // Deduplicate concurrent calls for the exact same active image key
+    if (!forceRefresh && this.inFlightRequests.has(cacheKey)) {
+      return this.inFlightRequests.get(cacheKey)!;
+    }
+
+    // If cached session exists from earlier switch, restore immediately cleanly
+    if (!forceRefresh && this.sessionCache.has(cacheKey)) {
+      const cached = this.sessionCache.get(cacheKey)!;
       const { waypoints, automatedRoute } = this.generateAutomatedNavigationPlan(
-        this.currentSession.imageAnalysis.boulders, 
-        customStart, 
-        customDest
+        cached.imageAnalysis.boulders,
+        customStart,
+        customDest,
+        cached.imageAnalysis.roughnessScore,
+        cached.terrainAnalysis.sandCoveragePct,
+        true
       );
+      this.currentImageKey = cacheKey;
       this.currentSession = {
-        ...this.currentSession,
+        ...cached,
         waypoints,
         automatedRoute,
         lastUpdated: new Date().toISOString()
       };
+      this.logDiagnostic('info', 'CACHE_RESTORE', `Restored analyzed session for ${cached.imageMetadata.fileName}`);
       this.notifyListeners();
       return this.currentSession;
     }
 
-    const imageId = isSameImage ? this.currentSession.activeImageId : `IMG_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const analysisId = isSameImage ? this.currentSession.activeAnalysisId : `ANALYSIS_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-
-    this.logDiagnostic('info', 'IMAGE_SELECTED', `[Seq #${seq}] Processing photograph: ${resolvedFileName} (Region: ${activeRegion}, isSame: ${isSameImage})`);
-
-    let imageUrl = '';
-    let fileSizeBytes = 2000000;
-
-    this.setAnalysisStatus('uploading', `Storing photograph ${resolvedFileName}...`);
-
-    if (typeof fileOrUrl === 'string') {
-      imageUrl = fileOrUrl;
-      fileSizeBytes = fileOrUrl.includes('vis_0') ? 46178 : 2400000;
-    } else {
-      fileSizeBytes = fileOrUrl.size;
-      imageUrl = URL.createObjectURL(fileOrUrl);
+    // Cancel any superseded previous in-flight analysis
+    if (this.activeAbortController) {
+      try {
+        this.activeAbortController.abort();
+      } catch {}
     }
+    const controller = new AbortController();
+    this.activeAbortController = controller;
 
-    const initialMetadata = {
-      fileName: resolvedFileName,
-      sizeBytes: fileSizeBytes,
-      width: 1024,
-      height: 1024,
-      format: resolvedFileName.split('.').pop()?.toUpperCase() || 'JPEG',
-      url: imageUrl,
-      source: isUserUpload ? `User Upload (${resolvedFileName})` : `NASA Mars Archive (${resolvedFileName})`
+    const seq = ++this.currentSeq;
+    this.currentImageKey = cacheKey;
+
+    const resolvedFileName =
+      fileName ||
+      (isFile ? fileOrUrl.name : provenanceInput?.identifier || fileOrUrl.split('/').pop()?.split('?')[0] || 'Mars_Surface_Frame.jpg');
+    const activeRegion = regionId || this.currentSession.activeRegion || 'jezero';
+
+    const imageUrl = isFile ? URL.createObjectURL(fileOrUrl) : fileOrUrl;
+    const isUserUpload =
+      provenanceInput?.selectionOrigin === 'upload' ||
+      isFile ||
+      imageUrl.startsWith('blob:') ||
+      Boolean(provenanceInput?.source?.toLowerCase().includes('upload'));
+
+    const selectionOrigin: ActiveImageProvenance['selectionOrigin'] =
+      isUserUpload ? 'upload' : provenanceInput?.selectionOrigin || 'nasa';
+
+    const resolvedProvenance: ActiveImageProvenance = {
+      source: provenanceInput?.source || (isUserUpload ? `User Upload (${resolvedFileName})` : `NASA Mars Feed (${resolvedFileName})`),
+      rover: provenanceInput?.rover || (isUserUpload ? 'User Payload / Custom Upload' : 'NASA Mars Rover'),
+      camera: provenanceInput?.camera || (isUserUpload ? 'OPTICAL_FRAME' : 'NAVCAM'),
+      sol: typeof provenanceInput?.sol === 'number' ? provenanceInput.sol : 0,
+      acquisitionUtc: provenanceInput?.acquisitionUtc || new Date().toISOString(),
+      identifier: provenanceInput?.identifier || resolvedFileName,
+      sourceUrl: provenanceInput?.sourceUrl || imageUrl,
+      site: provenanceInput?.site,
+      drive: provenanceInput?.drive,
+      targetRegion: provenanceInput?.targetRegion,
+      lat: coordScope !== 'unavailable' && typeof provenanceInput?.lat === 'number' ? provenanceInput.lat : null,
+      lon: coordScope !== 'unavailable' && typeof provenanceInput?.lon === 'number' ? provenanceInput.lon : null,
+      coordinateScope: coordScope,
+      locationLabel:
+        provenanceInput?.locationLabel ||
+        (coordScope === 'unavailable' ? 'Coordinates Unavailable' : `${provenanceInput?.targetRegion || activeRegion}`),
+      selectionOrigin
     };
 
-    // Update session with initial metadata
+    const imageId = `IMG_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const analysisId = `ANALYSIS_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+    // IMMEDIATELY CLEAR stale boulders, hazards, targets, mask, and routes from previous image
     this.currentSession = {
-      ...this.currentSession,
+      ...initialSession,
       activeImageId: imageId,
       activeAnalysisId: analysisId,
       activeRegion,
-      imageMetadata: initialMetadata,
-      analysisStatus: 'uploaded',
-      statusMessage: `Photograph stored with ID ${imageId}. Preparing AI vision analysis...`,
+      provenance: resolvedProvenance,
+      imageMetadata: {
+        fileName: resolvedFileName,
+        sizeBytes: isFile ? fileOrUrl.size : 0,
+        width: 0,
+        height: 0,
+        format: inferMimeType(resolvedFileName),
+        url: imageUrl,
+        source: resolvedProvenance.source
+      },
+      analysisStatus: 'analyzing',
+      statusMessage: `Reset previous analysis; inspecting ${resolvedFileName} with CV + Gemini Vision...`,
       lastError: null,
       lastUpdated: new Date().toISOString()
     };
     this.notifyListeners();
 
-    // 1. Run Central Terrain Intelligence Engine
-    this.setAnalysisStatus('retrieving_datasets', `Connecting spatial coordinates with NASA PDS & HiRISE datasets...`);
-    const intelligence = await processTerrainIntelligence(
-      activeRegion,
-      null,
-      typeof fileOrUrl !== 'string' ? fileOrUrl : null,
-      typeof fileOrUrl === 'string' ? fileOrUrl : null,
-      { title: resolvedFileName, sourceUrl: imageUrl }
-    );
-
-    // 2. Request Gemini AI Vision Model terrain analysis (Only if new image)
-    let aiVisionResult: any = null;
-
-    if (this.analysisCache.has(imageSourceId)) {
-      aiVisionResult = this.analysisCache.get(imageSourceId);
-      this.logDiagnostic('info', 'CACHE_HIT', `Using cached Gemini analysis for ${resolvedFileName}`);
-    } else {
-      this.setAnalysisStatus('analyzing', `Requesting Gemini AI Vision Model terrain analysis...`);
+    const taskPromise = (async (): Promise<ActiveExplorationSession> => {
       try {
-        const { base64, mimeType } = await this.extractBase64(fileOrUrl);
-        const response = await fetch('/api/gemini/analyze-terrain', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageBase64: base64 || undefined,
-            imageUrl: !base64 ? imageUrl : undefined,
-            mimeType,
-            fileName: resolvedFileName,
-            regionId: activeRegion
-          })
+        let localValidation = null;
+        if (isFile) {
+          localValidation = await validateUploadedImageFile(fileOrUrl);
+        }
+
+        if (controller.signal.aborted || this.currentSeq !== seq) {
+          return this.currentSession;
+        }
+
+        const report = await analyzeCompleteTerrainImage({
+          imageUrl,
+          imageIdentifier: resolvedProvenance.identifier,
+          mission: resolvedProvenance.rover,
+          camera: resolvedProvenance.camera,
+          sol: resolvedProvenance.sol,
+          source: resolvedProvenance.source,
+          lat: resolvedProvenance.lat ?? undefined,
+          lon: resolvedProvenance.lon ?? undefined,
+          coordinateScope: resolvedProvenance.coordinateScope,
+          locationLabel: resolvedProvenance.locationLabel,
+          regionId: activeRegion,
+          forceRefresh,
+          signal: controller.signal
         });
 
-        if (response.ok) {
-          const json = await response.json();
-          if (json && json.success && json.analysis) {
-            aiVisionResult = json.analysis;
-            this.analysisCache.set(imageSourceId, aiVisionResult);
-            this.logDiagnostic('success', 'AI_RESPONSE_RECEIVED', `Gemini AI vision analysis completed.`, aiVisionResult);
-          }
+        if (controller.signal.aborted || this.currentSeq !== seq) {
+          return this.currentSession;
         }
-      } catch (apiErr: any) {
-        this.logDiagnostic('warn', 'AI_API_CALL_FAILED', `API request error: ${apiErr.message}`);
+
+        const boulders: DetectedBoulder[] = report.detectedBoulders.map(b => ({
+          id: b.id,
+          label: b.label,
+          classification: b.classification,
+          sizeCategory: b.sizeCategory,
+          hazardStatus: b.hazardStatus,
+          riskLevel: b.riskLevel,
+          riskColor: b.riskColor,
+          traversalRelevance: b.traversalRelevance,
+          detectionMethod: b.detectionMethod,
+          confidence: b.confidence,
+          normX: b.normX,
+          normY: b.normY,
+          normWidth: b.normWidth,
+          normHeight: b.normHeight,
+          pixelX: b.pixelX,
+          pixelY: b.pixelY,
+          pixelWidth: b.pixelWidth,
+          pixelHeight: b.pixelHeight,
+          physicalWidthM: b.physicalWidthM,
+          physicalHeightM: b.physicalHeightM,
+          dimensionsNote: b.dimensionsNote
+        }));
+
+        const hazards: DetectedHazard[] = mapCVObstaclesToHazards(
+          report.detectedBoulders.map(b => ({
+            ...b,
+            classification: (b.classification as any) || 'boulder',
+            intersectsPlannedRoute: false,
+            distanceToRoutePixels: 0,
+            intersectingWaypointIndex: null
+          }))
+        );
+
+        const totalObstacleAreaPct = parseFloat(
+          Math.min(
+            95,
+            boulders.reduce((sum, b) => sum + b.normWidth * b.normHeight * 100, 0)
+          ).toFixed(1)
+        );
+        const roughnessNorm = Number((report.roughnessScore / 100).toFixed(2));
+        const traversabilityIdx = Math.max(
+          15,
+          Math.min(96, Math.round(100 - (roughnessNorm * 38 + report.shadowContrast * 22 + Math.min(26, totalObstacleAreaPct * 0.9))))
+        );
+
+        const { waypoints, automatedRoute } = this.generateAutomatedNavigationPlan(
+          boulders,
+          customStart,
+          customDest,
+          roughnessNorm,
+          report.pixelComposition.sandPct,
+          true
+        );
+
+        // Construct active-image geological targets from detected regions + obstacles
+        const hasCoords = resolvedProvenance.lat !== null && resolvedProvenance.lon !== null;
+        const primaryGeoUnit = report.geologicalIdentification.geographicallyVerified.primaryUnit;
+        const dynamicTargets: ExplorationTargetRecord[] = [];
+
+        report.regions.slice(0, 5).forEach((reg, idx) => {
+          const cxPct = Number(((reg.normX + reg.normWidth * 0.5) * 100).toFixed(1));
+          const cyPct = Number(((reg.normY + reg.normHeight * 0.5) * 100).toFixed(1));
+          dynamicTargets.push({
+            id: `tgt_${imageId}_reg_${idx + 1}`,
+            name: reg.title,
+            lat: hasCoords ? Number((resolvedProvenance.lat! + (reg.normY - 0.5) * 0.002).toFixed(5)) : null,
+            lon: hasCoords ? Number((resolvedProvenance.lon! + (reg.normX - 0.5) * 0.002).toFixed(5)) : null,
+            xPct: cxPct,
+            yPct: cyPct,
+            classification: reg.classification,
+            supportingImage: imageUrl,
+            dataSource: resolvedProvenance.source,
+            instrument: `${resolvedProvenance.rover} / ${resolvedProvenance.camera}`,
+            confidencePct: reg.confidence,
+            relevance: reg.scientificSignificance,
+            recommendedMethod: report.recommendedInvestigationMethod,
+            status: idx === 0 ? 'In Progress' : 'Planned',
+            dataNature: 'Derived',
+            notes: [
+              `Visual region (${reg.locationDescription}): ${reg.visualCharacteristics}`,
+              primaryGeoUnit
+                ? `Regional USGS SIM 3292 context: ${primaryGeoUnit.unitSymbol} (${primaryGeoUnit.unitName})`
+                : 'USGS map unit: No verified geological classification available for this location.'
+            ],
+            photoUrls: [imageUrl]
+          });
+        });
+
+        if (dynamicTargets.length === 0) {
+          boulders.slice(0, 4).forEach((obs, idx) => {
+            const cxPct = Number(((obs.normX + obs.normWidth * 0.5) * 100).toFixed(1));
+            const cyPct = Number(((obs.normY + obs.normHeight * 0.5) * 100).toFixed(1));
+            dynamicTargets.push({
+              id: `tgt_${imageId}_obs_${idx + 1}`,
+              name: obs.label,
+              lat: hasCoords ? Number((resolvedProvenance.lat! + (obs.normY - 0.5) * 0.002).toFixed(5)) : null,
+              lon: hasCoords ? Number((resolvedProvenance.lon! + (obs.normX - 0.5) * 0.002).toFixed(5)) : null,
+              xPct: cxPct,
+              yPct: cyPct,
+              classification: obs.sizeCategory ? obs.sizeCategory.replace('_', ' ') : obs.classification,
+              supportingImage: imageUrl,
+              dataSource: resolvedProvenance.source,
+              instrument: `${resolvedProvenance.rover} / ${resolvedProvenance.camera}`,
+              confidencePct: Math.round(obs.confidence * 100),
+              relevance: obs.traversalRelevance || obs.dimensionsNote,
+              recommendedMethod: 'Optical close-range documentation & spectroscopic confirmation.',
+              status: idx === 0 ? 'In Progress' : 'Planned',
+              dataNature: 'Derived',
+              notes: [`Detected via ${obs.detectionMethod || 'CV Localizer'}: ${obs.dimensionsNote}`],
+              photoUrls: [imageUrl]
+            });
+          });
+        }
+
+        const geoVerified = report.geologicalIdentification.geographicallyVerified;
+        const molaElev = geoVerified.molaElevationM;
+
+        const finalSession: ActiveExplorationSession = {
+          activeImageId: imageId,
+          activeAnalysisId: analysisId,
+          activeRegion,
+          provenance: resolvedProvenance,
+          imageMetadata: {
+            fileName: resolvedFileName,
+            sizeBytes: isFile ? fileOrUrl.size : localValidation?.fileSizeBytes || 0,
+            width: report.naturalWidth,
+            height: report.naturalHeight,
+            format: inferMimeType(resolvedFileName),
+            url: imageUrl,
+            source: resolvedProvenance.source
+          },
+          imageAnalysis: {
+            visibleFeatures: report.visibleFeatures,
+            rockFormations: report.rockFormations,
+            boulders,
+            hazards,
+            regions: report.regions,
+            segmentationMaskUrl: report.segmentationMaskUrl,
+            pixelComposition: report.pixelComposition,
+            sandAndRegolith: report.sandAndRegolith,
+            visibleFractures: report.visibleFractures,
+            sedimentaryStructures: report.sedimentaryStructures,
+            terrainObstacles: report.terrainObstacles,
+            surfaceTexture: report.surfaceTexture,
+            roughnessScore: roughnessNorm,
+            shadowContrast: report.shadowContrast,
+            dominantFeature: report.dominantFeature,
+            imageQuality: report.imageQuality,
+            uncertainOrUnidentifiedFeatures: report.scientificReport.dataLimitations,
+            geologicalRelevance: report.geologicalRelevance,
+            recommendedInvestigationMethod: report.recommendedInvestigationMethod,
+            aiAvailable: report.aiAvailable,
+            aiStatusMessage: report.aiStatusMessage,
+            dataNature: hasCoords ? 'Observed' : 'Derived'
+          },
+          terrainReport: report,
+          terrainAnalysis: {
+            slopeMeanDeg: null,
+            slopeMaxDeg: null,
+            slopeAvailable: false,
+            regolithTraversabilityIndex: traversabilityIdx,
+            boulderDensityPct: totalObstacleAreaPct,
+            sandCoveragePct: report.pixelComposition.sandPct,
+            passageWidthPx: null,
+            passageWidthM: null,
+            dataSuitability: {
+              elevationAnalysis: false,
+              slopeCalculation: false,
+              surfaceRoughness: true,
+              obstacleClearance: true,
+              roverTraversability: true,
+              notes: 'Visual estimate only — calibrated depth/elevation data unavailable from single 2D optical frame.'
+            }
+          },
+          geologicalTargets: dynamicTargets,
+          waypoints,
+          automatedRoute,
+          environmentalObservations: {
+            ...initialSession.environmentalObservations,
+            statusLabel: hasCoords
+              ? 'NO LIVE IN-SITU SURFACE SENSOR STREAM AT FRAME TIMESTAMP'
+              : 'COORDINATES UNAVAILABLE — NO IN-SITU SENSOR LINK',
+            isAvailable: false
+          },
+          elevationData: {
+            hasNativeElevation: molaElev !== null,
+            elevationMinM: molaElev !== null ? Number(molaElev.toFixed(1)) : null,
+            elevationMaxM: molaElev !== null ? Number(molaElev.toFixed(1)) : null,
+            datum: geoVerified.molaDatum || 'MOLA Areoid'
+          },
+          activeRoute: {
+            code: 'ALPHA-AUTO',
+            name: 'SIMULATED OBSTACLE-AWARE ROUTE',
+            distanceM: automatedRoute.isComputable ? automatedRoute.distanceMeters : null,
+            timeMins: automatedRoute.isComputable ? automatedRoute.estimatedMins : null,
+            maxSlopeDeg: automatedRoute.maxSlopeDeg,
+            safetyScorePct: automatedRoute.safetyScore,
+            isSimulated: true,
+            returnFeasible: Boolean(automatedRoute.isComputable && (automatedRoute.estimatedMins ?? 999) <= 90),
+            returnDistanceM: automatedRoute.isComputable ? automatedRoute.distanceMeters : null,
+            returnDurationMins: automatedRoute.isComputable ? Math.max(1, Math.round(automatedRoute.estimatedMins * 0.85)) : null
+          },
+          analysisStatus: 'completed',
+          statusMessage: `Analyzed ${resolvedFileName} (${report.naturalWidth}×${report.naturalHeight} px · ${boulders.length} obstacles · ${report.regions.length} regions).`,
+          lastError: null,
+          lastUpdated: new Date().toISOString()
+        };
+
+        this.currentSession = finalSession;
+        this.sessionCache.set(cacheKey, finalSession);
+        this.logDiagnostic(
+          'success',
+          'ANALYSIS_COMPLETE',
+          `Completed ${resolvedFileName}: ${boulders.length} obstacles, ${report.regions.length} regions, ${dynamicTargets.length} targets.`
+        );
+        this.notifyListeners();
+        return this.currentSession;
+      } catch (err: any) {
+        if (controller.signal.aborted || err?.name === 'AbortError' || this.currentSeq !== seq) {
+          return this.currentSession;
+        }
+        const msg = err?.message || 'Unable to analyze active surface image.';
+        this.setAnalysisStatus('failed', msg, msg);
+        return this.currentSession;
+      } finally {
+        this.inFlightRequests.delete(cacheKey);
       }
-    }
+    })();
 
-    if (this.currentSeq !== seq) return this.currentSession;
-
-    // 3. Map Intelligence results to Session schema
-    const cvBoulders = intelligence.cvAnalysis.detectedObstacles.map((b: any, i: number) => ({
-      id: b.id || `obs_${i + 1}`,
-      label: b.label || `Obstacle Cluster #${i + 1}`,
-      classification: b.classification || 'boulder',
-      confidence: b.confidence,
-      normX: b.normX,
-      normY: b.normY,
-      normWidth: b.normWidth,
-      normHeight: b.normHeight,
-      pixelX: b.pixelX,
-      pixelY: b.pixelY,
-      pixelWidth: b.pixelWidth,
-      pixelHeight: b.pixelHeight,
-      physicalWidthM: b.physicalWidthM,
-      physicalHeightM: b.physicalHeightM,
-      dimensionsNote: b.dimensionsNote
-    }));
-
-    const hazards = mapCVObstaclesToHazards(intelligence.cvAnalysis.detectedObstacles);
-
-    const env = intelligence.environmentalData;
-    const formattedEnv = {
-      ambientTempC: {
-        value: env.surfaceTemp?.value ?? null,
-        unit: '°C',
-        source: env.surfaceTemp?.source ?? 'Unavailable',
-        instrument: env.surfaceTemp?.instrument ?? 'N/A',
-        timestamp: env.surfaceTemp?.date ?? new Date().toISOString(),
-        location: intelligence.regionName,
-        nature: env.surfaceTemp?.nature ?? 'Unavailable'
-      },
-      groundTempC: {
-        value: env.surfaceTemp ? parseFloat(env.surfaceTemp.value) + 5 : null,
-        unit: '°C',
-        source: env.surfaceTemp?.source ?? 'Unavailable',
-        instrument: 'TIRS Estimate',
-        timestamp: env.surfaceTemp?.date ?? new Date().toISOString(),
-        location: intelligence.regionName,
-        nature: env.surfaceTemp ? 'Derived' : 'Unavailable'
-      },
-      atmosPressurePa: {
-        value: env.pressure?.value ?? null,
-        unit: 'Pa',
-        source: env.pressure?.source ?? 'Unavailable',
-        instrument: env.pressure?.instrument ?? 'N/A',
-        timestamp: env.pressure?.date ?? new Date().toISOString(),
-        location: intelligence.regionName,
-        nature: env.pressure?.nature ?? 'Unavailable'
-      },
-      windSpeedMs: {
-        value: env.wind?.speed.split(' ')[0] ?? null,
-        unit: 'm/s',
-        source: env.wind?.source ?? 'Unavailable',
-        instrument: env.wind?.instrument ?? 'N/A',
-        timestamp: env.wind?.date ?? new Date().toISOString(),
-        location: intelligence.regionName,
-        nature: env.wind?.nature ?? 'Unavailable'
-      },
-      windDirectionDeg: {
-        value: env.wind?.direction.split('°')[0] ?? null,
-        unit: '°',
-        source: env.wind?.source ?? 'Unavailable',
-        instrument: env.wind?.instrument ?? 'N/A',
-        timestamp: env.wind?.date ?? new Date().toISOString(),
-        location: intelligence.regionName,
-        nature: env.wind?.nature ?? 'Unavailable'
-      },
-      dustTau: {
-        value: env.dust?.tau ?? null,
-        unit: 'Tau',
-        source: env.dust?.source ?? 'Unavailable',
-        instrument: env.dust?.instrument ?? 'N/A',
-        timestamp: env.dust?.date ?? new Date().toISOString(),
-        location: intelligence.regionName,
-        nature: env.dust?.nature ?? 'Unavailable'
-      },
-      solarExposureWm2: {
-        value: env.solarExposure?.value ?? null,
-        unit: 'W/m²',
-        source: env.solarExposure?.source ?? 'Unavailable',
-        instrument: 'RDS',
-        timestamp: env.solarExposure?.date ?? new Date().toISOString(),
-        location: intelligence.regionName,
-        nature: env.solarExposure?.nature ?? 'Unavailable'
-      },
-      radiationDoseMgyDay: {
-        value: env.radiation.doseRate.split(' ')[0] ?? null,
-        unit: 'mGy/day',
-        source: env.radiation.source,
-        instrument: env.radiation.instrument,
-        timestamp: env.radiation.date,
-        location: env.radiation.locationName,
-        nature: env.radiation.nature
-      },
-      galacticCosmicRayMsvYr: {
-        value: env.radiation.equivalentYearly.split(' ')[0] ?? null,
-        unit: 'mSv/yr',
-        source: env.radiation.source,
-        instrument: 'RAD Model',
-        timestamp: env.radiation.date,
-        location: env.radiation.locationName,
-        nature: 'Derived'
-      },
-      solarFlareStatus: {
-        value: aiVisionResult?.solarFlareStatus ?? 'NOMINAL',
-        unit: '',
-        source: 'NASA Space Weather',
-        instrument: 'DONKI Stream',
-        timestamp: new Date().toISOString(),
-        location: 'Mars Orbit',
-        nature: 'Modeled'
-      },
-      statusLabel: env.statusLabel,
-      isAvailable: env.hasMatchingSensorData
-    };
-
-    const terrain = intelligence.terrainConditions;
-    const { waypoints, automatedRoute } = this.generateAutomatedNavigationPlan(cvBoulders, customStart, customDest);
-
-    const finalSession: ActiveExplorationSession = {
-      ...this.currentSession,
-      imageAnalysis: {
-        ...this.currentSession.imageAnalysis,
-        visibleFeatures: aiVisionResult?.visibleFeatures || intelligence.cvAnalysis.dominantFeature.split(' '),
-        boulders: cvBoulders,
-        hazards: hazards,
-        roughnessScore: terrain.roughnessScore,
-        dominantFeature: intelligence.cvAnalysis.dominantFeature,
-        dataNature: intelligence.location.isVerified ? 'Observed' : 'Derived'
-      },
-      terrainAnalysis: {
-        slopeMeanDeg: terrain.slope.meanDeg ?? 0,
-        slopeMaxDeg: terrain.slope.maxDeg ?? 0,
-        regolithTraversabilityIndex: terrain.traversabilityIndex,
-        boulderDensityPct: parseFloat((cvBoulders.length * 1.5).toFixed(1)),
-        sandCoveragePct: 15,
-        passageWidthPx: null,
-        passageWidthM: 4.5,
-        dataSuitability: intelligence.cvAnalysis.dataSuitability
-      },
-      geologicalTargets: intelligence.geologicalTargetsSummary.targets.map(t => ({
-        ...t,
-        lat: t.lat ?? 0,
-        lon: t.lon ?? 0,
-        notes: t.notes ?? [],
-        photoUrls: t.photoUrls ?? []
-      })),
-      waypoints,
-      automatedRoute,
-      environmentalObservations: formattedEnv as any,
-      activeRoute: {
-        code: 'ALPHA-AUTO',
-        name: 'AUTOMATED SAFE PASSAGE',
-        distanceM: automatedRoute.distanceMeters,
-        timeMins: automatedRoute.estimatedMins,
-        maxSlopeDeg: terrain.slope.maxDeg ?? 0,
-        safetyScorePct: automatedRoute.safetyScore,
-        returnFeasible: intelligence.safetyAndRisk.emergencyReturnFeasible,
-        returnDistanceM: automatedRoute.distanceMeters,
-        returnDurationMins: Math.round(automatedRoute.estimatedMins * 0.8)
-      },
-      analysisStatus: 'completed',
-      statusMessage: `Unified Terrain Intelligence completed for ${resolvedFileName}`,
-      lastUpdated: new Date().toISOString()
-    };
-
-    this.currentSession = finalSession;
-    this.analysisCache.set(imageId, finalSession);
-
-    this.logDiagnostic('success', 'AUTOMATED_PLANNING_COMPLETED', `Generated ${waypoints.length} waypoints and ${automatedRoute.footprints.length} footprint trail nodes.`);
-    this.notifyListeners();
-    return this.currentSession;
+    this.inFlightRequests.set(cacheKey, taskPromise);
+    return taskPromise;
   }
 
   private notifyListeners() {

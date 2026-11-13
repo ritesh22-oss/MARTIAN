@@ -67,37 +67,38 @@ export function handleFirestoreError(error, operationType, path) {
 
 const QUOTA_KEY = 'marsnav_firestore_quota_exceeded';
 
+function getTodayUtcKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 /**
- * Checks if the Firestore free tier daily write quota has been exceeded for this project.
- * Defaults to true to protect against free tier resource-exhausted write loops.
+ * Checks if the Firestore free tier daily write quota has been exceeded today for this project.
  */
 export function isFirestoreQuotaExceeded() {
   try {
     const val = localStorage.getItem(QUOTA_KEY);
-    if (val === null) {
-      localStorage.setItem(QUOTA_KEY, 'false');
-      return false;
-    }
-    return val === 'true';
+    if (!val) return false;
+    // Support both legacy 'true' and date-scoped quota flag
+    return val === getTodayUtcKey() || val === 'true';
   } catch {
     return true;
   }
 }
 
 /**
- * Marks Firestore quota as exceeded and immediately disables network requests
+ * Marks Firestore quota as exceeded for today and immediately disables network requests
  * so that no mutations are queued and no exponential backoff occurs.
  */
 export function markFirestoreQuotaExceeded() {
   try {
-    localStorage.setItem(QUOTA_KEY, 'true');
+    localStorage.setItem(QUOTA_KEY, getTodayUtcKey());
   } catch {}
   try {
     disableNetwork(db).catch(() => {});
   } catch {}
 }
 
-// Proactively disable network if quota is already exhausted on load
+// Proactively disable network if quota is already exhausted today
 if (isFirestoreQuotaExceeded()) {
   try {
     disableNetwork(db).catch(() => {});

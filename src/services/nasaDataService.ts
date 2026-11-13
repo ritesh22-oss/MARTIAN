@@ -29,9 +29,19 @@ export interface MarsRawImage {
   site?: number;
   drive?: string | number;
   credit: string;
-  mission: 'Mars 2020 (Perseverance)' | 'MSL (Curiosity)';
+  mission: string;
   targetRegion: string;
   isStale?: boolean;
+  dataSourceType?: 'jpl_raw_rss' | 'nasa_images_library';
+  nasaId?: string;
+  assetManifestUrl?: string;
+  description?: string;
+  nominalSiteCoords?: {
+    lat: number;
+    lon: number;
+    label: string;
+    coordinateScope: 'exact_verified' | 'mission_landing_basin' | 'unavailable';
+  };
 }
 
 export interface HiRISEProduct {
@@ -66,7 +76,7 @@ export interface DataSourceHealth {
 }
 
 export interface FetchRawImagesParams {
-  mission?: 'mars2020' | 'msl';
+  mission?: 'mars2020' | 'msl' | 'opportunity' | 'spirit' | 'all';
   camera?: string;
   sol?: number | string;
   order?: 'newest' | 'oldest';
@@ -76,6 +86,7 @@ export interface FetchRawImagesParams {
   toDate?: string;
   limit?: number;
   page?: number;
+  search?: string;
   signal?: AbortSignal;
 }
 
@@ -146,9 +157,10 @@ export async function fetchMarsRawImages(params: FetchRawImagesParams = {}): Pro
     order = 'newest',
     limit = 24,
     page = 0,
+    search,
     signal
   } = params;
-  const cacheKey = `raw_${mission}_${camera || 'all'}_${sol || 'latest'}_${order}_${limit}_${page}`;
+  const cacheKey = `raw_${mission}_${camera || 'all'}_${sol || 'latest'}_${order}_${limit}_${page}_${search || ''}`;
   
   const cached = getFromCache<any>(cacheKey);
   if (cached) {
@@ -161,7 +173,8 @@ export async function fetchMarsRawImages(params: FetchRawImagesParams = {}): Pro
   queryParams.set('page', String(page));
   queryParams.set('order', order);
   if (camera && camera !== 'ALL' && camera !== 'all') queryParams.set('camera', camera);
-  if (sol !== undefined && sol !== 'latest') queryParams.set('sol', String(sol));
+  if (sol !== undefined && sol !== 'latest' && String(sol).trim() !== '') queryParams.set('sol', String(sol));
+  if (search && search.trim() !== '') queryParams.set('search', search.trim());
 
   try {
     const { data, error, isHtml } = await apiGet<any>(`/api/nasa/mars2020/raw?${queryParams.toString()}`, { signal });

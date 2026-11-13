@@ -25,10 +25,45 @@ interface Explorer3DWorkspaceProps {
 export type ActiveSimulationType = 'rover_navigation' | 'lander_deployment';
 
 export default function Explorer3DWorkspace({ onOpenMissions }: Explorer3DWorkspaceProps) {
-  const { setActiveWorkspace, activeDataset, activeTerrainSource, setActiveTerrainSource } = useWorkspace();
+  const {
+    activeTerrainSource,
+    setActiveTerrainSource,
+    selectedDtmData,
+    selectAndLoadDtm,
+    isProcessingDtm,
+    selectedRegion
+  } = useWorkspace();
   const [activeSimulation, setActiveSimulation] = useState<ActiveSimulationType>('rover_navigation');
   const [slopeHeatmapOn, setSlopeHeatmapOn] = useState<boolean>(false);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
+  const [overlayLayerId, setOverlayLayerId] = useState<string>('trek_hrsc_mola_clrshade');
+  const [overlayNotice, setOverlayNotice] = useState<{ status: string; message: string } | null>(null);
+
+  const handleTerrainSourceChange = async (val: 'hirise-jezero' | 'hirise-belva' | 'custom' | 'procedural') => {
+    setActiveTerrainSource(val);
+    if (val === 'hirise-jezero') {
+      selectAndLoadDtm({
+        id: 'DTEEC_048842_1985_048908_1985_U01',
+        title: 'MRO HiRISE Jezero Crater Delta DTM (PSP_001414_1780 / ESP_048842)',
+        collection: 'mro_hirise_socet_dtms',
+        dtmUrl: 'https://astrogeo-ard.s3-us-west-2.amazonaws.com/mars/mro/hirise/controlled/dtm/ESP_048842_1985_ESP_048908_1985/DTEEC_048842_1985_048908_1985_U01.tif'
+      }, 36).catch(() => {});
+    } else if (val === 'hirise-belva') {
+      selectAndLoadDtm({
+        id: 'DTEEC_069151_1985_069296_1985_U01',
+        title: 'MRO HiRISE Belva Crater Slump Escarpment (ESP_069151_1985)',
+        collection: 'mro_hirise_socet_dtms',
+        dtmUrl: 'https://astrogeo-ard.s3-us-west-2.amazonaws.com/mars/mro/hirise/controlled/dtm/ESP_069151_1985_ESP_069296_1985/DTEEC_069151_1985_069296_1985_U01.tif'
+      }, 36).catch(() => {});
+    }
+  };
+
+  const handleOverlayChange = (layerId: string) => {
+    setOverlayLayerId(layerId);
+    const lat = selectedRegion?.centerCoords?.lat ?? 18.3842;
+    const lon = selectedRegion?.centerCoords?.lon ?? 77.5819;
+    (window as any).MarsSimulator?.setSurfaceOverlay?.(layerId, lat, lon);
+  };
 
   return (
     <div className={`flex flex-col h-full font-sans text-xs ${isExpanded ? 'fixed inset-0 z-50 bg-[#05070E] p-0' : 'p-4 lg:p-6'}`}>
@@ -36,16 +71,21 @@ export default function Explorer3DWorkspace({ onOpenMissions }: Explorer3DWorksp
       <div className="bg-[#0B1020] border border-slate-800 rounded-t-2xl p-3 sm:px-5 sm:py-3.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-2xl shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-orange-600/20 border border-orange-500/40 flex items-center justify-center text-orange-400 shrink-0">
-            <Compass className="w-5 h-5 animate-pulse" />
+            <Compass className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-mono uppercase text-orange-400 tracking-wider font-bold">
                 MARSNAV 3D PLANETARY EXPLORER
               </span>
               <span className="px-2 py-0.5 rounded-full text-[9px] font-mono bg-cyan-950 text-cyan-300 border border-cyan-500/30">
-                WebGL 2.0 Real-Time
+                WebGL 2.0 · NASA Trek + USGS STAC
               </span>
+              {isProcessingDtm && (
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-mono bg-amber-950 text-amber-300 border border-amber-500/40">
+                  Streaming GeoTIFF DEM...
+                </span>
+              )}
             </div>
             <h1 className="text-base sm:text-lg font-bold text-white tracking-tight font-sans">
               Interactive 3D Simulation Lab
@@ -88,7 +128,7 @@ export default function Explorer3DWorkspace({ onOpenMissions }: Explorer3DWorksp
         {activeSimulation === 'rover_navigation' ? (
           /* Simulation 01 Controls */
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-slate-400 text-[10px] uppercase font-bold">Tactical HiRISE DEM:</span>
+            <span className="text-slate-400 text-[10px] uppercase font-bold">Terrain &amp; Trek Drape:</span>
 
             {/* Terrain DTM Source Selector */}
             <div className="flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded-lg border border-slate-800 text-[11px]">
@@ -96,13 +136,35 @@ export default function Explorer3DWorkspace({ onOpenMissions }: Explorer3DWorksp
               <select
                 aria-label="DTM Terrain Source"
                 value={activeTerrainSource}
-                onChange={e => setActiveTerrainSource(e.target.value as any)}
+                onChange={e => handleTerrainSourceChange(e.target.value as any)}
                 className="bg-transparent text-cyan-400 font-mono text-[11px] focus:outline-none cursor-pointer"
               >
-                <option value="hirise-jezero" className="bg-slate-900 text-slate-200">HiRISE Jezero Fan (PSP_001414_1780)</option>
-                <option value="hirise-belva" className="bg-slate-900 text-slate-200">HiRISE Belva Basin (ESP_037166_1985)</option>
-                <option value="custom" className="bg-slate-900 text-slate-200">Olympia Cavi Dunes (ESP_068294_1985)</option>
+                <option value="hirise-jezero" className="bg-slate-900 text-slate-200">HiRISE Jezero Delta (ESP_048842)</option>
+                <option value="hirise-belva" className="bg-slate-900 text-slate-200">HiRISE Belva Crater (ESP_069151)</option>
+                <option value="custom" className="bg-slate-900 text-slate-200">
+                  {selectedDtmData ? `Loaded STAC: ${selectedDtmData.id}` : 'Active STAC DTM'}
+                </option>
                 <option value="procedural" className="bg-slate-900 text-slate-200">Procedural Synthetic Model</option>
+              </select>
+            </div>
+
+            {/* NASA Mars Trek / USGS Surface Overlay Selector */}
+            <div className="flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded-lg border border-slate-800 text-[11px]">
+              <Layers className="w-3.5 h-3.5 text-orange-400" />
+              <span className="text-slate-400">Texture:</span>
+              <select
+                aria-label="Mars Trek Surface Overlay"
+                value={overlayLayerId}
+                onChange={e => handleOverlayChange(e.target.value)}
+                className="bg-transparent text-orange-300 font-mono text-[11px] focus:outline-none cursor-pointer"
+              >
+                <option value="trek_hrsc_mola_clrshade" className="bg-slate-900 text-slate-200">NASA Trek: HRSC+MOLA Color Shade (200m)</option>
+                <option value="trek_jezero_ctx_6m" className="bg-slate-900 text-slate-200">NASA Trek: Jezero CTX 6m WMTS</option>
+                <option value="usgs_themis_day" className="bg-slate-900 text-slate-200">USGS: THEMIS IR Day (100m)</option>
+                <option value="usgs_themis_night" className="bg-slate-900 text-slate-200">USGS: THEMIS IR Night Thermal (100m)</option>
+                <option value="trek_sim3292_geology" className="bg-slate-900 text-slate-200">USGS–NASA: SIM 3292 Geologic Map</option>
+                <option value="usgs_mdim21_color" className="bg-slate-900 text-slate-200">USGS: Viking MDIM 2.1 Color</option>
+                <option value="hypsometric" className="bg-slate-900 text-slate-200">Hypsometric DEM Shading Only</option>
               </select>
             </div>
 
@@ -142,7 +204,14 @@ export default function Explorer3DWorkspace({ onOpenMissions }: Explorer3DWorksp
           <div className="hidden lg:flex items-center gap-2 text-[11px] text-slate-400 font-mono">
             <span>Datum: <span className="text-slate-200">MOLA Areoid</span></span>
             <span className="text-slate-600">·</span>
-            <span>Scale: <span className="text-emerald-400">1:1 Physical</span></span>
+            <span>
+              Relief:{' '}
+              <span className="text-emerald-400">
+                {activeTerrainSource !== 'procedural' && selectedDtmData
+                  ? `${Math.round(selectedDtmData.minElevation)}..${Math.round(selectedDtmData.maxElevation)} m (${selectedDtmData.resolutionMeters}m/px)`
+                  : 'Synthetic Preview'}
+              </span>
+            </span>
           </div>
 
           <button
@@ -159,7 +228,7 @@ export default function Explorer3DWorkspace({ onOpenMissions }: Explorer3DWorksp
       {/* 3. MAIN 3D SIMULATION CANVAS CONTAINER */}
       <div className="flex-1 min-h-[580px] bg-[#05070E] border-x border-b border-slate-800/80 rounded-b-2xl overflow-hidden relative shadow-2xl">
         {slopeHeatmapOn && activeSimulation === 'rover_navigation' && (
-          <div className="absolute top-4 left-4 z-25 bg-[#0b0e14]/95 border border-emerald-500/40 p-2.5 rounded-xl shadow-2xl backdrop-blur-md text-[10px] font-mono flex items-center gap-3 animate-fade-in pointer-events-none">
+          <div className="absolute top-4 left-4 z-25 bg-[#0b0e14]/95 border border-emerald-500/40 p-2.5 rounded-xl shadow-2xl text-[10px] font-mono flex items-center gap-3 pointer-events-none">
             <span className="text-emerald-400 font-bold">SLOPE GRADIENT:</span>
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded bg-[#10b981]" />
@@ -176,9 +245,22 @@ export default function Explorer3DWorkspace({ onOpenMissions }: Explorer3DWorksp
           </div>
         )}
 
+        {overlayNotice && activeSimulation === 'rover_navigation' && overlayNotice.status === 'error' && (
+          <div className="absolute top-4 right-4 z-25 bg-amber-950/95 border border-amber-500/50 px-3 py-1.5 rounded-lg text-[10px] font-mono text-amber-200 pointer-events-none">
+            {overlayNotice.message}
+          </div>
+        )}
+
         {activeSimulation === 'rover_navigation' ? (
           /* SIMULATION 01 — ROVER NAVIGATION */
-          <MarsTerrain3D onOpenMissions={onOpenMissions} />
+          <MarsTerrain3D
+            onOpenMissions={onOpenMissions}
+            selectedDtmData={selectedDtmData}
+            activeTerrainSource={activeTerrainSource}
+            selectedRegion={selectedRegion}
+            overlayLayerId={overlayLayerId}
+            onOverlayStatus={setOverlayNotice}
+          />
         ) : (
           /* SIMULATION 02 — SPACECRAFT LANDING & ROVER DEPLOYMENT */
           <MarsLandingSimulation onSwitchToNavigation={() => setActiveSimulation('rover_navigation')} />
@@ -191,12 +273,14 @@ export default function Explorer3DWorkspace({ onOpenMissions }: Explorer3DWorksp
           <Info className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
           <span>
             {activeSimulation === 'rover_navigation'
-              ? 'Simulation 01: Digital elevation reconstruction from MRO HiRISE stereo pair PSP_001414_1780 and MOLA reference datum.'
+              ? activeTerrainSource !== 'procedural' && selectedDtmData
+                ? `Simulation 01: Real ${selectedDtmData.title} (${selectedDtmData.sourceOrg}) + ${overlayLayerId} orbital surface drape.`
+                : `Simulation 01: Synthetic procedural relief preview (${overlayLayerId} surface texture).`
               : 'Simulation 02: Conceptual Mars Lander Simulation with articulated 4-point landing gear, hinged egress ramp & Perseverance rover deployment.'}
           </span>
         </div>
         <div className="text-slate-400">
-          Jezero Crater · 18.441° N, 77.412° E
+          {selectedRegion?.name || 'Jezero Crater'} · {selectedRegion?.latitude || '18.44° N'}, {selectedRegion?.longitude || '77.41° E'}
         </div>
       </div>
     </div>

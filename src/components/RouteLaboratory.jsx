@@ -120,11 +120,15 @@ export default function RouteLaboratory() {
   const currentRoute = routes[activeStrategy] || routes.alpha;
 
   // Sync active route to mission record
+  const lastSavedRouteKeyRef = useRef('');
   useEffect(() => {
     if (activeMission && currentRoute && !currentRoute.isBlocked) {
+      const routeKey = `${activeMission.id}_${currentRoute.id}_${currentRoute.waypoints?.length || 0}_${currentRoute.totalLengthM || 0}`;
+      if (lastSavedRouteKeyRef.current === routeKey) return;
+      lastSavedRouteKeyRef.current = routeKey;
       saveRouteResult(activeMission.id, currentRoute);
     }
-  }, [activeMission?.id, currentRoute]);
+  }, [activeMission?.id, currentRoute, saveRouteResult]);
 
   // Keep image aspect ratio accurate
   const handleImageLoad = (e) => {

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   createNewMissionRecord, 
   saveMissionRecord, 
@@ -76,29 +76,38 @@ export const MissionRecordProvider = ({ children }: { children: React.ReactNode 
   const [missions, setMissions] = useState<MissionRecord[]>([]);
   const [activeMissionId, setActiveMissionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const missionsRef = useRef<MissionRecord[]>(missions);
+  missionsRef.current = missions;
+  const isLoadingInFlightRef = useRef(false);
 
   const { user } = useAuth();
 
   // Load missions and subscribe to updates, ensuring a default mission exists
   const loadMissions = useCallback(async () => {
+    if (isLoadingInFlightRef.current) return;
+    isLoadingInFlightRef.current = true;
     setIsLoading(true);
-    const data = await fetchUserMissions();
-    let list = data;
-    if (!list || list.length === 0) {
-      const defaultMsn = createNewMissionRecord({ name: 'Jezero Delta Traverse Sol 428', description: 'Default Initial Mission' });
-      await saveMissionRecord(defaultMsn);
-      list = [defaultMsn];
+    try {
+      const data = await fetchUserMissions();
+      let list = data;
+      if (!list || list.length === 0) {
+        const defaultMsn = createNewMissionRecord({ name: 'Jezero Delta Traverse Sol 428', description: 'Default Initial Mission' });
+        await saveMissionRecord(defaultMsn, { localOnly: true });
+        list = [defaultMsn];
+      }
+      setMissions(list);
+
+      const savedId = localStorage.getItem('marsnav_active_mission_id');
+      if (savedId && list.some((m: any) => m.id === savedId)) {
+        setActiveMissionId(savedId);
+      } else {
+        setActiveMissionId(list[0].id);
+        localStorage.setItem('marsnav_active_mission_id', list[0].id);
+      }
+    } finally {
+      setIsLoading(false);
+      isLoadingInFlightRef.current = false;
     }
-    setMissions(list);
-    
-    const savedId = localStorage.getItem('marsnav_active_mission_id');
-    if (savedId && list.some((m: any) => m.id === savedId)) {
-      setActiveMissionId(savedId);
-    } else {
-      setActiveMissionId(list[0].id);
-      localStorage.setItem('marsnav_active_mission_id', list[0].id);
-    }
-    setIsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -108,35 +117,37 @@ export const MissionRecordProvider = ({ children }: { children: React.ReactNode 
       if (updatedList && updatedList.length > 0) {
         setMissions(updatedList);
         setActiveMissionId((prev: string | null) => (prev && updatedList.some((m: any) => m.id === prev)) ? prev : updatedList[0].id);
-      } else if (updatedList && updatedList.length === 0) {
-        // If everything is gone, re-initialize
-        loadMissions();
       }
     });
 
     return () => unsubscribe();
   }, [user, loadMissions]);
 
-  const handleSetActiveMission = (id: string | null) => {
+  const handleSetActiveMission = useCallback((id: string | null) => {
     setActiveMissionId(id);
     if (id) {
       localStorage.setItem('marsnav_active_mission_id', id);
     } else {
       localStorage.removeItem('marsnav_active_mission_id');
     }
-  };
+  }, []);
 
-  const activeMission = missions.find(m => m.id === activeMissionId) || null;
+  const activeMission = useMemo(
+    () => missions.find(m => m.id === activeMissionId) || null,
+    [missions, activeMissionId]
+  );
 
-  const createNewMission = async (params: { name: string; description: string; roverProfile?: string }) => {
+  const createNewMission = useCallback(async (params: { name: string; description: string; roverProfile?: string }) => {
     const newMission = createNewMissionRecord(params) as unknown as MissionRecord;
     await saveMissionRecord(newMission);
+    setMissions(prev => [newMission, ...prev.filter(m => m.id !== newMission.id)]);
     setActiveMissionId(newMission.id);
+    localStorage.setItem('marsnav_active_mission_id', newMission.id);
     return newMission;
-  };
+  }, []);
 
-  const updateMission = async (id: string, updates: Partial<MissionRecord>) => {
-    const mission = missions.find(m => m.id === id);
+  const updateMission = useCallback(async (id: string, updates: Partial<MissionRecord>) => {
+    const mission = missionsRef.current.find(m => m.id === id);
     if (!mission) return;
 
     const updated = {
@@ -144,59 +155,77 @@ export const MissionRecordProvider = ({ children }: { children: React.ReactNode 
       ...updates,
       updatedAt: new Date().toISOString()
     };
-    
+
+    setMissions(prev => prev.map(m => (m.id === id ? updated : m)));
     await saveMissionRecord(updated);
-  };
+  }, []);
 
-  const deleteMission = async (id: string) => {
+  const deleteMission = useCallback(async (id: string) => {
     await deleteMissionRecord(id);
-    if (activeMissionId === id) setActiveMissionId(null);
-  };
+    setMissions(prev => prev.filter(m => m.id !== id));
+    setActiveMissionId(prev => (prev === id ? null : prev));
+  }, []);
 
-  const saveTerrainAnalysis = async (id: string, terrainAnalysis: any, segmentationOutput: string, obstacles: any[]) => {
+  const saveTerrainAnalysis = useCallback(async (id: string, terrainAnalysis: any, segmentationOutput: string, obstacles: any[]) => {
     await updateMission(id, { terrainAnalysis, segmentationOutput, obstacles });
-  };
+  }, [updateMission]);
 
-  const saveRouteResult = async (id: string, routeData: any) => {
+  const saveRouteResult = useCallback(async (id: string, routeData: any) => {
     await updateMission(id, { routes: [routeData], selectedRouteIndex: 0 });
-  };
+  }, [updateMission]);
 
-  const saveDatasetVerification = async (id: string, report: any) => {
+  const saveDatasetVerification = useCallback(async (id: string, report: any) => {
     await updateMission(id, { validationReports: [report] });
-  };
+  }, [updateMission]);
 
-  const saveHazardAnalysis = async (id: string, hazardData: any) => {
+  const saveHazardAnalysis = useCallback(async (id: string, hazardData: any) => {
     await updateMission(id, { terrainAnalysis: hazardData });
-  };
+  }, [updateMission]);
 
-  const saveFieldNote = async (id: string, note: any) => {
-    const mission = missions.find(m => m.id === id);
+  const saveFieldNote = useCallback(async (id: string, note: any) => {
+    const mission = missionsRef.current.find(m => m.id === id);
     if (!mission) return;
     await updateMission(id, { fieldNotes: [...(mission.fieldNotes || []), note] });
-  };
+  }, [updateMission]);
 
-  const deleteFieldNote = async (id: string, noteId: string) => {
-    const mission = missions.find(m => m.id === id);
+  const deleteFieldNote = useCallback(async (id: string, noteId: string) => {
+    const mission = missionsRef.current.find(m => m.id === id);
     if (!mission) return;
     await updateMission(id, { fieldNotes: (mission.fieldNotes || []).filter((n: any) => n.id !== noteId) });
-  };
+  }, [updateMission]);
+
+  const contextValue = useMemo(() => ({
+    missions,
+    activeMission,
+    isLoading,
+    setActiveMission: handleSetActiveMission,
+    createNewMission,
+    updateMission,
+    deleteMission,
+    saveTerrainAnalysis,
+    saveRouteResult,
+    saveDatasetVerification,
+    saveHazardAnalysis,
+    saveFieldNote,
+    deleteFieldNote
+  }), [
+    missions,
+    activeMission,
+    isLoading,
+    handleSetActiveMission,
+    createNewMission,
+    updateMission,
+    deleteMission,
+    saveTerrainAnalysis,
+    saveRouteResult,
+    saveDatasetVerification,
+    saveHazardAnalysis,
+    saveFieldNote,
+    deleteFieldNote
+  ]);
 
   return (
-    <MissionRecordContext.Provider value={{
-      missions,
-      activeMission,
-      isLoading,
-      setActiveMission: handleSetActiveMission,
-      createNewMission,
-      updateMission,
-      deleteMission,
-      saveTerrainAnalysis,
-      saveRouteResult,
-      saveDatasetVerification,
-      saveHazardAnalysis,
-      saveFieldNote,
-      deleteFieldNote
-    }}>
+    <MissionRecordContext.Provider value={contextValue}>
       {children}
     </MissionRecordContext.Provider>
   );

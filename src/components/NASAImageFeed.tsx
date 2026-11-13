@@ -23,42 +23,32 @@ import {
   Compass
 } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
-import { syncLatestObservation, SyncLatestResult } from '../services/nasaDataService';
+import { syncLatestObservation } from '../services/nasaDataService';
+import {
+  ROVER_CAMERA_CATALOG,
+  fetchNasaImageAssetManifest
+} from '../services/nasaPerseveranceImageService';
 import { apiGet } from '../utils/apiClient';
+import {
+  fetchTrekLayers,
+  fetchTrekElevationPoint,
+  fetchUsgsGeologyContext,
+  getTrekTilePreviewUrl,
+  MarsTrekLayerSpec,
+  TrekElevationSample,
+  UsgsGeologyResponse
+} from '../services/marsGeospatialService';
 
 interface NASAImageFeedProps {
   onSelectImage?: (img: any) => void;
   onClose?: () => void;
 }
 
-const CAMERA_OPTIONS_M2020 = [
-  { id: 'ALL', label: 'All Cameras' },
-  { id: 'NAVCAM_LEFT', label: 'NavCam Left' },
-  { id: 'NAVCAM_RIGHT', label: 'NavCam Right' },
-  { id: 'MCZ_LEFT', label: 'Mastcam-Z Left' },
-  { id: 'MCZ_RIGHT', label: 'Mastcam-Z Right' },
-  { id: 'FRONT_HAZCAM_LEFT_A', label: 'Front HazCam' },
-  { id: 'REAR_HAZCAM_LEFT', label: 'Rear HazCam' },
-  { id: 'SHERLOC_WATSON', label: 'WATSON (Arm)' },
-  { id: 'SUPER_CAM_RMI', label: 'SuperCam RMI' }
-];
-
-const CAMERA_OPTIONS_MSL = [
-  { id: 'ALL', label: 'All Cameras' },
-  { id: 'MAST', label: 'Mast Camera (Mastcam)' },
-  { id: 'NAV_LEFT_A', label: 'Navcam Left' },
-  { id: 'NAV_RIGHT_A', label: 'Navcam Right' },
-  { id: 'FHAZ', label: 'Front Hazcam' },
-  { id: 'RHAZ', label: 'Rear Hazcam' },
-  { id: 'CHEMCAM_RMI', label: 'ChemCam RMI' },
-  { id: 'MAHLI', label: 'MAHLI (Hand Lens)' }
-];
-
 export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedProps) {
-  const { updateSharedSession, sharedSession } = useWorkspace();
+  const { updateSharedSession, sharedSession, selectAndLoadDtm, selectedDtmData, isProcessingDtm } = useWorkspace();
   
   // Mission and Query State
-  const [mission, setMission] = useState<'mars2020' | 'msl'>('mars2020');
+  const [mission, setMission] = useState<'all' | 'mars2020' | 'msl' | 'opportunity' | 'spirit'>('mars2020');
   const [sol, setSol] = useState<string>(''); // empty means latest or unconstrained
   const [camera, setCamera] = useState<string>('ALL');
   const [order, setOrder] = useState<'newest' | 'oldest'>('newest');
@@ -86,11 +76,73 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
   // Pre-decoding feedback state
   const [loadingImageId, setLoadingImageId] = useState<string | null>(null);
 
+  // Moved NASA JPL Mars Trek & USGS Astrogeology Reference Viewer State
+  const TREK_SITES = [
+    { id: 'jezero', label: 'Jezero Crater (Perseverance)', lat: 18.3842, lon: 77.5819 },
+    { id: 'belva', label: 'Belva Crater Rim (Jezero)', lat: 18.42, lon: 77.52 },
+    { id: 'gale', label: 'Gale Crater (Curiosity)', lat: -4.5895, lon: 137.4417 },
+    { id: 'arcadia', label: 'Arcadia Planitia (ISRU Ice)', lat: 39.3, lon: 189.7 },
+    { id: 'meridiani', label: 'Meridiani Planum (Opportunity)', lat: -1.9462, lon: 354.4734 },
+    { id: 'gusev', label: 'Gusev Crater (Spirit)', lat: -14.5684, lon: 175.4726 }
+  ];
+  const [trekSiteId, setTrekSiteId] = useState<string>('jezero');
+  const [trekLat, setTrekLat] = useState<number>(18.3842);
+  const [trekLon, setTrekLon] = useState<number>(77.5819);
+  const [trekLayers, setTrekLayers] = useState<MarsTrekLayerSpec[]>([]);
+  const [selectedTrekLayerId, setSelectedTrekLayerId] = useState<string>('trek_hrsc_mola_clrshade');
+  const [trekLayerPreviewFailed, setTrekLayerPreviewFailed] = useState<boolean>(false);
+  const [trekSpanDeg, setTrekSpanDeg] = useState<number>(0.45);
+  const [trekElevSample, setTrekElevSample] = useState<TrekElevationSample | null>(null);
+  const [usgsGeologyData, setUsgsGeologyData] = useState<UsgsGeologyResponse | null>(null);
+  const [geoRefLoading, setGeoRefLoading] = useState<boolean>(false);
+  const [geoRefError, setGeoRefError] = useState<string | null>(null);
+  const [wmsCapSummary, setWmsCapSummary] = useState<string | null>(null);
+
+  const loadTrekAndUsgsReference = useCallback(async (latVal: number, lonVal: number, regId?: string) => {
+    setGeoRefLoading(true);
+    setGeoRefError(null);
+    setTrekLayerPreviewFailed(false);
+    try {
+      const [layersRes, elevRes, geoRes] = await Promise.allSettled([
+        fetchTrekLayers(latVal, lonVal),
+        fetchTrekElevationPoint(latVal, lonVal),
+        fetchUsgsGeologyContext(latVal, lonVal, regId)
+      ]);
+      if (layersRes.status === 'fulfilled' && Array.isArray(layersRes.value.layers)) {
+        setTrekLayers(layersRes.value.layers);
+      }
+      if (elevRes.status === 'fulfilled') {
+        setTrekElevSample(elevRes.value);
+      }
+      if (geoRes.status === 'fulfilled') {
+        setUsgsGeologyData(geoRes.value);
+      } else {
+        setGeoRefError('Unable to reach USGS Astrogeology service at this moment.');
+      }
+    } catch (e: any) {
+      setGeoRefError(e?.message || 'Failed loading NASA Mars Trek & USGS datasets.');
+    } finally {
+      setGeoRefLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTrekAndUsgsReference(trekLat, trekLon, trekSiteId);
+    apiGet<any>('/api/usgs/wms/capabilities')
+      .then(({ data }) => {
+        if (data?.layerCount) {
+          setWmsCapSummary(`USGS WMS 1.3.0 Live (${data.layerCount} planetary layers)`);
+        }
+      })
+      .catch(() => {});
+  }, [loadTrekAndUsgsReference, trekLat, trekLon, trekSiteId]);
+
   // Check latest observation from JPL
   const performSyncCheck = useCallback(async (isManual = false) => {
     setIsSyncing(true);
     try {
-      const syncRes = await syncLatestObservation(mission);
+      const syncMission = mission === 'msl' ? 'msl' : 'mars2020';
+      const syncRes = await syncLatestObservation(syncMission);
       setLatestSol(syncRes.latestSol);
       if (syncRes.latestObservationDate) {
         setLatestObsDate(syncRes.latestObservationDate);
@@ -117,7 +169,7 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
 
   // Fetch image page
   const fetchRawImages = useCallback(async (
-    targetMission: 'mars2020' | 'msl',
+    targetMission: 'all' | 'mars2020' | 'msl' | 'opportunity' | 'spirit',
     solVal: string,
     camVal: string,
     orderVal: 'newest' | 'oldest',
@@ -231,12 +283,26 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
   };
 
   // Pre-decode and load into simulator
-  const handleSelect = (img: any) => {
+  const handleSelect = async (img: any) => {
     setSelectedImageId(img.id);
     setLoadingImageId(img.id);
 
-    const fullResUrl = img.fullResUrl || img.thumbnailUrl;
+    let fullResUrl = img.fullResUrl || img.thumbnailUrl;
+    if (img.dataSourceType === 'nasa_images_library' && img.nasaId) {
+      try {
+        const manifest = await fetchNasaImageAssetManifest(img.nasaId);
+        fullResUrl = manifest.largeUrl || manifest.origUrl || manifest.mediumUrl || fullResUrl;
+      } catch {
+        // Keep fallback URL cleanly
+      }
+    }
+
     const targetProxy = getSafeImageUrl(fullResUrl);
+    const camString = typeof img.cameraFullName === 'string' && img.cameraFullName
+      ? img.cameraFullName
+      : typeof img.camera === 'string'
+        ? img.camera
+        : 'NAVCAM';
 
     // Pre-decode image before transitioning to ensure zero latency in the terrain viewer
     const preloader = new Image();
@@ -246,12 +312,20 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
       setLoadingImageId(null);
       const provenanceData = {
         source: img.mission || 'NASA JPL Mars Raw Feed',
-        rover: img.mission?.includes('Curiosity') ? 'Curiosity (MSL)' : 'Perseverance (Mars 2020)',
-        camera: img.camera || 'NAVCAM_LEFT',
+        rover: img.mission || 'Perseverance (Mars 2020)',
+        camera: camString,
         sol: img.sol ?? Number(sol || latestSol),
         acquisitionUtc: img.dateUtc || new Date().toISOString(),
         identifier: img.id || img.imageid || img.title,
-        sourceUrl: img.sourceUrl || fullResUrl
+        sourceUrl: img.sourceUrl || fullResUrl,
+        site: img.site,
+        drive: img.drive,
+        targetRegion: img.targetRegion,
+        lat: img.nominalSiteCoords?.lat,
+        lon: img.nominalSiteCoords?.lon,
+        coordinateScope: img.nominalSiteCoords?.coordinateScope || 'unavailable',
+        locationLabel: img.nominalSiteCoords?.label,
+        selectionOrigin: 'nasa' as const
       };
 
       updateSharedSession({
@@ -260,13 +334,12 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
       });
 
       if (onSelectImage) {
-        onSelectImage(img);
+        onSelectImage({ ...img, fullResUrl });
       }
     };
 
     preloader.onload = commitSelection;
     preloader.onerror = () => {
-      // If full res fails to decode, fallback cleanly to thumbnail
       commitSelection();
     };
     preloader.src = targetProxy;
@@ -278,7 +351,7 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
     }
   };
 
-  const cameraOptions = mission === 'mars2020' ? CAMERA_OPTIONS_M2020 : CAMERA_OPTIONS_MSL;
+  const cameraOptions = ROVER_CAMERA_CATALOG[mission] || ROVER_CAMERA_CATALOG.all;
 
   return (
     <div className="bg-[#0A0E1A] border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-w-6xl w-full mx-auto font-sans">
@@ -308,38 +381,30 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
         </div>
 
         {/* Rover Mission Toggle & Close */}
-        <div className="flex items-center gap-2.5">
-          <div className="flex items-center bg-black/60 p-1 rounded-xl border border-slate-800 text-xs font-mono">
-            <button
-              onClick={() => {
-                setMission('mars2020');
-                setSol('');
-                setCamera('ALL');
-                setPage(0);
-              }}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
-                mission === 'mars2020'
-                  ? 'bg-orange-600 text-white font-bold shadow-md'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Perseverance (M2020)
-            </button>
-            <button
-              onClick={() => {
-                setMission('msl');
-                setSol('4300');
-                setCamera('ALL');
-                setPage(0);
-              }}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
-                mission === 'msl'
-                  ? 'bg-cyan-600 text-white font-bold shadow-md'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Curiosity (MSL)
-            </button>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="flex items-center bg-black/60 p-1 rounded-xl border border-slate-800 text-xs font-mono flex-wrap">
+            {[
+              { id: 'all', label: 'All Rovers', activeClass: 'bg-emerald-600 text-white font-bold shadow-md' },
+              { id: 'mars2020', label: 'Perseverance (M2020)', activeClass: 'bg-orange-600 text-white font-bold shadow-md' },
+              { id: 'msl', label: 'Curiosity (MSL)', activeClass: 'bg-cyan-600 text-white font-bold shadow-md' },
+              { id: 'opportunity', label: 'Opportunity', activeClass: 'bg-amber-600 text-white font-bold shadow-md' },
+              { id: 'spirit', label: 'Spirit', activeClass: 'bg-indigo-600 text-white font-bold shadow-md' }
+            ].map(item => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setMission(item.id as any);
+                  setSol('');
+                  setCamera('ALL');
+                  setPage(0);
+                }}
+                className={`px-2.5 py-1.5 rounded-lg font-medium transition-all cursor-pointer ${
+                  mission === item.id ? item.activeClass : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
 
           {onClose && (
@@ -533,7 +598,7 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
           <div className="py-24 text-center space-y-3">
             <RefreshCw className="w-9 h-9 text-cyan-400 animate-spin mx-auto" />
             <p className="text-sm font-mono text-cyan-300">
-              Querying NASA JPL Mars Raw Observation Archive ({mission === 'mars2020' ? 'Perseverance' : 'Curiosity'})...
+              Querying NASA JPL Mars Observation Archive ({mission === 'all' ? 'All Rovers' : mission === 'mars2020' ? 'Perseverance' : mission === 'msl' ? 'Curiosity' : mission === 'opportunity' ? 'Opportunity' : 'Spirit'})...
             </p>
             <p className="text-xs text-slate-500 font-mono">Resolving authentic mission frames from sol {sol || (order === 'oldest' ? '0' : latestSol)}</p>
           </div>
@@ -595,6 +660,8 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
               const fullUrl = img.fullResUrl || img.thumbnailUrl;
               const isSelected = sharedSession.terrainImage === fullUrl;
               const isLoadingThis = loadingImageId === img.id;
+              const camShort = typeof img.camera === 'string' ? img.camera : 'NAVCAM';
+              const camFull = typeof img.cameraFullName === 'string' ? img.cameraFullName : camShort;
 
               return (
                 <div
@@ -625,10 +692,10 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
                       {/* Badges */}
                       <div className="absolute top-2 left-2 flex items-center gap-1.5">
                         <span className="px-2 py-0.5 rounded bg-black/85 backdrop-blur-sm text-[10px] font-mono text-cyan-300 border border-slate-700/80 font-bold">
-                          Sol {img.sol}
+                          {img.sol > 0 ? `Sol ${img.sol}` : img.mission}
                         </span>
                         <span className="px-1.5 py-0.5 rounded bg-black/85 backdrop-blur-sm text-[9px] font-mono text-orange-400 border border-slate-700/80 uppercase">
-                          {img.camera}
+                          {camShort}
                         </span>
                       </div>
 
@@ -647,7 +714,7 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
                       )}
 
                       <div className="absolute bottom-2 right-2 px-1.5 py-0.5 bg-black/80 rounded text-[9px] font-mono text-slate-400 border border-slate-800">
-                        Site {img.site ?? 92} / Drive {img.drive ?? 0}
+                        {img.dataSourceType === 'nasa_images_library' ? (img.nasaId || img.mission) : `Site ${img.site ?? 92} / Drive ${img.drive ?? 0}`}
                       </div>
                     </div>
 
@@ -655,7 +722,7 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
                     <div className="p-3.5 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <h4 className="text-xs font-bold text-white truncate max-w-[200px]" title={img.title}>
-                          {img.cameraFullName || img.title}
+                          {camFull || img.title}
                         </h4>
                         <span className="text-[10px] font-mono text-slate-400 shrink-0">
                           {img.dateUtc ? new Date(img.dateUtc).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : `Sol ${img.sol}`}
@@ -663,7 +730,7 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
                       </div>
 
                       <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed font-sans">
-                        {img.cameraFullName || img.title}
+                        {img.title || camFull}
                       </p>
                     </div>
                   </div>
@@ -725,6 +792,265 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
           >
             Next <ChevronRight className="w-4 h-4" />
           </button>
+        </div>
+      </div>
+
+      {/* 6. NASA JPL MARS TREK TERRAIN-LAYER VIEWER & USGS PLANETARY GEOLOGIC MAPPING */}
+      <div className="border-t border-slate-800 bg-[#070B16] p-6 space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-bold text-white tracking-wide">
+                  NASA JPL Mars Trek Terrain Layers &amp; USGS Astrogeology Geologic Reference
+                </h3>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700/60">
+                  Live WMTS / WMS / STAC
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">
+                Inspect real orbital map layers (HiRISE, CTX, MOLA, Viking, THEMIS, Hillshade) and published USGS SIM 3292 geologic units at planetary coordinates.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap text-xs font-mono">
+            {TREK_SITES.map(site => (
+              <button
+                key={site.id}
+                onClick={() => {
+                  setTrekSiteId(site.id);
+                  setTrekLat(site.lat);
+                  setTrekLon(site.lon);
+                }}
+                className={`px-2.5 py-1 rounded-lg border transition cursor-pointer ${
+                  trekSiteId === site.id
+                    ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200 font-bold'
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                {site.label.split(' (')[0]}
+              </button>
+            ))}
+            <button
+              onClick={() => loadTrekAndUsgsReference(trekLat, trekLon, trekSiteId)}
+              disabled={geoRefLoading}
+              className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 flex items-center gap-1 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${geoRefLoading ? 'animate-spin' : ''}`} />
+              <span>Sync Orbital Data</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {/* Left: NASA Mars Trek Interactive Layer Viewer */}
+          <div className="lg:col-span-6 bg-[#090D1A] border border-slate-800 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap border-b border-slate-800 pb-2">
+              <span className="text-xs font-bold text-orange-400 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                <Globe className="w-4 h-4" />
+                NASA JPL Mars Trek Layer Viewer
+              </span>
+              <a
+                href="https://trek.nasa.gov/mars/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] font-mono text-cyan-300 hover:underline flex items-center gap-1"
+              >
+                <span>trek.nasa.gov/mars</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
+              <select
+                aria-label="Select NASA Mars Trek or USGS Map Layer"
+                value={selectedTrekLayerId}
+                onChange={e => {
+                  setTrekLayerPreviewFailed(false);
+                  setSelectedTrekLayerId(e.target.value);
+                }}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-cyan-300 focus:outline-none"
+              >
+                {(trekLayers.length > 0 ? trekLayers : [
+                  { id: 'trek_hrsc_mola_clrshade', name: 'NASA Trek HRSC + MOLA Blended Color Hillshade (200 m/px)', resolutionLabel: '200 m/pixel' },
+                  { id: 'trek_jezero_ctx_6m', name: 'NASA Trek Jezero Crater CTX Ortho Mosaic (6 m/px)', resolutionLabel: '6 m/pixel' },
+                  { id: 'trek_curiosity_hirise', name: 'NASA Trek Gale Crater / Curiosity HiRISE Mosaic (0.25 m/px)', resolutionLabel: '0.25 m/pixel' },
+                  { id: 'trek_viking_mdim21', name: 'NASA Trek Viking MDIM 2.1 Color Global WMTS (232 m/px)', resolutionLabel: '232 m/pixel' },
+                  { id: 'trek_mola_clrshade', name: 'NASA Trek MGS MOLA Colorized Hillshade WMTS (463 m/px)', resolutionLabel: '463 m/pixel' },
+                  { id: 'usgs_mola_themis_blend', name: 'USGS Astrogeology MOLA + THEMIS Blended Relief', resolutionLabel: '200 m/pixel' },
+                  { id: 'usgs_themis_day', name: 'USGS Astrogeology THEMIS IR Day 100m Global Mosaic', resolutionLabel: '100 m/pixel' },
+                  { id: 'usgs_themis_night', name: 'USGS Astrogeology THEMIS IR Night 100m Mosaic', resolutionLabel: '100 m/pixel' },
+                  { id: 'usgs_hrsc_mola_hillshade', name: 'USGS Astrogeology HRSC + MOLA Blended Hillshade', resolutionLabel: '200 m/pixel' },
+                  { id: 'trek_sim3292_geology', name: 'USGS–NASA SIM 3292 Global Geologic Map of Mars', resolutionLabel: '1:20,000,000' }
+                ]).map((l: any) => (
+                  <option key={l.id} value={l.id}>
+                    {l.shortName || l.name} ({l.resolutionLabel})
+                  </option>
+                ))}
+              </select>
+
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] text-slate-400 shrink-0">Span:</label>
+                <select
+                  aria-label="Orbital Map Footprint Span"
+                  value={trekSpanDeg}
+                  onChange={e => {
+                    setTrekLayerPreviewFailed(false);
+                    setTrekSpanDeg(Number(e.target.value));
+                  }}
+                  className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none"
+                >
+                  <option value={0.18}>0.18° (~10.6 km)</option>
+                  <option value={0.45}>0.45° (~26.6 km)</option>
+                  <option value={1.2}>1.20° (~71 km)</option>
+                  <option value={4.0}>4.00° (~237 km)</option>
+                </select>
+              </div>
+            </div>
+
+            {(() => {
+              const activeSpec = trekLayers.find(l => l.id === selectedTrekLayerId);
+              const tileUrl = getTrekTilePreviewUrl({
+                layerId: selectedTrekLayerId,
+                lat: trekLat,
+                lon: trekLon,
+                spanDeg: trekSpanDeg,
+                width: 640,
+                height: 360
+              });
+              return (
+                <>
+                  <div className="relative h-56 rounded-xl overflow-hidden border border-slate-800 bg-black flex items-center justify-center">
+                    {!trekLayerPreviewFailed ? (
+                      <img
+                        src={tileUrl}
+                        alt={`Mars Trek ${selectedTrekLayerId}`}
+                        onError={() => setTrekLayerPreviewFailed(true)}
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <div className="p-4 text-center text-xs font-mono text-amber-300 space-y-1">
+                        <Info className="w-5 h-5 mx-auto text-amber-400" />
+                        <p>Selected layer footprint does not cover {trekLat.toFixed(2)}°N, {trekLon.toFixed(2)}°E.</p>
+                        <p className="text-[11px] text-slate-400">Switch to HRSC+MOLA Color Shade or Viking MDIM 2.1 for global coverage.</p>
+                      </div>
+                    )}
+                    <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between text-[10px] font-mono bg-black/85 px-2.5 py-1 rounded border border-white/10">
+                      <span className="text-slate-200">
+                        {trekLat.toFixed(4)}° N, {trekLon.toFixed(4)}° E
+                      </span>
+                      <span className="text-cyan-300 font-bold">
+                        MOLA Datum: {trekElevSample?.calibrated && trekElevSample.elevationM !== null ? `${trekElevSample.elevationM.toFixed(1)} m` : 'Querying...'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {activeSpec && (
+                    <div className="p-2.5 rounded-lg bg-black/50 border border-slate-800/80 text-[11px] font-mono text-slate-300 space-y-1">
+                      <div className="flex items-center justify-between text-cyan-300 font-bold">
+                        <span className="truncate">{activeSpec.name}</span>
+                        <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-200">{activeSpec.protocol}</span>
+                      </div>
+                      <p className="font-sans text-slate-400 text-[11px] leading-snug">{activeSpec.description}</p>
+                      <div className="flex flex-wrap gap-3 text-[10px] text-slate-400 pt-1">
+                        <span>Mission: <strong className="text-slate-200">{activeSpec.mission}</strong></span>
+                        <span>CRS: <strong className="text-slate-200">{activeSpec.crs}</strong></span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+
+          {/* Right: USGS Planetary Geologic Mapping (SIM 3292) & STAC DTM */}
+          <div className="lg:col-span-6 bg-[#090D1A] border border-slate-800 rounded-xl p-4 space-y-3 flex flex-col justify-between">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap border-b border-slate-800 pb-2">
+                <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4" />
+                  USGS–NASA Planetary Geologic Mapping (SIM 3292)
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/30">
+                  {usgsGeologyData?.quadrangle || 'Querying quadrangle...'}
+                </span>
+              </div>
+
+              {geoRefError ? (
+                <div className="p-3 rounded-lg bg-amber-950/30 border border-amber-500/40 text-xs text-amber-200 font-mono">
+                  {geoRefError}
+                </div>
+              ) : usgsGeologyData?.units && usgsGeologyData.units.length > 0 ? (
+                <div className="space-y-2">
+                  {usgsGeologyData.units.slice(0, 2).map((unit, idx) => (
+                    <div key={`${unit.unitSymbol}_${idx}`} className="p-3 rounded-lg bg-black/50 border border-slate-800 space-y-1.5 text-xs">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="font-bold text-white font-mono">
+                          Unit <span className="text-amber-300">{unit.unitSymbol}</span> — {unit.unitName}
+                        </span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-700/50">
+                          {unit.epoch}
+                        </span>
+                      </div>
+                      <p className="text-slate-300 text-[11px] leading-relaxed">{unit.lithology}</p>
+                      <p className="text-slate-400 text-[11px] leading-relaxed">
+                        <strong className="text-slate-300">Boundary Context:</strong> {unit.boundaryContext}
+                      </p>
+                      <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-1 border-t border-slate-800/70">
+                        <span className="truncate max-w-[320px]">Source: {unit.mapSource}</span>
+                        <span>{unit.citation}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 text-center text-xs font-mono text-slate-400 bg-black/40 rounded-lg border border-slate-800">
+                  {geoRefLoading ? 'Querying USGS Astrogeology SIM 3292 MapServer...' : 'No published USGS SIM 3292 units returned for selected coordinate.'}
+                </div>
+              )}
+
+              {/* USGS STAC HiRISE / CTX DEM Loader */}
+              {usgsGeologyData?.stacDtms && usgsGeologyData.stacDtms.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <span className="text-[10px] font-mono uppercase text-slate-400 font-bold block">
+                    USGS Astrogeology STAC Digital Terrain Models ({usgsGeologyData.stacDtms.length})
+                  </span>
+                  <div className="space-y-1.5">
+                    {usgsGeologyData.stacDtms.slice(0, 3).map(dtm => (
+                      <button
+                        key={dtm.id}
+                        disabled={isProcessingDtm}
+                        onClick={() => selectAndLoadDtm(dtm, 36).catch(() => {})}
+                        className="w-full text-left px-3 py-2 rounded-lg bg-slate-900 hover:bg-cyan-950/50 border border-slate-700 hover:border-cyan-500/50 text-xs font-mono flex items-center justify-between cursor-pointer transition disabled:opacity-50"
+                      >
+                        <span className="truncate pr-2 text-slate-200">{dtm.title}</span>
+                        <span className="text-cyan-400 font-bold shrink-0">
+                          {selectedDtmData?.id === dtm.id ? 'Active DEM' : 'Load DEM'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] font-mono text-slate-400 flex-wrap gap-2">
+              <span>{wmsCapSummary || 'USGS Planetary WMS 1.3.0 / SIM 3292'}</span>
+              <a
+                href="https://www.usgs.gov/centers/astrogeology-science-center"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-cyan-300 hover:underline flex items-center gap-1"
+              >
+                <span>USGS Astrogeology Center</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     </div>

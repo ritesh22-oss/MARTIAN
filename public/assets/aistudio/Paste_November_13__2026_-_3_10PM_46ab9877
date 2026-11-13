@@ -1,0 +1,907 @@
+# MASTER DEVELOPMENT PROMPT — MARSNAV / MARSWALK OPS
+## Real-Time NASA Image Intelligence, Terrain Analysis, Geological Mapping, Obstacle Detection & Autonomous Rover Navigation
+
+Act as a senior planetary scientist, NASA data integration engineer, computer vision researcher, geospatial intelligence specialist, and senior full-stack developer.
+
+I want you to comprehensively upgrade my existing MARSNAV application, particularly Mars Surface Explorer, Mars Astronaut Exploration, Multilayer Scientific Map, Safety & Environment, Geological Targets, Astronaut Route Planner, Radiation & Space Weather, and MARSWALK OPS.
+
+This is not a request to create another static dashboard or redesign the entire application from scratch.
+
+**Modify the existing application, preserve its current architecture, navigation, working features, branding, and dark futuristic interface, but replace all hardcoded analysis, fake results, static images, and fixed numerical values with genuine data-driven processing.**
+
+The most important requirement:
+
+EVERY TIME A USER UPLOADS A MARS IMAGE OR FETCHES AN IMAGE FROM A NASA DATA SOURCE, THE ENTIRE APPLICATION MUST UPDATE ITS ANALYSIS ACCORDING TO THAT PARTICULAR IMAGE, ITS METADATA, LOCATION, INSTRUMENT, AND AVAILABLE SCIENTIFIC DATA.
+
+Different images must produce different analysis results.
+
+---
+
+# 1. GLOBAL IMAGE-BASED ANALYSIS ENGINE
+
+Build a centralized Mars Image Intelligence Engine.
+
+All application sections must use the same selected image and its associated metadata as their primary input.
+
+### Image sources
+
+Support:
+
+- NASA Mars Rover image feeds.
+- NASA Perseverance image archive.
+- NASA Curiosity image archive.
+- NASA Mars Reconnaissance Orbiter imagery.
+- NASA Mars Trek imagery.
+- User-uploaded JPG, JPEG, PNG, and other supported scientific image formats.
+- Available NASA elevation and terrain datasets.
+- USGS Mars geological mapping datasets.
+
+For every image, retrieve and preserve:
+
+- Original image.
+- Image identifier.
+- Rover or spacecraft name.
+- Instrument and camera.
+- Acquisition date and mission sol.
+- Available latitude and longitude.
+- Camera orientation, where available.
+- Image dimensions.
+- Spatial resolution, where available.
+- Coordinate reference system, if available.
+- Source and original metadata.
+
+IMPORTANT:
+
+Never invent geographic coordinates, elevation, image resolution, geological classifications, or instrument metadata.
+
+If an uploaded image has no geographic metadata, clearly identify it as an unlocated image. You may perform visual analysis, but must not pretend to know its exact Martian location.
+
+### Centralized processing
+
+Implement a reusable processing pipeline:
+
+1. Acquire image.
+2. Validate image and metadata.
+3. Normalize image for computer vision.
+4. Detect geological and terrain features.
+5. Segment visible rocks, outcrops, soil, ridges, and obstacles.
+6. Retrieve matching NASA and USGS geospatial datasets when coordinates are available.
+7. Match the image location against authoritative geological map units.
+8. Calculate available terrain characteristics.
+9. Publish analysis results to all relevant application sections.
+10. Display the source and confidence of every scientific result.
+
+Use actual computer vision and image-processing models. Integrate a suitable AI vision model for visual interpretation where available.
+
+Do not create placeholder results that look like real scientific observations.
+
+---
+
+# 2. MARS SURFACE EXPLORER — PRIMARY IMAGE ANALYSIS
+
+This is the primary entry point for image acquisition and terrain understanding.
+
+When a user uploads an image or fetches a new NASA image, immediately display the original, complete image.
+
+### Image rendering fixes
+
+The current photo-generation and image-display implementation sometimes shows only half of the image.
+
+Fix this.
+
+Requirements:
+
+- Display the complete original image.
+- Preserve the original aspect ratio.
+- Never crop important geological features automatically.
+- Support contain/fit-to-view rendering.
+- Provide zoom in, zoom out, and reset controls.
+- Allow full-resolution image viewing.
+- Support panning.
+- Ensure images do not overflow their containers.
+- Handle portrait and landscape images.
+- Maintain image quality without stretching.
+- Do not generate replacement imagery when the original image is available.
+
+Use the original NASA image as the primary visual reference.
+
+### Visual terrain analysis
+
+Analyze the image to identify:
+
+- Rocky outcrops.
+- Regolith.
+- Sand-covered areas.
+- Bedrock.
+- Small and large rocks.
+- Layered sedimentary formations.
+- Erosion patterns.
+- Surface cracks.
+- Ridges.
+- Depressions.
+- Slopes when measurable.
+- Potential obstacles.
+- Distinct geological textures.
+
+Display the results in a clean image-analysis panel.
+
+For each detected feature, provide:
+
+- Feature name.
+- Description.
+- Image location or bounding coordinates.
+- Estimated size only when scale is available.
+- Confidence score.
+- Scientific significance.
+- Whether it is directly observed or inferred.
+
+### IMPORTANT UI RULE
+
+Do not clutter Mars Surface Explorer with dozens of yellow bounding boxes, obstacle labels, and overlapping geological segmentation graphics.
+
+Mars Surface Explorer should primarily show:
+
+- Original NASA image.
+- Image metadata.
+- Selected terrain features.
+- Clean navigation path and waypoint markers when relevant.
+- A compact terrain summary.
+
+Move detailed obstacle segmentation and hazard overlays into Safety & Environment.
+
+---
+
+# 3. MULTILAYER SCIENTIFIC MAP — REAL NASA + USGS DATA
+
+The current implementation repeatedly displays the same geological unit, the same image, and identical scientific descriptions regardless of which image is uploaded.
+
+This must be completely fixed.
+
+Build a genuinely dynamic geospatial science layer system.
+
+### Scientific layers
+
+Integrate real available datasets, including:
+
+1. NASA Mars Trek imagery.
+2. Mars Reconnaissance Orbiter CTX imagery.
+3. HiRISE imagery.
+4. THEMIS daytime infrared data.
+5. THEMIS nighttime infrared data.
+6. MOLA elevation data.
+7. HRSC elevation and imagery.
+8. USGS geological maps.
+9. USGS Mars global geological mapping products.
+10. USGS SIM 3292 where geographically applicable.
+11. Available rover-local imagery and terrain information.
+
+Do not assume all layers cover every location or image.
+
+Only display layers that actually have geographic coverage and compatible data.
+
+### Dynamic geological mapping
+
+When the image is associated with known coordinates:
+
+- Identify the Mars location.
+- Retrieve the corresponding USGS geological map.
+- Perform a geographic intersection between the image footprint and mapped geological polygons.
+- Identify every geological unit intersecting the footprint.
+- Determine which geological units occupy the visible image region when spatial registration permits.
+- Retrieve associated geological descriptions and scientific references.
+- Identify boundaries between different geological units.
+- Show the percentage of the image footprint covered by each mapped unit when the intersection can be calculated reliably.
+
+Do not assign the same Hesperian or Noachian transition unit to every image.
+
+For example, an image from one region might intersect a Noachian unit, while another image could intersect a Hesperian volcanic unit or Amazonian deposit.
+
+The results must reflect the actual location.
+
+### Geological unit information
+
+For every matching geological unit, display:
+
+- Official USGS unit name.
+- Geological symbol.
+- Geological period or epoch.
+- Approximate age, when documented.
+- Geological composition or interpretation.
+- Morphological characteristics.
+- Formation history, where established.
+- Boundary information.
+- Original publication or map reference.
+- Dataset DOI or official source.
+- Geographic match confidence.
+
+### Clean visual design
+
+The current geological map visualization is too cluttered and difficult for new users to understand.
+
+Redesign it.
+
+Use:
+
+- One large, readable scientific map.
+- A restrained geological color palette.
+- A clear legend.
+- Distinct geological unit boundaries.
+- A highlighted current image footprint.
+- A separate compact layer-control panel.
+- An understandable layer-opacity control.
+- A clear north indicator and scale bar when supported.
+- A coordinate and projection information panel.
+
+Never overlay every geological label simultaneously.
+
+When the user selects a geological unit, highlight only that unit and display its information in a side panel.
+
+### Explain every image
+
+A new user should immediately understand what the scientific map represents.
+
+Add a section titled:
+
+"WHAT AM I LOOKING AT?"
+
+Explain:
+
+- What the background image represents.
+- Which spacecraft or instrument produced it.
+- What the displayed colors represent.
+- What the geological boundaries represent.
+- Which region is currently selected.
+- What the highlighted image footprint means.
+- What the current scientific layer contributes.
+
+Do not show unexplained colorful images or arbitrary map fragments.
+
+---
+
+# 4. SAFETY & ENVIRONMENT — OBSTACLE DETECTION AND SEGMENTATION
+
+IMPORTANT: This is the ONLY primary section where detailed yellow obstacle bounding boxes and hazard segmentation should appear.
+
+Move the detailed obstacle-detection visualizations out of Mars Astronaut Exploration and into Safety & Environment.
+
+### AI obstacle detection
+
+Analyze the complete original image and detect individual visible obstacles.
+
+Detect:
+
+- Small rocks.
+- Medium rocks.
+- Large boulders.
+- Rock clusters.
+- Rocky outcrops.
+- Sharp-edged terrain.
+- Visible crevices.
+- Depressions.
+- Sand obstacles.
+- Surface irregularities.
+- Potentially hazardous terrain features.
+
+### Yellow bounding-box visualization
+
+Use accurate yellow bounding boxes around actual detected obstacles.
+
+Requirements:
+
+- Tight bounding boxes around individual objects.
+- Separate boxes for separate rocks.
+- Correct box sizes.
+- No oversized boxes covering empty terrain.
+- No arbitrary boxes.
+- No boxes around irrelevant background areas.
+- Avoid duplicate detections.
+- Avoid excessive overlapping labels.
+- Display confidence percentages only when generated by the actual detection model.
+
+For adjacent rocks, distinguish individual objects when the model can reliably separate them. Use segmentation masks when bounding boxes alone are insufficient.
+
+Use a professional yellow/gold outline with subtle transparency.
+
+### Interactive controls
+
+Provide:
+
+- Show/hide obstacle detections.
+- Show/hide segmentation masks.
+- Show/hide geological features.
+- Show/hide hazard classifications.
+- Select an individual detected obstacle.
+- Display obstacle details.
+- Filter by obstacle size or category.
+- Zoom into the selected obstacle.
+
+### Obstacle intelligence panel
+
+For each detected obstacle, display:
+
+- Obstacle ID.
+- Category.
+- Image coordinates.
+- Bounding-box dimensions in pixels.
+- Estimated physical dimensions only when reliable spatial scale is available.
+- Detection confidence.
+- Potential mobility or traversal concern.
+- Explanation of why it may present a hazard.
+
+Clearly distinguish visual hazard estimates from verified terrain measurements.
+
+### Risk assessment
+
+Generate an image-specific hazard assessment using observed features and available terrain data.
+
+Do not automatically label a visually unusual rock as dangerous.
+
+If calibrated elevation or slope data is missing, state that the slope or elevation cannot be verified.
+
+---
+
+# 5. GEOLOGICAL TARGETS — DYNAMIC SCIENTIFIC DISCOVERY
+
+The current Geological Targets section is hardcoded.
+
+Replace it with an image-dependent scientific discovery system.
+
+When a new image is uploaded:
+
+1. Analyze its visible geological structures.
+2. Identify scientifically interesting features.
+3. Search available geological reference datasets.
+4. Match geographically registered features with known mapped formations when possible.
+5. Generate candidate investigation targets.
+6. Display evidence and confidence.
+
+Potential targets:
+
+- Layered sedimentary rocks.
+- Ancient water-related deposits.
+- Possible deltaic structures.
+- Exposed bedrock.
+- Mineral alteration candidates.
+- Fracture networks.
+- Erosion features.
+- Sedimentary contacts.
+- Distinctive rock formations.
+
+For every target, show:
+
+- Target name.
+- Actual image crop.
+- Target location within the image.
+- Feature description.
+- Scientific importance.
+- Supporting visual evidence.
+- Matching geological unit, if verified.
+- Confidence.
+- Recommended scientific investigation.
+
+IMPORTANT:
+
+Do not claim that water, minerals, or biological evidence have been confirmed from ordinary optical images.
+
+Use language such as "possible", "candidate", and "requires instrument confirmation" when appropriate.
+
+Every newly uploaded image must generate its own target list.
+
+Do not reuse the same targets from the previous image.
+
+---
+
+# 6. ASTRONAUT ROUTE PLANNER — TERRAIN-DEPENDENT ROUTING
+
+Remove hardcoded route strategies, fixed safety percentages, fixed distances, and fixed EVA times.
+
+Build a terrain-aware route recommendation engine.
+
+The planner must use:
+
+- Actual detected obstacles.
+- Available terrain elevation.
+- Slope information.
+- Terrain roughness when measurable.
+- Image-derived terrain classifications.
+- User-selected start and destination.
+- Mission-specific mobility constraints.
+- Science target locations.
+- Available rover or astronaut mobility parameters.
+
+### Four route strategies
+
+Keep the four existing strategies:
+
+ALPHA — SHORTEST DISTANCE
+
+Find the shortest feasible route while respecting configured safety constraints.
+
+BETA — LOWEST TRAVERSAL COST
+
+Prefer smoother, less obstructed terrain.
+
+GAMMA — SAFETY FIRST
+
+Prioritize obstacle clearance and conservative traversal.
+
+DELTA — SCIENCE OPTIMIZED
+
+Visit relevant scientific targets while respecting traversal constraints.
+
+### Dynamic results
+
+Every strategy must calculate its results from the current image and terrain model.
+
+Display:
+
+- Calculated distance.
+- Estimated travel time.
+- Maximum verified slope.
+- Number of waypoints.
+- Obstacles avoided.
+- Terrain types crossed.
+- Traversal cost.
+- Risk indicators.
+- Scientific targets visited.
+
+Do not display fabricated safety percentages.
+
+If the data is insufficient to calculate a metric, display "Unavailable" or "Requires calibrated DEM".
+
+### Realistic route rendering
+
+Improve the existing route visualization:
+
+- Use realistic smooth, curved route geometry.
+- Route around detected obstacles.
+- Avoid straight-line paths through rocks.
+- Use natural waypoint transitions.
+- Keep the route visually clear.
+- Provide a proper start marker in solid blue.
+- Provide a destination marker in solid red.
+- Use professional dimensional 3D-style map pins, not cartoon graphics.
+- Give the markers realistic depth, lighting, and subtle shadows.
+- Avoid oversized glowing circles.
+- Use a solid, premium scientific UI.
+
+The route must remain calculated from the available terrain data, not simply drawn as a decorative curved line.
+
+If no calibrated DEM is available, label the route as an image-based preliminary estimate rather than a validated safe route.
+
+---
+
+# 7. MARS ASTRONAUT EXPLORATION — CLEAN NAVIGATION EXPERIENCE
+
+Keep this section focused on exploration and navigation.
+
+Do not put the yellow obstacle segmentation boxes here.
+
+Display:
+
+- Full original NASA image.
+- Start location.
+- Destination location.
+- Selected route.
+- Waypoints.
+- Route direction.
+- Current position, if actual telemetry is available.
+- Navigation distance.
+- Route progress, if actual telemetry is available.
+
+The route should be represented using a clean, attractive cyan or blue path.
+
+The start and destination markers must be visually distinct.
+
+Keep the map clean and easy to understand.
+
+Detailed obstacle detections belong exclusively in Safety & Environment.
+
+---
+
+# 8. RADIATION & SPACE WEATHER — REAL DATA INTEGRATION
+
+The current radiation and space weather graph is not functioning properly and shows repeated static values.
+
+Fix the graph and the entire data pipeline.
+
+Integrate appropriate real data sources, including:
+
+- NASA MSL RAD instrument data.
+- Available NASA rover radiation observations.
+- NOAA Space Weather Prediction Center data.
+- NASA solar activity data.
+- Relevant solar energetic particle observations.
+
+IMPORTANT:
+
+Mars surface radiation observations and Earth-orbit solar weather measurements are different types of measurements.
+
+Do not present Earth satellite observations as direct Mars surface measurements.
+
+### Functional dashboard
+
+Display actual available measurements:
+
+- Radiation dose rate.
+- Radiation trends.
+- Solar flare activity.
+- Solar energetic particle conditions.
+- Relevant observation timestamps.
+- Instrument and source information.
+- Data freshness.
+
+### Graphs
+
+Implement functional dynamic charts.
+
+The charts must update according to:
+
+- Selected rover.
+- Available observation period.
+- Selected date range.
+- Selected mission sol.
+- Available radiation measurements.
+
+If no relevant data exists, display an informative empty state.
+
+Never generate random values to make the graph appear functional.
+
+### Solar environment status
+
+Remove the permanently hardcoded "Moderate" status.
+
+Calculate the status from available and appropriately defined space-weather indicators.
+
+Use categories such as:
+
+- Quiet.
+- Elevated.
+- Active.
+- Severe.
+- Unknown.
+
+Display the source, observation time, and criteria behind the classification.
+
+---
+
+# 9. MARSWALK OPS — ADVANCED SCIENTIFIC MISSION INTELLIGENCE
+
+MARSWALK OPS should become the central operational intelligence workspace.
+
+Remove unrelated geological cards and repeated USGS sections that clutter the operational interface.
+
+Keep the main astronaut operational dashboard clean.
+
+Create a separate, clearly organized NASA RAW IMAGE section within MARSWALK OPS.
+
+### NASA RAW IMAGE section
+
+This section should contain:
+
+1. Original NASA image.
+2. Full image viewer.
+3. Image acquisition metadata.
+4. Instrument details.
+5. Image coordinates, when available.
+6. Image source.
+7. Image resolution, when available.
+8. Image-analysis status.
+9. Link to original NASA source.
+
+Display the original image without cropping.
+
+### Separate regional intelligence panel
+
+Inside the NASA RAW IMAGE section, add a dedicated panel titled:
+
+"AI TERRAIN & REGIONAL INTELLIGENCE"
+
+This panel should analyze the selected image and identify its visible terrain regions.
+
+For example, if an image contains:
+
+- Rocky outcrop.
+- Regolith plain.
+- Layered rock formation.
+- Bedrock exposure.
+- Sand-covered region.
+- Ridge boundary.
+
+Identify and describe these regions separately.
+
+For each region, display:
+
+- Region name.
+- Highlighted image area.
+- Terrain classification.
+- Visual description.
+- Image coordinates.
+- Confidence.
+- Potential scientific importance.
+
+### USGS regional reference
+
+Add a separate subsection inside the NASA RAW IMAGE area:
+
+"USGS GEOLOGICAL REFERENCE"
+
+When valid geographic metadata is available:
+
+- Find the matching USGS map.
+- Identify intersecting geological units.
+- Match the image footprint against actual mapped regions.
+- Display official geological names.
+- Display unit symbols.
+- Show geological age and formation descriptions.
+- Include publication references.
+- Show the actual geographic relationship between the image and geological polygons.
+
+Do not mix visual AI region classifications with verified USGS geological classifications.
+
+Clearly label the two:
+
+A. AI-IDENTIFIED VISUAL TERRAIN REGIONS.
+
+B. VERIFIED USGS GEOLOGICAL MAP UNITS.
+
+This distinction is essential.
+
+If a visual feature cannot be matched to a geological map unit, say so.
+
+### MARSWALK OPS advanced report
+
+Generate a compact scientific intelligence report containing:
+
+- Image overview.
+- Terrain region breakdown.
+- Geological context.
+- Detected obstacles.
+- Important geological targets.
+- Available elevation information.
+- Traversal considerations.
+- Data availability.
+- Scientific uncertainty.
+
+The report must change every time the selected image changes.
+
+---
+
+# 10. VISUAL DESIGN — PROFESSIONAL PLANETARY SCIENCE INTERFACE
+
+Preserve the existing MARSNAV identity and dark scientific dashboard.
+
+Improve visual hierarchy and consistency.
+
+### Design direction
+
+- Deep navy and charcoal backgrounds.
+- Cyan scientific accents.
+- Restrained gold/yellow for obstacle detection.
+- Solid blue start markers.
+- Solid red destination markers.
+- Professional 3D-style navigation pins.
+- Subtle shadows and dimensionality.
+- Consistent card spacing.
+- Clear typography.
+- Readable scientific charts.
+- Minimal unnecessary glowing effects.
+
+Avoid:
+
+- Cartoon-like 3D icons.
+- Excessive neon.
+- Cluttered image overlays.
+- Repeated geological cards.
+- Arbitrary colored map backgrounds.
+- Unexplained visualizations.
+- Oversized labels.
+- Decorative fake data.
+
+The application should look like a professional planetary exploration and mission-control platform.
+
+---
+
+# 11. CENTRALIZED STATE AND DATA FLOW
+
+Implement one shared selected-image state and a centralized analysis result model.
+
+Suggested architecture:
+
+NASA Image Acquisition
+        ↓
+Image Validation & Metadata
+        ↓
+Mars Image Intelligence Engine
+        ↓
+Terrain Detection & Segmentation
+        ↓
+Geospatial Registration
+        ↓
+NASA / USGS Data Matching
+        ↓
+Central Scientific Analysis Store
+        ↓
+ ┌──────────────────────────────┐
+ │ Mars Surface Explorer        │
+ │ Multilayer Scientific Map    │
+ │ Safety & Environment         │
+ │ Geological Targets           │
+ │ Astronaut Route Planner      │
+ │ Radiation & Space Weather    │
+ │ Marswalk Ops                 │
+ └──────────────────────────────┘
+
+Every section must subscribe to the current selected image and its analysis version.
+
+When a new image is selected:
+
+- Invalidate previous image-specific results.
+- Start a new analysis job.
+- Show processing status.
+- Update every relevant section.
+- Prevent previous image results from appearing under the new image.
+- Handle failed data retrieval gracefully.
+- Cache results using image identifiers and dataset versions where appropriate.
+
+Use reusable services rather than separate hardcoded calculations in each component.
+
+---
+
+# 12. DATA ACCURACY, SOURCES AND SCIENTIFIC TRANSPARENCY
+
+This is a critical requirement.
+
+Use genuine source data wherever available.
+
+Preferred sources:
+
+- NASA PDS.
+- NASA Mars Rover Photos APIs or official mission archives.
+- NASA Mars Trek.
+- NASA/JPL imagery services.
+- USGS Astrogeology.
+- USGS planetary geological map products.
+- NASA MOLA and other applicable elevation products.
+- NASA and NOAA space-weather data services.
+
+For every result, distinguish:
+
+1. Directly observed data.
+2. AI-derived visual interpretation.
+3. Geospatially verified data.
+4. Model-based estimates.
+5. Unavailable data.
+
+Show source references and timestamps.
+
+Do not:
+
+- Hardcode geological units.
+- Hardcode images.
+- Hardcode safety percentages.
+- Hardcode radiation readings.
+- Generate random graph data.
+- Invent coordinates.
+- Invent DEM measurements.
+- Pretend a dataset was retrieved when its request failed.
+- Claim that AI visual estimates are laboratory-confirmed scientific measurements.
+
+If an API is unavailable, show the error and preserve the last valid result with a clear stale-data label.
+
+---
+
+# 13. IMPLEMENTATION REQUIREMENTS
+
+Before modifying the application:
+
+1. Inspect the complete existing codebase.
+2. Identify the current image-upload and NASA-fetching pipeline.
+3. Identify every hardcoded geological result.
+4. Identify static charts and fixed numerical values.
+5. Identify duplicate image-analysis logic.
+6. Inspect the route planner and image-rendering components.
+7. Check existing API integrations and dependencies.
+
+Then implement the changes directly in the existing architecture.
+
+Do not merely create a mockup or provide a conceptual design.
+
+Preserve existing working functionality.
+
+Use reusable components, services, and data models.
+
+Ensure all asynchronous operations have proper loading, success, empty, and error states.
+
+Validate the application after implementation.
+
+---
+
+# 14. FINAL ACCEPTANCE TESTS
+
+The upgrade is not complete until these tests pass.
+
+TEST 1 — DIFFERENT NASA IMAGES
+
+Fetch two different Mars images.
+
+Verify that their image metadata, detected terrain, geological targets, and image-specific results are not copied from one another.
+
+TEST 2 — USER UPLOAD
+
+Upload a completely different Mars image.
+
+Verify that the full image is displayed and the visual terrain analysis updates.
+
+TEST 3 — IMAGE RENDERING
+
+Upload portrait and landscape images.
+
+Verify that neither image is cut in half, stretched, or incorrectly cropped.
+
+TEST 4 — OBSTACLE DETECTION
+
+Verify that Safety & Environment contains accurately positioned yellow obstacle boxes and segmentation masks.
+
+Verify that Mars Astronaut Exploration does not contain cluttered yellow obstacle boxes.
+
+TEST 5 — GEOLOGICAL MATCHING
+
+Load images with known geographic metadata.
+
+Verify that USGS geological results are retrieved from actual map data and that only geographically intersecting units are displayed.
+
+TEST 6 — UNKNOWN LOCATION
+
+Upload an image without coordinates.
+
+Verify that visual terrain analysis works but geographic geological identification is marked unavailable or unverified.
+
+TEST 7 — ROUTE PLANNING
+
+Use different terrain images.
+
+Verify that the four route strategies calculate different results when the underlying terrain and constraints justify different routes.
+
+TEST 8 — RADIATION GRAPHS
+
+Verify that the graphs render actual available observations, update with selected data ranges, and display informative empty states when data is missing.
+
+TEST 9 — MARSWALK OPS
+
+Verify that the NASA RAW IMAGE panel contains the original image, AI terrain-region analysis, and a separate USGS geological reference panel.
+
+TEST 10 — NO HARDCODED RESULTS
+
+Search the codebase for fixed geological unit names, fixed safety percentages, repeated sample images, static radiation readings, and mock route metrics.
+
+Remove hardcoded demonstration values from production analysis paths.
+
+---
+
+# FINAL INSTRUCTION
+
+I want this to become a genuinely intelligent, data-driven Mars planetary exploration platform.
+
+The central objective is:
+
+UPLOAD OR FETCH A NASA MARS IMAGE → ANALYZE THE ACTUAL IMAGE → IDENTIFY TERRAIN REGIONS → MATCH VERIFIED GEOGRAPHIC DATA → DETECT OBSTACLES → GENERATE GEOLOGICAL INTELLIGENCE → CALCULATE TERRAIN-DEPENDENT ROUTES → UPDATE ALL CONNECTED DASHBOARDS.
+
+Most importantly, implement the separation correctly:
+
+- Mars Surface Explorer = Original image and clean terrain exploration.
+- Mars Astronaut Exploration = Clean route and waypoint visualization only.
+- Multilayer Scientific Map = Actual NASA and USGS scientific datasets.
+- Safety & Environment = Yellow obstacle boxes, segmentation, and hazard analysis.
+- Geological Targets = Image-specific geological discoveries.
+- Astronaut Route Planner = Dynamic terrain-dependent route strategies.
+- Radiation & Space Weather = Actual available observations and working graphs.
+- MARSWALK OPS = NASA RAW IMAGE, AI Terrain & Regional Intelligence, and separate USGS Geological Reference.
+
+Do not compromise scientific accuracy for visual appearance.
+
+Do not use fake data to make the interface look impressive.
+
+Prioritize real data integration, correct image analysis, scientific transparency, clean UI, and fully functional interactions.
+
+Implement the complete upgrade in the existing project, not just the frontend appearance.

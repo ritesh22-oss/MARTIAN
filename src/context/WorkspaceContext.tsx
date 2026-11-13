@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { apiGet, apiPost } from '../utils/apiClient';
 import { MARS_REFERENCE_DATUM, NASA_DATA_SOURCES, JEZERO_ENVIRONMENTAL_CONTEXT } from '../utils/marsScienceData';
 import type { MarsRawImage } from '../services/nasaDataService';
@@ -55,7 +55,7 @@ export type WorkspaceId =
 export interface SystemStatus {
   backend: 'connected' | 'autonomous' | 'disconnected' | 'checking';
   backendLatencyMs: number | null;
-  model: 'gemini-3.8-flash' | 'orbit-autonomous-core' | 'unavailable';
+  model: 'gemini-4-hydrogen' | 'orbit-autonomous-core' | 'unavailable';
   database: 'linked' | 'local';
 }
 
@@ -132,6 +132,14 @@ export interface SharedTerrainSession {
     acquisitionUtc: string;
     identifier: string;
     sourceUrl: string;
+    site?: number;
+    drive?: string | number;
+    targetRegion?: string;
+    lat?: number;
+    lon?: number;
+    coordinateScope?: 'exact_verified' | 'mission_landing_basin' | 'unavailable';
+    locationLabel?: string;
+    selectionOrigin?: 'upload' | 'nasa' | 'region' | 'none';
   };
   startPoint: { x: number; y: number } | null;
   destinationPoint: { x: number; y: number } | null;
@@ -236,7 +244,9 @@ const defaultSharedSession: SharedTerrainSession = {
     sol: 0,
     acquisitionUtc: '',
     identifier: '',
-    sourceUrl: ''
+    sourceUrl: '',
+    coordinateScope: 'unavailable',
+    selectionOrigin: 'none'
   },
   startPoint: null,
   destinationPoint: null,
@@ -408,7 +418,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         sol: region.sol,
         acquisitionUtc: region.acquisitionUtc,
         identifier: region.imageIdentifier,
-        sourceUrl: region.imageUrl
+        sourceUrl: region.imageUrl,
+        targetRegion: region.name,
+        lat: region.centerCoords.lat,
+        lon: region.centerCoords.lon,
+        coordinateScope: 'exact_verified',
+        locationLabel: `${region.name} (${region.quadrangle})`,
+        selectionOrigin: 'region'
       },
       startPoint: region.defaultWaypoints.startPoint,
       destinationPoint: region.defaultWaypoints.destinationPoint,
@@ -423,7 +439,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
     backend: 'checking',
     backendLatencyMs: null,
-    model: 'gemini-3.8-flash',
+    model: 'gemini-4-hydrogen',
     database: 'linked'
   });
 
@@ -431,6 +447,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const { 
       missions: recordMissions, 
       activeMission: recordActiveMission, 
+      isLoading: missionsLoading,
       setActiveMission: setRecordActiveMission,
       createNewMission: recordCreateNewMission,
       updateMission: recordUpdateMission,
@@ -446,29 +463,36 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     // Mission state is now handled by MissionRecordContext
   }, []);
 
-  // Ensure there is always at least one initial active mission
+  // Ensure there is always at least one initial active mission once initial load finishes
+  const hasAutoCreatedMissionRef = useRef(false);
   useEffect(() => {
+    if (missionsLoading) return;
     if (missions.length === 0) {
-      recordCreateNewMission({
-        name: 'Sol 428 Jezero Delta Exploration',
-        description: 'Primary baseline traverse across Jezero crater delta deposit.'
-      });
+      if (!hasAutoCreatedMissionRef.current) {
+        hasAutoCreatedMissionRef.current = true;
+        recordCreateNewMission({
+          name: 'Sol 428 Jezero Delta Exploration',
+          description: 'Primary baseline traverse across Jezero crater delta deposit.'
+        });
+      }
     } else if (!activeMissionId || !missions.some(m => m.id === activeMissionId)) {
       setRecordActiveMission(missions[0].id);
     }
-  }, [missions, activeMissionId, setRecordActiveMission, recordCreateNewMission]);
+  }, [missions, missionsLoading, activeMissionId, setRecordActiveMission, recordCreateNewMission]);
 
   // Derive activeMission object
-  const activeMission = recordActiveMission
-    ? {
-        ...recordActiveMission,
-        checkpoints: evaluateMissionCheckpoints(recordActiveMission, {
-          activeDataset,
-          systemStatus,
-          settings
-        })
-      }
-    : null;
+  const activeMission = useMemo(() => (
+    recordActiveMission
+      ? {
+          ...recordActiveMission,
+          checkpoints: evaluateMissionCheckpoints(recordActiveMission, {
+            activeDataset,
+            systemStatus,
+            settings
+          })
+        }
+      : null
+  ), [recordActiveMission, activeDataset, systemStatus, settings]);
 
   // Function to create a brand new mission
   const createNewMission = async (params?: { name?: string; description?: string; roverProfile?: string }) => {
@@ -507,10 +531,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Update active mission state and save
-  const updateActiveMission = async (partial: Partial<any>) => {
-    if (!recordActiveMission) return;
+  const updateActiveMission = useCallback(async (partial: Partial<any>) => {
+    if (!recordActiveMission?.id) return;
     await recordUpdateMission(recordActiveMission.id, partial);
-  };
+  }, [recordActiveMission?.id, recordUpdateMission]);
 
   // Delete a mission
   const deleteMission = async (missionId: string) => {
@@ -567,10 +591,27 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       // Check if this update actually changes any keys in prev
       let hasChanges = false;
       for (const k in partial) {
-        if ((prev as any)[k] !== (partial as any)[k]) {
-          hasChanges = true;
-          break;
+        const prevVal = (prev as any)[k];
+        const nextVal = (partial as any)[k];
+        if (prevVal === nextVal) continue;
+        if (Array.isArray(prevVal) && Array.isArray(nextVal)) {
+          if (prevVal.length === 0 && nextVal.length === 0) continue;
+          if (prevVal.length === nextVal.length) {
+            try {
+              if (JSON.stringify(prevVal) === JSON.stringify(nextVal)) continue;
+            } catch {}
+          }
+        } else if (
+          prevVal && nextVal &&
+          typeof prevVal === 'object' &&
+          typeof nextVal === 'object'
+        ) {
+          try {
+            if (JSON.stringify(prevVal) === JSON.stringify(nextVal)) continue;
+          } catch {}
         }
+        hasChanges = true;
+        break;
       }
       if (!hasChanges) return prev;
       return { ...prev, ...partial };
@@ -579,20 +620,30 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   // Use refs to avoid infinite loops and stale closures in effects
   const lastSyncedMissionSessionRef = useRef<string>('');
+  const lastMissionIdForSyncRef = useRef<string | null>(null);
   const lastSyncedStoreSessionRef = useRef<string>('');
 
   // EFFECT: Synchronize sharedSession changes to the Active Mission Record
   useEffect(() => {
-    if (!activeMission) return;
+    const currentMission = activeMissionRef.current;
+    if (!currentMission) return;
 
     // Create a fingerprint of the keys we want to persist to the mission record
     const fingerprint = JSON.stringify({
+      missionId: currentMission.id,
       terrainImage: sharedSession.terrainImage?.substring(0, 100), // Only check start for performance/blobs
       startPoint: sharedSession.startPoint,
       destinationPoint: sharedSession.destinationPoint,
       obstacles: sharedSession.obstacles,
       selectedStrategy: sharedSession.selectedStrategy
     });
+
+    // When active mission changes or initializes, record baseline without overwriting loaded mission data
+    if (lastMissionIdForSyncRef.current !== currentMission.id) {
+      lastMissionIdForSyncRef.current = currentMission.id;
+      lastSyncedMissionSessionRef.current = fingerprint;
+      return;
+    }
 
     if (lastSyncedMissionSessionRef.current === fingerprint) return;
     lastSyncedMissionSessionRef.current = fingerprint;
@@ -603,7 +654,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     const imgStr = sharedSession.terrainImage;
     if (imgStr && (imgStr.startsWith('blob:') || (imgStr.startsWith('data:') && imgStr.length > 50000))) {
       // Keep existing image if new one is too large for storage
-      missionUpdates.terrainImage = activeMission.terrainImage || '';
+      missionUpdates.terrainImage = currentMission.terrainImage || '';
     } else {
       missionUpdates.terrainImage = imgStr;
     }
@@ -614,13 +665,23 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     missionUpdates.obstacles = sharedSession.obstacles;
     missionUpdates.selectedStrategy = sharedSession.selectedStrategy;
 
+    // Skip write if active mission already matches these fields
+    const matchesExisting =
+      (currentMission.terrainImage || '') === (missionUpdates.terrainImage || '') &&
+      JSON.stringify(currentMission.startPoint || null) === JSON.stringify(missionUpdates.startPoint || null) &&
+      JSON.stringify(currentMission.destinationPoint || null) === JSON.stringify(missionUpdates.destinationPoint || null) &&
+      JSON.stringify(currentMission.obstacles || []) === JSON.stringify(missionUpdates.obstacles || []) &&
+      (currentMission.selectedStrategy || 'alpha') === (missionUpdates.selectedStrategy || 'alpha');
+
+    if (matchesExisting) return;
+
     // Debounce the mission update to avoid hitting Firestore quotas during rapid changes (e.g. dragging markers)
     const timeoutId = setTimeout(() => {
       updateActiveMission({ ...missionUpdates, updatedAt: new Date().toISOString() });
     }, 1500);
 
     return () => clearTimeout(timeoutId);
-  }, [sharedSession, activeMission, updateActiveMission]);
+  }, [sharedSession, activeMission?.id, updateActiveMission]);
 
   // EFFECT: Synchronize sharedSession changes to the SharedExplorationStore (Astronaut Dashboards)
   useEffect(() => {
@@ -650,7 +711,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       });
     }
 
-    // 2. Sync Image Analysis
+    // 2. Sync Image Analysis with full provenance
     if (sharedSession.terrainImage && sharedSession.terrainImage.trim() !== '') {
       const imgName = sharedSession.imageProvenance?.identifier || sharedSession.imageProvenance?.source || 'Mars_Terrain.jpg';
       const currentStart = sharedSession.startPoint ? { 
@@ -662,19 +723,37 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         yPct: (sharedSession.destinationPoint.y / 256) * 100 
       } : undefined;
 
+      const prov = sharedSession.imageProvenance;
       sharedExplorationStore.processAndSyncImage(
         sharedSession.terrainImage, 
         imgName, 
         selectedRegion?.id || 'jezero',
         currentStart,
-        currentDest
+        currentDest,
+        {
+          source: prov?.source,
+          rover: prov?.rover,
+          camera: prov?.camera,
+          sol: prov?.sol,
+          acquisitionUtc: prov?.acquisitionUtc,
+          identifier: prov?.identifier,
+          sourceUrl: prov?.sourceUrl,
+          site: prov?.site,
+          drive: prov?.drive,
+          targetRegion: prov?.targetRegion,
+          lat: typeof prov?.lat === 'number' ? prov.lat : null,
+          lon: typeof prov?.lon === 'number' ? prov.lon : null,
+          coordinateScope: prov?.coordinateScope || 'unavailable',
+          locationLabel: prov?.locationLabel,
+          selectionOrigin: prov?.selectionOrigin || (sharedSession.terrainImage.startsWith('blob:') ? 'upload' : 'nasa')
+        }
       ).catch(err => {
         console.warn('[WORKSPACE] Shared exploration store sync failed:', err);
       });
     }
 
-    // 3. Sync Active Route & Footprints
-    if (sharedSession.activeSyncRoute) {
+    // 3. Sync Active Route & Footprints only when a computed MarsWalk route exists
+    if (sharedSession.activeSyncRoute && sharedSession.activeSyncRoute.waypoints.length > 0) {
       const route = sharedSession.activeSyncRoute;
       const path = route.waypoints.map(w => ({ xPct: (w.x / 256) * 100, yPct: (w.y / 256) * 100 }));
       
@@ -700,20 +779,19 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
+      const prevSession = sharedExplorationStore.getSession();
       sharedExplorationStore.updateSession({
         automatedRoute: {
+          ...prevSession.automatedRoute,
           path,
           footprints,
           distanceMeters: route.totalDistanceM,
-          estimatedMins: Math.round(route.totalDistanceM / 40),
-          maxSlopeDeg: 8.5,
-          safetyScore: 92,
+          estimatedMins: Math.max(1, Math.round(route.totalDistanceM / 40)),
+          isComputable: true,
+          isSimulated: true,
           status: 'GENERATED'
         }
       });
-    } else {
-      // Use any cast to allow nulling the automatedRoute in the session
-      sharedExplorationStore.updateSession({ automatedRoute: null as any });
     }
   }, [
     sharedSession.startPoint, 
@@ -724,11 +802,33 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     selectedRegion?.id
   ]);
 
-  // Initial synchronization on mount
+  // Initial synchronization on mount (only if a user/mission terrain image is already selected)
   useEffect(() => {
-    const initialImg = sharedSession.terrainImage || '/assets/aistudio/vis_0_f6a9756b.png';
-    const initialName = sharedSession.imageProvenance?.identifier || 'vis_0_f6a9756b.png';
-    sharedExplorationStore.processAndSyncImage(initialImg, initialName, selectedRegion?.id || 'jezero').catch(err => {
+    if (!sharedSession.terrainImage || sharedSession.terrainImage.trim() === '') return;
+    const initialImg = sharedSession.terrainImage;
+    const initialName = sharedSession.imageProvenance?.identifier || 'Mars_Terrain.png';
+    const prov = sharedSession.imageProvenance;
+    sharedExplorationStore.processAndSyncImage(
+      initialImg,
+      initialName,
+      selectedRegion?.id || 'jezero',
+      undefined,
+      undefined,
+      {
+        source: prov?.source,
+        rover: prov?.rover,
+        camera: prov?.camera,
+        sol: prov?.sol,
+        acquisitionUtc: prov?.acquisitionUtc,
+        identifier: prov?.identifier,
+        sourceUrl: prov?.sourceUrl,
+        lat: typeof prov?.lat === 'number' ? prov.lat : null,
+        lon: typeof prov?.lon === 'number' ? prov.lon : null,
+        coordinateScope: prov?.coordinateScope || 'unavailable',
+        locationLabel: prov?.locationLabel,
+        selectionOrigin: prov?.selectionOrigin || (initialImg.startsWith('blob:') ? 'upload' : 'nasa')
+      }
+    ).catch(err => {
       console.warn('[WORKSPACE] Initial sharedExplorationStore sync failed:', err);
     });
   }, []);
@@ -745,7 +845,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         setSystemStatus({
           backend: 'connected',
           backendLatencyMs: latency,
-          model: 'gemini-3.8-flash',
+          model: 'gemini-4-hydrogen',
           database: 'linked'
         });
       } else {

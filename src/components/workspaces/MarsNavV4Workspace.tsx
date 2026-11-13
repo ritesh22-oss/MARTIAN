@@ -71,7 +71,12 @@ import {
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { sharedExplorationStore } from '../../services/sharedExplorationStore';
 import { useTerrainAnalysis } from '../../context/TerrainAnalysisContext';
-import { apiGet, apiPost } from '../../utils/apiClient';
+import {
+  analyzeCompleteTerrainImage,
+  getCachedTerrainIntelligence,
+  CompleteTerrainIntelligenceReport,
+  TerrainRegionItem
+} from '../../services/terrainIntelligenceService';
 import { AStarGrid, calculatePathLength, smoothPathCollisionFree } from '../../utils/astar';
 import {
   getSavedNotes,
@@ -197,11 +202,11 @@ export interface SpatialDataLayer {
   missingMetadata?: string;
 }
 
-const MASK_CLASSES = [
-  { name: 'Soil / Regolith', color: '#FF0000', hex: '#FF0000', key: 'soil', pct: 58.3 },
-  { name: 'Bedrock Outcrop', color: '#00FF00', hex: '#00FF00', key: 'bedrock', pct: 21.5 },
-  { name: 'Sand / Dunes', color: '#0000FF', hex: '#0000FF', key: 'sand', pct: 12.8 },
-  { name: 'Big Rock / Hazard', color: '#FFFF00', hex: '#FFFF00', key: 'big_rock', pct: 7.4 }
+const MASK_CLASS_DEFS = [
+  { name: 'Soil / Regolith', color: '#FF0000', hex: '#FF0000', key: 'soil' as const },
+  { name: 'Bedrock Outcrop', color: '#00FF00', hex: '#00FF00', key: 'bedrock' as const },
+  { name: 'Sand / Dunes', color: '#0000FF', hex: '#0000FF', key: 'sand' as const },
+  { name: 'Big Rock / Hazard', color: '#FFFF00', hex: '#FFFF00', key: 'rock' as const }
 ];
 
 import { MarsRoverIcon } from '../MarsRoverIcon';
@@ -215,7 +220,9 @@ export default function MarsNavV4Workspace() {
     selectedRegion,
     setActiveWorkspace,
     rightInspectorOpen,
-    toggleRightInspector
+    toggleRightInspector,
+    selectedDtmData,
+    settings
   } = useWorkspace();
 
   const {
@@ -280,6 +287,10 @@ export default function MarsNavV4Workspace() {
   // Zoom & Pan View Controls (Section 1 & 7)
   const [zoomLevel, setZoomLevel] = useState<number>(1.0);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const zoomLevelRef = useRef<number>(zoomLevel);
+  zoomLevelRef.current = zoomLevel;
+  const panOffsetRef = useRef<{ x: number; y: number }>(panOffset);
+  panOffsetRef.current = panOffset;
   const [isPanning, setIsPanning] = useState<boolean>(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
@@ -346,13 +357,20 @@ export default function MarsNavV4Workspace() {
   // Route Comparison Options
   const [selectedRouteStrategy, setSelectedRouteStrategy] = useState<string>('alpha');
 
-  // AI & Image Analytics State
+  // AI & Complete-Frame Terrain Intelligence State
   const [isAnalyzingImage, setIsAnalyzingImage] = useState<boolean>(false);
   const [hasAnalyzed, setHasAnalyzed] = useState<boolean>(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [imageStats, setImageStats] = useState<any>(null);
   const [segmentationMetrics, setSegmentationMetrics] = useState<any>(null);
   const [inferenceTimeMs, setInferenceTimeMs] = useState<number | null>(null);
+  const [terrainIntelligence, setTerrainIntelligence] = useState<CompleteTerrainIntelligenceReport | null>(null);
+  const [selectedTerrainRegionId, setSelectedTerrainRegionId] = useState<string | null>(null);
+  const [hoveredTerrainRegionId, setHoveredTerrainRegionId] = useState<string | null>(null);
+  const [showRegionOverlays, setShowRegionOverlays] = useState<boolean>(true);
+  const intelSeqRef = useRef<number>(0);
+  const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const splitMaskCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Route Planning State (Synced with TerrainAnalysisContext)
   const [activePath, setActivePath] = useState<any[]>([]);
@@ -372,7 +390,18 @@ export default function MarsNavV4Workspace() {
     else if (analysis.selectedRouteIndex === 3) setSelectedRouteStrategy('delta');
   }, [analysis.selectedRouteIndex]);
 
+  const lastLocalRouteSyncRef = useRef<string>('');
   useEffect(() => {
+    const altWaypoints = analysis.routes[1]?.waypoints || [];
+    const routeFingerprint = activeRoute && !activeRoute.isBlocked && activeRoute.waypoints && activeRoute.waypoints.length > 1
+      ? `ok_${activeRoute.id}_${activeRoute.waypoints.length}_${activeRoute.totalLengthM}_${altWaypoints.length}_${activeRoute.explanation}`
+      : `blocked_${activeRoute?.explanation || 'none'}`;
+
+    if (lastLocalRouteSyncRef.current === routeFingerprint) {
+      return;
+    }
+    lastLocalRouteSyncRef.current = routeFingerprint;
+
     if (activeRoute && !activeRoute.isBlocked && activeRoute.waypoints && activeRoute.waypoints.length > 1) {
       setActivePath(activeRoute.waypoints);
       setRouteFeasible(true);
@@ -380,43 +409,15 @@ export default function MarsNavV4Workspace() {
       // Derive return path from current selection if context doesn't provide it
       setReturnPath([...activeRoute.waypoints].reverse());
       // Alt safety can be the second best candidate
-      setAltSafetyPath(analysis.routes[1]?.waypoints || []);
-
-      // Broadcast active route into sharedSession for Risk Assessment & Navigation
-      updateSharedSession({
-        astarComputedPath: activeRoute.waypoints.map(w => ({ x: w.x, y: w.y })),
-        activeSyncRoute: {
-          routeId: activeRoute.id,
-          name: activeRoute.name,
-          sourceModule: 'MARSWALK_OPS',
-          strategy: selectedRouteStrategy,
-          strategyName: activeRoute.name,
-          startPoint: { x: activeRoute.waypoints[0].x, y: activeRoute.waypoints[0].y },
-          destinationPoint: {
-            x: activeRoute.waypoints[activeRoute.waypoints.length - 1].x,
-            y: activeRoute.waypoints[activeRoute.waypoints.length - 1].y
-          },
-          waypoints: activeRoute.waypoints,
-          totalDistanceM: activeRoute.totalLengthM,
-          totalCost: activeRoute.totalCost,
-          sourceDimensions: { width: naturalDimensions.width || 256, height: naturalDimensions.height || 256 },
-          version: Date.now(),
-          lastUpdated: new Date().toISOString()
-        }
-      });
+      setAltSafetyPath(altWaypoints);
     } else {
       setActivePath([]);
       setRouteFeasible(false);
       setPathfindingReason(activeRoute?.explanation || 'No safe route found around detected terrain obstacles.');
       setReturnPath([]);
       setAltSafetyPath([]);
-
-      updateSharedSession({
-        astarComputedPath: [],
-        activeSyncRoute: null
-      });
     }
-  }, [activeRoute, analysis.routes, selectedRouteStrategy, naturalDimensions.width, naturalDimensions.height, updateSharedSession]);
+  }, [activeRoute, analysis.routes]);
 
   // Editable Human Mission Assumptions
   const [walkingSpeedKmh, setWalkingSpeedKmh] = useState<number>(1.2);
@@ -705,6 +706,9 @@ export default function MarsNavV4Workspace() {
       setImageStats(null);
       setSegmentationMetrics(null);
       setInferenceTimeMs(null);
+      setTerrainIntelligence(null);
+      setSelectedTerrainRegionId(null);
+      setHoveredTerrainRegionId(null);
 
       // Reset display mode and all overlays on image change to ensure a clean default image view
       setDisplayMode('original');
@@ -867,40 +871,141 @@ export default function MarsNavV4Workspace() {
     }
   };
 
-  // Run Real AI Image Analysis (Section 4 - Genuine API Connection)
-  const handleAnalyzeImage = async () => {
+  // Complete-Frame Automatic & Manual Terrain Intelligence Pipeline
+  const runTerrainIntelligenceAnalysis = useCallback(async (forceRefresh = false) => {
     if (!terrainImage || imageStatus !== 'loaded') return;
+    const seq = ++intelSeqRef.current;
+    const identifier = imageProvenance.identifier || imageProvenance.source || terrainImage;
+
+    if (!forceRefresh) {
+      const cached = getCachedTerrainIntelligence(identifier, terrainImage);
+      if (cached) {
+        setTerrainIntelligence(cached);
+        setSegmentationMetrics({
+          status: 'success',
+          classDistribution: cached.pixelComposition,
+          modelArchitecture: cached.aiAvailable ? 'Gemini Complete-Frame Vision + CV' : 'Deterministic Sobel/Variance CV'
+        });
+        setInferenceTimeMs(cached.processingTimeMs);
+        setHasAnalyzed(true);
+        setAnalysisError(null);
+        return;
+      }
+    }
+
     setIsAnalyzingImage(true);
     setAnalysisError(null);
-    const t0 = Date.now();
-    addTimelineEvent('analysis', 'Started Image Analysis', 'Executing AI4Mars ResNet-34 U-Net segmentation pipeline...');
+    addTimelineEvent('analysis', 'Terrain Region Analysis Started', `Inspecting complete ${naturalDimensions.width}×${naturalDimensions.height} px Martian frame...`);
     try {
-      const { data, error, isHtml, status } = await apiPost<any>('/api/ai4mars/segment', { image: terrainImage });
+      const report = await analyzeCompleteTerrainImage({
+        imageUrl: terrainImage,
+        imageIdentifier: identifier,
+        mission: imageProvenance.rover,
+        camera: imageProvenance.camera,
+        sol: imageProvenance.sol,
+        source: imageProvenance.source,
+        lat: imageProvenance.lat,
+        lon: imageProvenance.lon,
+        coordinateScope: imageProvenance.coordinateScope || 'unavailable',
+        locationLabel: imageProvenance.locationLabel,
+        regionId: selectedRegion?.id,
+        forceRefresh
+      });
 
-      const runtime = Date.now() - t0;
-      setInferenceTimeMs(runtime);
+      if (intelSeqRef.current !== seq) return;
 
-      if (!error && !isHtml && data) {
-        if (data && data.status === 'success') {
-          setSegmentationMetrics(data);
-          setHasAnalyzed(true);
-          addTimelineEvent('analysis', 'Analysis Completed', `Model inferred terrain density in ${runtime} ms.`);
-        } else {
-          setAnalysisError(data?.message || 'Model inference returned unexpected format');
-          addTimelineEvent('analysis', 'Analysis Model Notice', 'Primary checkpoint missing; extracted RGB surface metrics.');
-        }
-      } else {
-        setAnalysisError(error || `Server API error (${status})`);
-        addTimelineEvent('analysis', 'Analysis Error', error || `HTTP status ${status}`);
-      }
+      setTerrainIntelligence(report);
+      setInferenceTimeMs(report.processingTimeMs);
+      setSegmentationMetrics({
+        status: 'success',
+        classDistribution: report.pixelComposition,
+        modelArchitecture: report.aiAvailable ? 'Gemini Complete-Frame Vision + CV' : 'Deterministic Sobel/Variance CV'
+      });
+      setHasAnalyzed(true);
+      addTimelineEvent(
+        'analysis',
+        'Terrain Region Identification Complete',
+        `Identified ${report.regions.length} terrain region(s) across full frame in ${report.processingTimeMs} ms (${report.aiAvailable ? 'AI Vision + CV' : 'Deterministic CV'}).`
+      );
     } catch (e: any) {
-      console.warn('Image analysis exception:', e);
-      setAnalysisError(e?.message || 'Network exception during model inference');
-      addTimelineEvent('analysis', 'Analysis Exception', 'Failed connecting to inference backend.');
+      if (intelSeqRef.current !== seq) return;
+      console.warn('Terrain intelligence analysis exception:', e);
+      setAnalysisError(e?.message || 'Unable to complete terrain region analysis.');
+      addTimelineEvent('analysis', 'Analysis Error', e?.message || 'Terrain analysis exception.');
     } finally {
-      setIsAnalyzingImage(false);
+      if (intelSeqRef.current === seq) {
+        setIsAnalyzingImage(false);
+      }
     }
+  }, [
+    terrainImage,
+    imageStatus,
+    imageProvenance.identifier,
+    imageProvenance.source,
+    imageProvenance.rover,
+    imageProvenance.camera,
+    imageProvenance.sol,
+    imageProvenance.lat,
+    imageProvenance.lon,
+    imageProvenance.coordinateScope,
+    imageProvenance.locationLabel,
+    naturalDimensions.width,
+    naturalDimensions.height,
+    selectedRegion?.id,
+    addTimelineEvent
+  ]);
+
+  // Auto-trigger complete-image terrain analysis whenever an image loads
+  useEffect(() => {
+    if (terrainImage && imageStatus === 'loaded') {
+      runTerrainIntelligenceAnalysis(false);
+    }
+  }, [terrainImage, imageStatus, runTerrainIntelligenceAnalysis]);
+
+  const handleAnalyzeImage = async () => {
+    await runTerrainIntelligenceAnalysis(true);
   };
+
+  // Render real 256x256 terrain segmentation mask onto overlay canvases
+  useEffect(() => {
+    const drawMaskToCanvas = (canvas: HTMLCanvasElement | null) => {
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const grid = analysis.terrainClassGrid;
+      if (!grid || grid.length < 256 * 256) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
+      const imgData = ctx.createImageData(256, 256);
+      const out = imgData.data;
+      for (let i = 0; i < 256 * 256; i++) {
+        const cls = grid[i];
+        const p = i * 4;
+        if (cls === 1) {
+          // Bedrock (#00FF00)
+          out[p] = 16; out[p + 1] = 220; out[p + 2] = 120; out[p + 3] = 150;
+        } else if (cls === 2) {
+          // Sand / Dunes (#0000FF -> cyan/blue)
+          out[p] = 56; out[p + 1] = 140; out[p + 2] = 255; out[p + 3] = 160;
+        } else if (cls === 3) {
+          // Rock / Hazard (#FFFF00)
+          out[p] = 255; out[p + 1] = 210; out[p + 2] = 0; out[p + 3] = 210;
+        } else {
+          // Soil / Regolith (transparent tint so original surface remains clearly visible)
+          out[p] = 220; out[p + 1] = 60; out[p + 2] = 40; out[p + 3] = 75;
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+    };
+
+    if (displayMode === 'analysis') {
+      drawMaskToCanvas(maskCanvasRef.current);
+    }
+    if (displayMode === 'split_comparison') {
+      drawMaskToCanvas(splitMaskCanvasRef.current);
+    }
+  }, [analysis.terrainClassGrid, displayMode, imageStatus, hasAnalyzed]);
 
   // Local pathfinding logic removed in favor of TerrainAnalysisContext
 
@@ -1047,6 +1152,13 @@ export default function MarsNavV4Workspace() {
       const fitScale = Math.min(scaleX, scaleY);
       
       const finalScale = Math.min(8.0, Math.max(0.01, Number(fitScale.toFixed(4))));
+      const isAlreadyFitted =
+        Math.abs(zoomLevelRef.current - finalScale) < 0.001 &&
+        Math.abs(panOffsetRef.current.x) < 0.5 &&
+        Math.abs(panOffsetRef.current.y) < 0.5;
+
+      if (isAlreadyFitted) return;
+
       setZoomLevel(finalScale);
       setPanOffset({ x: 0, y: 0 });
       
@@ -1066,12 +1178,17 @@ export default function MarsNavV4Workspace() {
     const container = viewportRef.current;
     if (!container) return;
 
+    let timerId: ReturnType<typeof setTimeout> | null = null;
     const observer = new ResizeObserver(() => {
-      setTimeout(() => handleFitToWorkspace(), 10);
+      if (timerId) clearTimeout(timerId);
+      timerId = setTimeout(() => handleFitToWorkspace(), 16);
     });
 
     observer.observe(container);
-    return () => observer.disconnect();
+    return () => {
+      if (timerId) clearTimeout(timerId);
+      observer.disconnect();
+    };
   }, [handleFitToWorkspace, isFullscreen, rightInspectorOpen]);
 
   // Cursor style matching active tool
@@ -1548,6 +1665,9 @@ export default function MarsNavV4Workspace() {
       setSegmentationMetrics(null);
       setInferenceTimeMs(null);
       setAnalysisError(null);
+      setTerrainIntelligence(null);
+      setSelectedTerrainRegionId(null);
+      setHoveredTerrainRegionId(null);
       setImageStatus('loaded');
       setImageLoadError(null);
 
@@ -1558,10 +1678,12 @@ export default function MarsNavV4Workspace() {
           source: `User Custom Terrain Upload (${file.name})`,
           rover: 'Custom Surface Payload',
           camera: 'USER_CAM_01',
-          sol: 428,
+          sol: 0,
           acquisitionUtc: new Date().toISOString(),
           identifier: file.name,
-          sourceUrl: blobUrl
+          sourceUrl: blobUrl,
+          coordinateScope: 'unavailable',
+          selectionOrigin: 'upload'
         }
       });
 
@@ -1613,41 +1735,14 @@ export default function MarsNavV4Workspace() {
     if (file) processUploadedFile(file);
   };
 
-  const handleSelectNasaImage = (img: any) => {
-    const fullUrl = img.fullResUrl || img.thumbnailUrl;
-    // Reset stale analysis on image change
-    setHasAnalyzed(false);
-    setSegmentationMetrics(null);
-    setInferenceTimeMs(null);
-    setAnalysisError(null);
-
-    updateSharedSession({
-      terrainImage: fullUrl,
-      imageProvenance: {
-        source: 'NASA JPL Mars 2020 Raw Feed',
-        rover: 'Perseverance (Mars 2020)',
-        camera: img.camera || 'NAVCAM_LEFT',
-        sol: img.sol || 2026,
-        acquisitionUtc: img.acquisitionUtc || new Date().toISOString(),
-        identifier: img.id || img.imageid || 'NASA_RAW',
-        sourceUrl: img.sourceUrl || fullUrl
-      }
-    });
-
-    // Explicitly sync to central exploration session store
-    sharedExplorationStore.processAndSyncImage(
-      fullUrl,
-      img.id || img.imageid || 'NASA_Perseverance_Raw.jpg',
-      selectedRegion?.id || 'jezero'
-    ).catch(err => {
-      console.warn('[MARSWALK_OPS] NASA image sync error:', err);
-    });
-
-
-  };
-
   // Export JSON Report
   const handleExportReport = () => {
+    const liveDist = terrainIntelligence?.pixelComposition || {
+      soilPct: analysis.classStats?.classes?.[0]?.percentage ?? 0,
+      bedrockPct: analysis.classStats?.classes?.[1]?.percentage ?? 0,
+      sandPct: analysis.classStats?.classes?.[2]?.percentage ?? 0,
+      rockPct: analysis.classStats?.classes?.[3]?.percentage ?? 0
+    };
     const reportData = {
       title: 'MARSWALK OPS 3.0: Mission & Terrain Intelligence Report',
       version: '3.00',
@@ -1656,9 +1751,10 @@ export default function MarsNavV4Workspace() {
       provenance: imageProvenance,
       imageStats: imageStats || { width: naturalDimensions.width, height: naturalDimensions.height, format: 'JPEG' },
       segmentationMetrics: segmentationMetrics || {
-        classDistribution: { soil: 58.3, bedrock: 21.5, sand: 12.8, big_rock: 7.4 },
-        modelArchitecture: 'ResNet34-U-Net AI4MARS Engine'
+        classDistribution: liveDist,
+        modelArchitecture: terrainIntelligence?.aiAvailable ? 'Gemini Vision + Deterministic CV' : 'Deterministic Sobel/Variance CV'
       },
+      terrainIntelligence,
       parameters: {
         walkingSpeedKmh,
         maxMissionDurationHours,
@@ -1884,6 +1980,12 @@ export default function MarsNavV4Workspace() {
 
   const selectedDetail: any = getSelectedItemDetail();
 
+  const nw = naturalDimensions.width || 256;
+  const nh = naturalDimensions.height || 256;
+  const sx = (x: number) => (x / 256) * nw;
+  const sy = (y: number) => (y / 256) * nh;
+  const markerScale = Math.max(1, Math.min(nw, nh) / 256);
+
   return (
     <div className="p-4 lg:p-6 space-y-4 max-w-[1920px] mx-auto text-xs font-sans w-full bg-[#05070E]">
       <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/jpeg,image/jpg,image/png,image/webp" className="hidden" />
@@ -1895,7 +1997,7 @@ export default function MarsNavV4Workspace() {
             <Compass className="w-5 h-5 animate-pulse" />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-base sm:text-lg font-bold text-white tracking-tight font-sans truncate">
                 MARSWALK OPS: Intelligent Traverse &amp; Terrain Analytics
               </h1>
@@ -1906,9 +2008,21 @@ export default function MarsNavV4Workspace() {
               }`}>
                 {isFeasible ? 'EVA FEASIBLE' : 'LIMIT VIOLATION'}
               </span>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold shrink-0 border ${
+                analysis.isDemCalibrated
+                  ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40'
+                  : 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+              }`}>
+                {analysis.isDemCalibrated && analysis.demElevationRange
+                  ? `DEM CALIBRATED (${Math.round(analysis.demElevationRange[0])}..${Math.round(analysis.demElevationRange[1])}m)`
+                  : '2D OPTICAL FRAME · UNCALIBRATED ELEVATION'}
+              </span>
             </div>
             <p className="text-slate-400 text-[11px] font-mono mt-0.5 truncate">
-              {imageProvenance.source || 'NASA Surface Optical Frame'} · Sol {imageProvenance.sol} · Scale {spatialScaleMetersPerPx} m/px
+              {imageProvenance.source || 'NASA Surface Optical Frame'} · Sol {imageProvenance.sol} ·{' '}
+              {analysis.isDemCalibrated && analysis.demResolutionMeters
+                ? `Calibrated DEM (${analysis.demResolutionMeters} m/px · ${analysis.demCalibrationSource})`
+                : `2D Pixel Scale (~${spatialScaleMetersPerPx} m/px est.) — Elevation/Slope require orbital or stereo DEM`}
             </p>
           </div>
         </div>
@@ -2804,15 +2918,75 @@ export default function MarsNavV4Workspace() {
                       <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-black/80 text-[9px] text-slate-300 font-mono">Original Unmodified Surface</span>
                       <img src={getSafeImageUrl(terrainImage)} alt="Original" className="w-full h-full object-contain select-none" />
                     </div>
-                    <div className="relative overflow-hidden flex items-center justify-center bg-slate-950">
-                      <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-[9px] text-cyan-300 font-mono">Model Output View</span>
+                    <div className="relative overflow-hidden flex items-center justify-center bg-slate-950 p-2">
+                      <span className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-[9px] text-cyan-300 font-mono">
+                        Segmentation &amp; Region Output
+                      </span>
                       {hasAnalyzed ? (
-                        <img src={getSafeImageUrl(terrainImage)} alt="Analysis Result" className="w-full h-full object-contain opacity-75" />
+                        <div
+                          className="relative flex items-center justify-center"
+                          style={{ aspectRatio: `${nw} / ${nh}`, maxHeight: '100%', maxWidth: '100%' }}
+                        >
+                          <img src={getSafeImageUrl(terrainImage)} alt="Analysis Result" className="w-full h-full object-contain select-none" />
+                          <canvas
+                            ref={splitMaskCanvasRef}
+                            width={256}
+                            height={256}
+                            className="absolute inset-0 w-full h-full pointer-events-none opacity-60"
+                          />
+                          {terrainIntelligence && showRegionOverlays && (
+                            <svg
+                              viewBox={`0 0 ${nw} ${nh}`}
+                              preserveAspectRatio="xMidYMid meet"
+                              className="absolute inset-0 w-full h-full pointer-events-none"
+                            >
+                              {terrainIntelligence.regions.map((reg) => {
+                                const rx = reg.normX * nw;
+                                const ry = reg.normY * nh;
+                                const rw = reg.normWidth * nw;
+                                const rh = reg.normHeight * nh;
+                                const strokeColor = reg.hazardLevel === 'high' ? '#f43f5e' : reg.hazardLevel === 'moderate' ? '#f59e0b' : '#22d3ee';
+                                return (
+                                  <g key={reg.id}>
+                                    <rect
+                                      x={rx}
+                                      y={ry}
+                                      width={rw}
+                                      height={rh}
+                                      fill="none"
+                                      stroke={strokeColor}
+                                      strokeWidth={1.6 * markerScale}
+                                      strokeDasharray={`${4 * markerScale} ${2 * markerScale}`}
+                                    />
+                                    <rect
+                                      x={rx}
+                                      y={Math.max(0, ry - 13 * markerScale)}
+                                      width={Math.min(rw, 110 * markerScale)}
+                                      height={13 * markerScale}
+                                      rx={2 * markerScale}
+                                      fill="rgba(3, 7, 18, 0.85)"
+                                    />
+                                    <text
+                                      x={rx + 3 * markerScale}
+                                      y={Math.max(9 * markerScale, ry - 3.5 * markerScale)}
+                                      fill={strokeColor}
+                                      fontSize={8 * markerScale}
+                                      fontFamily="monospace"
+                                      fontWeight="bold"
+                                    >
+                                      {reg.id} · {reg.classification.slice(0, 14)}
+                                    </text>
+                                  </g>
+                                );
+                              })}
+                            </svg>
+                          )}
+                        </div>
                       ) : (
                         <div className="p-4 text-center text-slate-400 font-mono text-[11px] space-y-2">
                           <Cpu className="w-6 h-6 text-slate-600 mx-auto" />
                           <p className="font-bold text-slate-300">Model Inference Required</p>
-                          <p className="text-[10px] text-slate-500 max-w-xs">Run 'ANALYZE IMAGE NOW' to execute segmentation and render real predicted outputs.</p>
+                          <p className="text-[10px] text-slate-500 max-w-xs">Run &apos;DETECT HAZARDS&apos; to execute segmentation and render real predicted outputs.</p>
                         </div>
                       )}
                     </div>
@@ -2823,8 +2997,8 @@ export default function MarsNavV4Workspace() {
                     className="relative transition-transform duration-75 ease-out select-none will-change-transform shrink-0"
                     style={{
                       transform: `translate(${panOffset.x || 0}px, ${panOffset.y || 0}px) scale(${zoomLevel || 1.0})`,
-                      width: `${naturalDimensions.width}px`,
-                      height: `${naturalDimensions.height}px`,
+                      width: `${nw}px`,
+                      height: `${nh}px`,
                       transformOrigin: 'center center'
                     }}
                   >
@@ -2839,13 +3013,20 @@ export default function MarsNavV4Workspace() {
                       draggable={false}
                     />
 
-                    {/* ANALYSIS OVERLAY (ONLY WHEN DISPLAYMODE === 'analysis' AND HASANALYZED IS TRUE) */}
-                    {/* Analysis overlay handled via displayMode selection */}
+                    {/* REAL PIXEL SEGMENTATION MASK OVERLAY (ONLY IN 'analysis' MODE) */}
+                    {displayMode === 'analysis' && hasAnalyzed && (
+                      <canvas
+                        ref={maskCanvasRef}
+                        width={256}
+                        height={256}
+                        className="absolute inset-0 w-full h-full pointer-events-none opacity-55 rounded-lg"
+                      />
+                    )}
 
-                    {/* HIGH-PRECISION SVG ROUTE & ANNOTATIONS LAYER */}
+                    {/* HIGH-PRECISION SVG ROUTE, TERRAIN REGIONS & ANNOTATIONS LAYER */}
                     <svg
-                      viewBox="0 0 256 256"
-                      preserveAspectRatio="none"
+                      viewBox={`0 0 ${nw} ${nh}`}
+                      preserveAspectRatio="xMidYMid meet"
                       className="absolute inset-0 w-full h-full pointer-events-none"
                     >
                       <defs>
@@ -2853,39 +3034,183 @@ export default function MarsNavV4Workspace() {
                           <stop offset="0%" stopColor="#00f0ff" />
                           <stop offset="100%" stopColor="#0284c7" />
                         </linearGradient>
+                        <linearGradient id="startPinGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#60a5fa" />
+                          <stop offset="50%" stopColor="#2563eb" />
+                          <stop offset="100%" stopColor="#1e40af" />
+                        </linearGradient>
+                        <linearGradient id="destPinGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#f87171" />
+                          <stop offset="50%" stopColor="#dc2626" />
+                          <stop offset="100%" stopColor="#991b1b" />
+                        </linearGradient>
                         <filter id="shadowOutline" x="-20%" y="-20%" width="140%" height="140%">
-                          <feDropShadow dx="0" dy="0" stdDeviation="1.2" floodColor="#000000" floodOpacity="0.9" />
+                          <feDropShadow dx="0" dy="0" stdDeviation={1.2 * markerScale} floodColor="#000000" floodOpacity="0.9" />
                         </filter>
                         <filter id="startGlow" x="-50%" y="-50%" width="200%" height="200%">
-                          <feDropShadow dx="0" dy="0" stdDeviation="2.5" floodColor="#2563eb" floodOpacity="0.9" />
+                          <feDropShadow dx="0" dy="0" stdDeviation={2.2 * markerScale} floodColor="#2563eb" floodOpacity="0.9" />
                         </filter>
                         <filter id="destGlow" x="-50%" y="-50%" width="200%" height="200%">
-                          <feDropShadow dx="0" dy="0" stdDeviation="2.5" floodColor="#f97316" floodOpacity="0.9" />
+                          <feDropShadow dx="0" dy="0" stdDeviation={2.2 * markerScale} floodColor="#dc2626" floodOpacity="0.9" />
+                        </filter>
+                        <filter id="start3DGlow" x="-50%" y="-50%" width="200%" height="200%">
+                          <feDropShadow dx="0" dy="2" stdDeviation={2.5 * markerScale} floodColor="#38bdf8" floodOpacity="0.8" />
+                        </filter>
+                        <filter id="dest3DGlow" x="-50%" y="-50%" width="200%" height="200%">
+                          <feDropShadow dx="0" dy="2" stdDeviation={2.5 * markerScale} floodColor="#f87171" floodOpacity="0.8" />
                         </filter>
                       </defs>
+
+                      {/* DETECTED TERRAIN REGION BOUNDING-BOX OVERLAYS */}
+                      {terrainIntelligence && (showRegionOverlays || selectedTerrainRegionId || hoveredTerrainRegionId) && (displayMode === 'analysis' || Boolean(selectedTerrainRegionId) || Boolean(hoveredTerrainRegionId)) && (
+                        <g pointerEvents="none">
+                          {terrainIntelligence.regions.map((reg) => {
+                            const isSelected = selectedTerrainRegionId === reg.id;
+                            const isHovered = hoveredTerrainRegionId === reg.id;
+                            const isActive = isSelected || isHovered;
+                            if (!showRegionOverlays && !isActive) return null;
+                            if (displayMode !== 'analysis' && !isActive) return null;
+
+                            const rx = reg.normX * nw;
+                            const ry = reg.normY * nh;
+                            const rw = reg.normWidth * nw;
+                            const rh = reg.normHeight * nh;
+                            const baseColor =
+                              reg.hazardLevel === 'high' ? '#f43f5e'
+                              : reg.hazardLevel === 'moderate' ? '#f59e0b'
+                              : '#22d3ee';
+                            const fillColor =
+                              reg.hazardLevel === 'high' ? 'rgba(244, 63, 94, 0.14)'
+                              : reg.hazardLevel === 'moderate' ? 'rgba(245, 158, 11, 0.12)'
+                              : 'rgba(34, 211, 238, 0.12)';
+                            const tick = Math.min(12 * markerScale, rw * 0.2, rh * 0.2);
+
+                            return (
+                              <g key={reg.id} opacity={selectedTerrainRegionId || hoveredTerrainRegionId ? (isActive ? 1 : 0.35) : 0.92}>
+                                <rect
+                                  x={rx}
+                                  y={ry}
+                                  width={rw}
+                                  height={rh}
+                                  fill={isActive ? fillColor : 'transparent'}
+                                  stroke={baseColor}
+                                  strokeWidth={(isActive ? 2.4 : 1.4) * markerScale}
+                                  strokeDasharray={isActive ? undefined : `${5 * markerScale} ${3 * markerScale}`}
+                                  rx={3 * markerScale}
+                                />
+                                {/* Crisp corner brackets */}
+                                <path
+                                  d={`M ${rx} ${ry + tick} L ${rx} ${ry} L ${rx + tick} ${ry} M ${rx + rw - tick} ${ry} L ${rx + rw} ${ry} L ${rx + rw} ${ry + tick} M ${rx} ${ry + rh - tick} L ${rx} ${ry + rh} L ${rx + tick} ${ry + rh} M ${rx + rw - tick} ${ry + rh} L ${rx + rw} ${ry + rh} L ${rx + rw} ${ry + rh - tick}`}
+                                  fill="none"
+                                  stroke={baseColor}
+                                  strokeWidth={(isActive ? 3 : 2) * markerScale}
+                                  strokeLinecap="round"
+                                />
+                                {(isActive || displayMode === 'analysis') && (
+                                  <g>
+                                    <rect
+                                      x={rx}
+                                      y={Math.max(0, ry - 15 * markerScale)}
+                                      width={Math.min(Math.max(76 * markerScale, rw * 0.72), 195 * markerScale)}
+                                      height={14 * markerScale}
+                                      rx={3 * markerScale}
+                                      fill="rgba(5, 8, 20, 0.9)"
+                                      stroke={baseColor}
+                                      strokeWidth={0.8 * markerScale}
+                                    />
+                                    <text
+                                      x={rx + 4 * markerScale}
+                                      y={Math.max(10 * markerScale, ry - 4.5 * markerScale)}
+                                      fill="#ffffff"
+                                      fontSize={8.5 * markerScale}
+                                      fontFamily="monospace"
+                                      fontWeight="bold"
+                                    >
+                                      {reg.id}: {reg.classification} ({reg.confidence}%)
+                                    </text>
+                                  </g>
+                                )}
+                              </g>
+                            );
+                          })}
+                        </g>
+                      )}
+
+                      {/* Restricted Zones / Manual Hazards & Science Stops Overlay */}
+                      {(displayMode === 'annotations' || displayMode === 'route' || showRestrictedZones) && manualHazards.map((haz) => (
+                        <g key={haz.id} transform={`translate(${sx(haz.x)}, ${sy(haz.y)})`}>
+                          <circle
+                            r={haz.radius * markerScale}
+                            fill="rgba(245, 158, 11, 0.16)"
+                            stroke="#f59e0b"
+                            strokeWidth={1.5 * markerScale}
+                            strokeDasharray={`${3 * markerScale} ${2 * markerScale}`}
+                          />
+                          <circle r={3.5 * markerScale} fill="#f59e0b" stroke="#ffffff" strokeWidth={markerScale} />
+                        </g>
+                      ))}
+
+                      {(displayMode === 'annotations' || displayMode === 'route' || showWaypoints) && scienceStopsList.map((sci) => (
+                        <g key={sci.id} transform={`translate(${sx(sci.x)}, ${sy(sci.y)})`}>
+                          <circle r={6 * markerScale} fill="rgba(99, 102, 241, 0.25)" stroke="#818cf8" strokeWidth={1.5 * markerScale} />
+                          <circle r={3 * markerScale} fill="#818cf8" stroke="#ffffff" strokeWidth={markerScale} />
+                        </g>
+                      ))}
+
+                      {(displayMode === 'annotations' || showWaypoints) && checkpointsList.map((cp) => (
+                        <g key={cp.id} transform={`translate(${sx(cp.x)}, ${sy(cp.y)})`}>
+                          <circle r={4.5 * markerScale} fill="#38bdf8" stroke="#ffffff" strokeWidth={1.2 * markerScale} />
+                        </g>
+                      ))}
+
+                      {displayMode === 'annotations' && restrictedPolygons.map((poly) => (
+                        <polygon
+                          key={poly.id}
+                          points={poly.vertices.map(v => `${sx(v.x)},${sy(v.y)}`).join(' ')}
+                          fill="rgba(239, 68, 68, 0.18)"
+                          stroke="#ef4444"
+                          strokeWidth={1.5 * markerScale}
+                        />
+                      ))}
+
+                      {displayMode === 'annotations' && measurementsList.filter(m => m.visible).map((m) => (
+                        <g key={m.id}>
+                          <line
+                            x1={sx(m.startX)}
+                            y1={sy(m.startY)}
+                            x2={sx(m.endX)}
+                            y2={sy(m.endY)}
+                            stroke="#2dd4bf"
+                            strokeWidth={1.8 * markerScale}
+                            strokeDasharray={`${3 * markerScale} ${2 * markerScale}`}
+                          />
+                          <circle cx={sx(m.startX)} cy={sy(m.startY)} r={2.5 * markerScale} fill="#2dd4bf" />
+                          <circle cx={sx(m.endX)} cy={sy(m.endY)} r={2.5 * markerScale} fill="#2dd4bf" />
+                        </g>
+                      ))}
 
                       {/* Active Drawing Polygon Preview */}
                       {displayMode === 'annotations' && activeDrawingPolygon.length > 0 && (
                         <g>
                           <polyline
-                            points={activeDrawingPolygon.map(v => `${v.x},${v.y}`).join(' ')}
+                            points={activeDrawingPolygon.map(v => `${sx(v.x)},${sy(v.y)}`).join(' ')}
                             fill="none"
                             stroke="#f59e0b"
-                            strokeWidth="1.5"
-                            strokeDasharray="2 2"
+                            strokeWidth={1.5 * markerScale}
+                            strokeDasharray={`${2 * markerScale} ${2 * markerScale}`}
                           />
                           {activeDrawingPolygon.map((v, idx) => (
-                            <circle key={idx} cx={v.x} cy={v.y} r="2.5" fill="#f59e0b" stroke="#ffffff" strokeWidth="1" />
+                            <circle key={idx} cx={sx(v.x)} cy={sy(v.y)} r={2.5 * markerScale} fill="#f59e0b" stroke="#ffffff" strokeWidth={markerScale} />
                           ))}
                           {cursorPos && (
                             <line
-                              x1={activeDrawingPolygon[activeDrawingPolygon.length - 1].x}
-                              y1={activeDrawingPolygon[activeDrawingPolygon.length - 1].y}
-                              x2={cursorPos.x}
-                              y2={cursorPos.y}
+                              x1={sx(activeDrawingPolygon[activeDrawingPolygon.length - 1].x)}
+                              y1={sy(activeDrawingPolygon[activeDrawingPolygon.length - 1].y)}
+                              x2={sx(cursorPos.x)}
+                              y2={sy(cursorPos.y)}
                               stroke="#f59e0b"
-                              strokeWidth="1"
-                              strokeDasharray="2 2"
+                              strokeWidth={markerScale}
+                              strokeDasharray={`${2 * markerScale} ${2 * markerScale}`}
                             />
                           )}
                         </g>
@@ -2893,53 +3218,115 @@ export default function MarsNavV4Workspace() {
 
                       {/* Target pulse location ring */}
                       {displayMode === 'annotations' && locatedTarget && (
-                        <g transform={`translate(${locatedTarget.x}, ${locatedTarget.y})`}>
-                          <circle r="14" fill="rgba(0, 240, 255, 0.2)" stroke="#00F0FF" strokeWidth="2" className="animate-ping" />
-                          <circle r="6" fill="#00F0FF" stroke="#ffffff" strokeWidth="1.5" />
+                        <g transform={`translate(${sx(locatedTarget.x)}, ${sy(locatedTarget.y)})`}>
+                          <circle r={14 * markerScale} fill="rgba(0, 240, 255, 0.2)" stroke="#00F0FF" strokeWidth={2 * markerScale} className="animate-ping" />
+                          <circle r={6 * markerScale} fill="#00F0FF" stroke="#ffffff" strokeWidth={1.5 * markerScale} />
                         </g>
                       )}
 
-                      {/* 4. PLANNED ROVER ROUTE LAYER (CYAN) */}
-                      {(displayMode === 'route') && Boolean(startPoint) && Boolean(destinationPoint) && !activeRoute?.isBlocked && activePath.length > 1 && (
+                      {/* 4. PLANNED ROVER ROUTE LAYER (SMOOTH CURVED CYAN) */}
+                      {displayMode === 'route' && showSelectedRoute && Boolean(startPoint) && Boolean(destinationPoint) && !activeRoute?.isBlocked && activePath.length > 1 && (
                         <g pointerEvents="none">
-                          <polyline points={activePath.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#000000" strokeWidth="4.2" strokeLinecap="round" strokeLinejoin="round" />
-                          <polyline points={activePath.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#00f0ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" filter="url(#shadowOutline)" />
+                          <path
+                            d={activePath.reduce((acc, p, idx, arr) => {
+                              const x = sx(p.x);
+                              const y = sy(p.y);
+                              if (idx === 0) return `M ${x} ${y}`;
+                              const prev = arr[idx - 1];
+                              const prevX = sx(prev.x);
+                              const prevY = sy(prev.y);
+                              const midX = (prevX + x) / 2;
+                              const midY = (prevY + y) / 2;
+                              return `${acc} Q ${prevX} ${prevY}, ${midX} ${midY} T ${x} ${y}`;
+                            }, '')}
+                            fill="none"
+                            stroke="#000000"
+                            strokeWidth={4.8 * markerScale}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            opacity={0.85}
+                          />
+                          <path
+                            d={activePath.reduce((acc, p, idx, arr) => {
+                              const x = sx(p.x);
+                              const y = sy(p.y);
+                              if (idx === 0) return `M ${x} ${y}`;
+                              const prev = arr[idx - 1];
+                              const prevX = sx(prev.x);
+                              const prevY = sy(prev.y);
+                              const midX = (prevX + x) / 2;
+                              const midY = (prevY + y) / 2;
+                              return `${acc} Q ${prevX} ${prevY}, ${midX} ${midY} T ${x} ${y}`;
+                            }, '')}
+                            fill="none"
+                            stroke="#00f0ff"
+                            strokeWidth={3 * markerScale}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            opacity={0.6}
+                            filter="url(#shadowOutline)"
+                          />
+                          <path
+                            d={activePath.reduce((acc, p, idx, arr) => {
+                              const x = sx(p.x);
+                              const y = sy(p.y);
+                              if (idx === 0) return `M ${x} ${y}`;
+                              const prev = arr[idx - 1];
+                              const prevX = sx(prev.x);
+                              const prevY = sy(prev.y);
+                              const midX = (prevX + x) / 2;
+                              const midY = (prevY + y) / 2;
+                              return `${acc} Q ${prevX} ${prevY}, ${midX} ${midY} T ${x} ${y}`;
+                            }, '')}
+                            fill="none"
+                            stroke="url(#routeCyanGrad)"
+                            strokeWidth={2.2 * markerScale}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
 
                           {/* Animated Miniature 2D Mars Rover Marker */}
                           {(isPlaying || traversalProgress > 0) && (
-                            <g transform={`translate(${roverPos.x}, ${roverPos.y}) rotate(${roverPos.angle})`}>
+                            <g transform={`translate(${sx(roverPos.x)}, ${sy(roverPos.y)}) rotate(${roverPos.angle}) scale(${markerScale})`}>
                               <MarsRoverIcon size={24} />
                             </g>
                           )}
                         </g>
                       )}
 
-                      {/* 5. DISTINCT START BASE PIN */}
+                      {/* 5. PROFESSIONAL 3D INVERTED-DROPLET START PIN */}
                       {startPoint && (
-                        <g transform={`translate(${startPoint.x}, ${startPoint.y})`} className="cursor-grab">
+                        <g transform={`translate(${sx(startPoint.x)}, ${sy(startPoint.y)}) scale(${markerScale})`} className="cursor-grab">
+                          <ellipse cx="0" cy="2" rx="9" ry="3.5" fill="rgba(37, 99, 235, 0.4)" filter="blur(1px)" />
                           <path
-                            d="M 0 0 C -5 -6, -7 -10, -7 -13 C -7 -17, -3 -20, 0 -20 C 3 -20, 7 -17, 7 -13 C 7 -10, 5 -6, 0 0 Z"
-                            fill="#2563eb"
+                            d="M 0 0 C -6 -10, -11 -15, -11 -21 C -11 -27, -6 -32, 0 -32 C 6 -32, 11 -27, 11 -21 C 11 -15, 6 -10, 0 0 Z"
+                            fill="url(#startPinGrad)"
                             stroke="#ffffff"
-                            strokeWidth="1.2"
-                            filter="url(#startGlow)"
+                            strokeWidth="1.6"
+                            filter="url(#start3DGlow)"
                           />
-                          <path d="M -2.5 -11.5 L 2.5 -11.5 L 0 -15.5 Z" fill="#ffffff" />
+                          <circle cx="0" cy="-21" r="4.5" fill="#ffffff" />
+                          <circle cx="0" cy="-21" r="2" fill="#1d4ed8" />
+                          <rect x="-22" y="-46" width="44" height="13" rx="3.5" fill="#0B1021" stroke="#38bdf8" strokeWidth="1" />
+                          <text x="0" y="-37" textAnchor="middle" fill="#38bdf8" fontSize="8" fontFamily="monospace" fontWeight="bold">START</text>
                         </g>
                       )}
 
-                      {/* 6. DISTINCT DESTINATION TARGET PIN */}
+                      {/* 6. PROFESSIONAL 3D INVERTED-DROPLET DESTINATION PIN */}
                       {destinationPoint && (
-                        <g transform={`translate(${destinationPoint.x}, ${destinationPoint.y})`} className="cursor-grab">
+                        <g transform={`translate(${sx(destinationPoint.x)}, ${sy(destinationPoint.y)}) scale(${markerScale})`} className="cursor-grab">
+                          <ellipse cx="0" cy="2" rx="9" ry="3.5" fill="rgba(220, 38, 38, 0.4)" filter="blur(1px)" />
                           <path
-                            d="M 0 0 C -5 -6, -7 -10, -7 -13 C -7 -17, -3 -20, 0 -20 C 3 -20, 7 -17, 7 -13 C 7 -10, 5 -6, 0 0 Z"
-                            fill="#ea580c"
+                            d="M 0 0 C -6 -10, -11 -15, -11 -21 C -11 -27, -6 -32, 0 -32 C 6 -32, 11 -27, 11 -21 C 11 -15, 6 -10, 0 0 Z"
+                            fill="url(#destPinGrad)"
                             stroke="#ffffff"
-                            strokeWidth="1.2"
-                            filter="url(#destGlow)"
+                            strokeWidth="1.6"
+                            filter="url(#dest3DGlow)"
                           />
-                          <path d="M -2 -14 L 3 -12.5 L -2 -11 Z" fill="#ffffff" />
-                          <line x1="-2" y1="-15" x2="-2" y2="-9" stroke="#ffffff" strokeWidth="1" strokeLinecap="round" />
+                          <circle cx="0" cy="-21" r="4.5" fill="#ffffff" />
+                          <circle cx="0" cy="-21" r="2" fill="#991b1b" />
+                          <rect x="-26" y="-46" width="52" height="13" rx="3.5" fill="#0B1021" stroke="#f87171" strokeWidth="1" />
+                          <text x="0" y="-37" textAnchor="middle" fill="#f87171" fontSize="8" fontFamily="monospace" fontWeight="bold">DESTINATION</text>
                         </g>
                       )}
                     </svg>
@@ -2991,33 +3378,79 @@ export default function MarsNavV4Workspace() {
                     )}
 
                     {/* FLOATING TERRAIN INSPECTOR TOOLTIP */}
-                    {activeTool === 'inspect' && cursorPos && (
-                      <div
-                        className="absolute z-30 p-2.5 rounded-xl bg-slate-950/95 border border-cyan-500/70 text-[10px] font-mono text-slate-200 shadow-2xl pointer-events-none backdrop-blur-md space-y-1"
-                        style={{
-                          left: Math.min(180, Math.max(10, cursorPos.x + 10)),
-                          top: Math.min(180, Math.max(10, cursorPos.y + 10))
-                        }}
-                      >
-                        <div className="flex items-center gap-1.5 text-cyan-400 font-bold border-b border-cyan-500/30 pb-0.5">
-                          <Search className="w-3 h-3" />
-                          <span>Terrain Inspector</span>
+                    {activeTool === 'inspect' && cursorPos && (() => {
+                      const cx = Math.max(0, Math.min(255, Math.round(cursorPos.x)));
+                      const cy = Math.max(0, Math.min(255, Math.round(cursorPos.y)));
+                      const idx256 = cy * 256 + cx;
+                      const classId = analysis.terrainClassGrid ? analysis.terrainClassGrid[idx256] : null;
+                      const surfaceLabel =
+                        classId === 0 ? 'Soil / Regolith'
+                        : classId === 1 ? 'Bedrock Outcrop'
+                        : classId === 2 ? 'Sand / Dunes'
+                        : classId === 3 ? 'Big Rock / Hazard'
+                        : 'Unclassified (Run Detect Hazards)';
+                      const isBlockedCell = analysis.occupancyGrid ? analysis.occupancyGrid[idx256] === 1 : false;
+
+                      let realElevM: number | null = null;
+                      let realSlopeDeg: number | null = null;
+                      if (analysis.isDemCalibrated && selectedDtmData?.elevationGrid?.length) {
+                        const gh = selectedDtmData.elevationGrid.length;
+                        const gw = selectedDtmData.elevationGrid[0]?.length || 1;
+                        const r = Math.min(gh - 1, Math.max(0, Math.floor((cy / 256) * gh)));
+                        const c = Math.min(gw - 1, Math.max(0, Math.floor((cx / 256) * gw)));
+                        const eVal = selectedDtmData.elevationGrid[r]?.[c];
+                        const sVal = selectedDtmData.slopeGrid?.[r]?.[c];
+                        if (typeof eVal === 'number' && Number.isFinite(eVal)) realElevM = eVal;
+                        if (typeof sVal === 'number' && Number.isFinite(sVal)) realSlopeDeg = sVal;
+                      }
+
+                      return (
+                        <div
+                          className="absolute z-30 p-2.5 rounded-xl bg-slate-950/95 border border-cyan-500/70 text-[10px] font-mono text-slate-200 shadow-2xl pointer-events-none space-y-1 max-w-[230px]"
+                          style={{
+                            left: `${Math.min(72, Math.max(2, (cursorPos.x / 256) * 100))}%`,
+                            top: `${Math.min(72, Math.max(2, (cursorPos.y / 256) * 100))}%`
+                          }}
+                        >
+                          <div className="flex items-center gap-1.5 text-cyan-400 font-bold border-b border-cyan-500/30 pb-0.5">
+                            <Search className="w-3 h-3" />
+                            <span>Terrain Inspector</span>
+                          </div>
+                          <div>Coords: <strong className="text-white">X:{cursorPos.x}, Y:{cursorPos.y}</strong></div>
+                          <div>
+                            Elevation:{' '}
+                            {realElevM !== null ? (
+                              <strong className="text-cyan-300">{realElevM.toFixed(1)} m (STAC DEM)</strong>
+                            ) : (
+                              <strong className="text-amber-300">Requires Calibrated DEM</strong>
+                            )}
+                          </div>
+                          <div>
+                            Local Slope:{' '}
+                            {realSlopeDeg !== null ? (
+                              <strong className={realSlopeDeg > settings.maxSlopeLimitDeg ? 'text-rose-400' : 'text-emerald-400'}>
+                                {realSlopeDeg.toFixed(1)}°
+                              </strong>
+                            ) : (
+                              <strong className="text-amber-300">2D Optical Only (No 3D angle)</strong>
+                            )}
+                          </div>
+                          <div>Surface: <strong className="text-slate-100">{surfaceLabel}</strong></div>
+                          <div>
+                            Traversability:{' '}
+                            <strong className={isBlockedCell ? 'text-rose-400' : 'text-emerald-300'}>
+                              {isBlockedCell ? 'Blocked / Hazard Zone' : 'Traversable'}
+                            </strong>
+                          </div>
+                          {startPoint && (
+                            <div>Dist to Start: <strong className="text-slate-300">{(Math.hypot(cursorPos.x - startPoint.x, cursorPos.y - startPoint.y) * spatialScaleMetersPerPx).toFixed(1)} m</strong></div>
+                          )}
+                          {destinationPoint && (
+                            <div>Dist to Dest: <strong className="text-slate-300">{(Math.hypot(cursorPos.x - destinationPoint.x, cursorPos.y - destinationPoint.y) * spatialScaleMetersPerPx).toFixed(1)} m</strong></div>
+                          )}
                         </div>
-                        <div>Coords: <strong className="text-white">X:{cursorPos.x}, Y:{cursorPos.y}</strong></div>
-                        <div>Est. Elevation: <strong className="text-cyan-300">{(-2462.8 + (128 - cursorPos.y) * 0.18).toFixed(1)} m</strong></div>
-                        <div>Local Slope: <strong className="text-emerald-400">{(Math.abs(128 - cursorPos.x) % 15 * 0.8 + 2.1).toFixed(1)}°</strong></div>
-                        <div>Surface: <strong className="text-amber-300">
-                          {cursorPos.y > 180 ? 'Loose Sand / Regolith' : cursorPos.x > 180 ? 'Bedrock Outcrop' : 'Nominal Martian Soil'}
-                        </strong></div>
-                        <div>Traversability: <strong className="text-emerald-300">Nominal / Safe</strong></div>
-                        {startPoint && (
-                          <div>Dist to Start: <strong className="text-slate-300">{(Math.hypot(cursorPos.x - startPoint.x, cursorPos.y - startPoint.y) * spatialScaleMetersPerPx).toFixed(1)} m</strong></div>
-                        )}
-                        {destinationPoint && (
-                          <div>Dist to Dest: <strong className="text-slate-300">{(Math.hypot(cursorPos.x - destinationPoint.x, cursorPos.y - destinationPoint.y) * spatialScaleMetersPerPx).toFixed(1)} m</strong></div>
-                        )}
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -3086,7 +3519,7 @@ export default function MarsNavV4Workspace() {
           <div className="flex-1 flex flex-col min-h-0">
             {/* Tab Switcher Header */}
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-3 shrink-0">
-              <div className="flex items-center gap-1 bg-black/50 p-1 rounded-xl border border-slate-800">
+              <div className="flex items-center gap-1 bg-black/50 p-1 rounded-xl border border-slate-800 flex-wrap">
                 <button
                   onClick={() => setRightPanelTab('context')}
                   className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
@@ -3096,7 +3529,29 @@ export default function MarsNavV4Workspace() {
                   }`}
                 >
                   <Sliders className="w-3.5 h-3.5" />
-                  <span>Mission Analysis Telemetry</span>
+                  <span>Mission Telemetry</span>
+                </button>
+                <button
+                  onClick={() => setRightPanelTab('measurements')}
+                  className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    rightPanelTab === 'measurements'
+                      ? 'bg-teal-500/20 text-teal-300 border border-teal-500/40 shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Ruler className="w-3.5 h-3.5" />
+                  <span>Rulers ({measurementsList.length})</span>
+                </button>
+                <button
+                  onClick={() => setRightPanelTab('field_notes')}
+                  className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    rightPanelTab === 'field_notes'
+                      ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Notes ({notesList.length})</span>
                 </button>
               </div>
             </div>
@@ -3378,44 +3833,68 @@ export default function MarsNavV4Workspace() {
                       <div className="p-3 bg-black/40 border border-slate-800 rounded-xl space-y-2">
                         <div className="flex justify-between items-center">
                           <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider block">
-                            AI Model Status
+                            Terrain Segmentation &amp; Vision Status
                           </span>
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
                             hasAnalyzed ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                           }`}>
-                            {hasAnalyzed ? 'Inference Complete' : 'Inference Pending'}
+                            {isAnalyzingImage ? 'Analyzing...' : hasAnalyzed ? 'Analysis Ready' : 'Pending'}
                           </span>
                         </div>
 
                         {hasAnalyzed ? (
                           <div className="space-y-2">
                             <div className="flex justify-between text-[11px]">
-                              <span className="text-slate-400">Architecture:</span>
-                              <strong className="text-emerald-400">ResNet34-U-Net AI4Mars</strong>
+                              <span className="text-slate-400">Pipeline:</span>
+                              <strong className={terrainIntelligence?.aiAvailable ? 'text-emerald-400' : 'text-cyan-300'}>
+                                {terrainIntelligence?.aiAvailable ? 'Gemini Vision + Deterministic CV' : 'Deterministic Sobel/Variance CV'}
+                              </strong>
                             </div>
                             <div className="flex justify-between text-[11px]">
-                              <span className="text-slate-400">Inference Runtime:</span>
-                              <strong className="text-cyan-300">{inferenceTimeMs ? `${inferenceTimeMs} ms` : '18 ms'}</strong>
+                              <span className="text-slate-400">Runtime:</span>
+                              <strong className="text-cyan-300">{inferenceTimeMs ? `${inferenceTimeMs} ms` : '--'}</strong>
+                            </div>
+                            <div className="flex justify-between text-[11px]">
+                              <span className="text-slate-400">Detected Regions:</span>
+                              <strong className="text-white">{terrainIntelligence?.regions?.length ?? 0}</strong>
                             </div>
 
-                            <div className="pt-2 border-t border-slate-800 space-y-1">
-                              <span className="text-[10px] text-slate-400 font-bold uppercase block">Predicted Class Distribution</span>
-                              {MASK_CLASSES.map(cls => (
-                                <div key={cls.key} className="space-y-0.5">
-                                  <div className="flex justify-between text-[10px]">
-                                    <span>{cls.name}</span>
-                                    <strong className="text-white">{cls.pct}%</strong>
+                            {terrainIntelligence && !terrainIntelligence.aiAvailable && (
+                              <div className="p-2 rounded-lg bg-amber-950/30 border border-amber-500/30 text-[10px] text-amber-200 font-sans">
+                                {terrainIntelligence.aiStatusMessage || 'Gemini Vision unavailable; displaying real deterministic CV surface metrics only.'}
+                              </div>
+                            )}
+
+                            <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase block">Computed Surface Composition</span>
+                              {MASK_CLASS_DEFS.map((cls, idx) => {
+                                const livePct = terrainIntelligence?.pixelComposition
+                                  ? cls.key === 'soil'
+                                    ? terrainIntelligence.pixelComposition.soilPct
+                                    : cls.key === 'bedrock'
+                                    ? terrainIntelligence.pixelComposition.bedrockPct
+                                    : cls.key === 'sand'
+                                    ? terrainIntelligence.pixelComposition.sandPct
+                                    : terrainIntelligence.pixelComposition.rockPct
+                                  : analysis.classStats?.classes?.[idx]?.percentage ?? 0;
+
+                                return (
+                                  <div key={cls.key} className="space-y-0.5">
+                                    <div className="flex justify-between text-[10px]">
+                                      <span>{cls.name}</span>
+                                      <strong className="text-white">{livePct}%</strong>
+                                    </div>
+                                    <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                                      <div className="h-full rounded-full transition-all" style={{ width: `${livePct}%`, backgroundColor: cls.hex }} />
+                                    </div>
                                   </div>
-                                  <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                                    <div className="h-full rounded-full" style={{ width: `${cls.pct}%`, backgroundColor: cls.hex }} />
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         ) : (
                           <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl text-center space-y-2">
-                            <p className="text-slate-300 font-bold text-xs">Run Image Analysis</p>
+                            <p className="text-slate-300 font-bold text-xs">Run Complete-Image Analysis</p>
                             <button
                               onClick={handleAnalyzeImage}
                               disabled={imageStatus !== 'loaded' || isAnalyzingImage}
@@ -3438,7 +3917,7 @@ export default function MarsNavV4Workspace() {
                           Split-View Comparison Legend
                         </span>
                         <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
-                          Left pane displays raw un-retouched surface optical frame. Right pane displays model prediction outputs side-by-side.
+                          Left pane displays the unmodified optical surface frame. Right pane displays real pixel segmentation masks and detected terrain region bounding boxes.
                         </p>
                       </div>
                     </div>
@@ -3768,6 +4247,387 @@ export default function MarsNavV4Workspace() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 3B. INTEGRATED COMPLETE-IMAGE TERRAIN INTELLIGENCE SECTION */}
+      {imageStatus === 'loaded' && (
+        <div className="bg-[#090D1A] border border-slate-800/80 p-4 rounded-2xl space-y-4 shadow-lg">
+          {/* Header & Controls */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <div className="p-2 rounded-xl bg-cyan-950/60 border border-cyan-500/40 text-cyan-300">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-xs sm:text-sm uppercase tracking-wider font-sans">
+                  Complete-Image Martian Terrain Intelligence
+                </h3>
+                <p className="text-[11px] font-mono text-slate-400">
+                  Full Frame: {naturalDimensions.width} × {naturalDimensions.height} px · Aspect {(naturalDimensions.width / Math.max(1, naturalDimensions.height)).toFixed(2)}:1 ·{' '}
+                  {terrainIntelligence
+                    ? `${terrainIntelligence.regions.length} Distinct Region(s) · ${terrainIntelligence.processingTimeMs} ms`
+                    : isAnalyzingImage
+                    ? 'Inspecting complete frame...'
+                    : 'Ready'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap font-mono text-[10px]">
+              {terrainIntelligence && (
+                <span
+                  className={`px-2.5 py-1 rounded-lg border font-bold ${
+                    terrainIntelligence.aiAvailable
+                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                      : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40'
+                  }`}
+                >
+                  {terrainIntelligence.aiAvailable ? 'Gemini Vision + CV' : 'Deterministic CV Only'}
+                </span>
+              )}
+              <button
+                onClick={() => setShowRegionOverlays((prev) => !prev)}
+                className={`px-2.5 py-1 rounded-lg border font-bold cursor-pointer flex items-center gap-1.5 transition ${
+                  showRegionOverlays
+                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                    : 'bg-black/40 text-slate-400 border-slate-700 hover:text-white'
+                }`}
+                title="Toggle terrain region highlight boxes on the viewport"
+              >
+                {showRegionOverlays ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                <span>Image Region Overlays</span>
+              </button>
+              <button
+                onClick={() => {
+                  setDisplayMode('analysis');
+                  runTerrainIntelligenceAnalysis(true);
+                }}
+                disabled={isAnalyzingImage}
+                className="px-3 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isAnalyzingImage ? 'animate-spin' : ''}`} />
+                <span>{isAnalyzingImage ? 'Analyzing...' : 'Re-run Analysis'}</span>
+              </button>
+            </div>
+          </div>
+
+          {analysisError && (
+            <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{analysisError}</span>
+            </div>
+          )}
+
+          {isAnalyzingImage && !terrainIntelligence ? (
+            <div className="p-8 text-center space-y-2 bg-black/30 rounded-xl border border-slate-800">
+              <Loader2 className="w-6 h-6 text-cyan-400 animate-spin mx-auto" />
+              <p className="text-xs font-mono text-slate-300">
+                Running complete-frame aspect-preserved CV &amp; geological inspection...
+              </p>
+            </div>
+          ) : terrainIntelligence ? (
+            <div className="space-y-4">
+              {!terrainIntelligence.aiAvailable && terrainIntelligence.aiStatusMessage && (
+                <div className="px-3 py-2 rounded-xl bg-amber-950/30 border border-amber-500/30 text-[11px] text-amber-200 flex items-center gap-2">
+                  <Info className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>{terrainIntelligence.aiStatusMessage}</span>
+                </div>
+              )}
+
+              {/* A. TERRAIN REGION ANALYSIS */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-1.5 font-mono">
+                    <Crosshair className="w-3.5 h-3.5" />
+                    <span>A. Terrain Region Analysis ({terrainIntelligence.regions.length} Detected)</span>
+                  </h4>
+                  {selectedTerrainRegionId && (
+                    <button
+                      onClick={() => setSelectedTerrainRegionId(null)}
+                      className="text-[10px] font-mono text-slate-400 hover:text-white cursor-pointer flex items-center gap-1"
+                    >
+                      <X className="w-3 h-3" /> Clear Highlight
+                    </button>
+                  )}
+                </div>
+
+                {terrainIntelligence.regions.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-black/40 border border-slate-800 text-xs text-slate-400 font-mono">
+                    No distinct bounded terrain formations were isolated with high confidence in this frame.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {terrainIntelligence.regions.map((region) => {
+                      const isSelected = selectedTerrainRegionId === region.id;
+                      const cx256 = Math.round((region.normX + region.normWidth / 2) * 256);
+                      const cy256 = Math.round((region.normY + region.normHeight / 2) * 256);
+                      const hazardBadge =
+                        region.hazardLevel === 'high'
+                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          : region.hazardLevel === 'moderate'
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                          : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
+
+                      return (
+                        <div
+                          key={region.id}
+                          onMouseEnter={() => setHoveredTerrainRegionId(region.id)}
+                          onMouseLeave={() => setHoveredTerrainRegionId((prev) => (prev === region.id ? null : prev))}
+                          onClick={() => setSelectedTerrainRegionId((prev) => (prev === region.id ? null : region.id))}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between space-y-2.5 ${
+                            isSelected
+                              ? 'bg-cyan-950/35 border-cyan-400 ring-1 ring-cyan-400/50 shadow-lg'
+                              : 'bg-black/40 border-slate-800 hover:border-cyan-500/50'
+                          }`}
+                        >
+                          <div className="space-y-1.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-[10px] font-mono font-bold">
+                                    {region.id}
+                                  </span>
+                                  <span className="text-xs font-bold text-white truncate">{region.title}</span>
+                                </div>
+                                <div className="text-[10px] font-mono text-cyan-400 mt-0.5">
+                                  {region.classification} · {region.locationDescription}
+                                </div>
+                              </div>
+                              <div className="flex flex-col items-end gap-1 shrink-0 font-mono text-[10px]">
+                                <span className={`px-1.5 py-0.5 rounded border uppercase font-bold ${hazardBadge}`}>
+                                  {region.hazardLevel}
+                                </span>
+                                <span className="text-slate-400">{region.confidence}% conf</span>
+                              </div>
+                            </div>
+
+                            <p className="text-[11px] text-slate-300 leading-snug">{region.visualCharacteristics}</p>
+
+                            <div className="text-[10px] space-y-1 pt-1 border-t border-slate-800/80">
+                              <div>
+                                <span className="text-indigo-300 font-bold">Science: </span>
+                                <span className="text-slate-300">{region.scientificSignificance}</span>
+                              </div>
+                              <div>
+                                <span className="text-amber-300 font-bold">Traversal: </span>
+                                <span className="text-slate-300">{region.roverTraversalConcerns}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div
+                            className="flex items-center gap-1.5 pt-2 border-t border-slate-800/80 font-mono text-[10px]"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              onClick={() => convertFindingToScienceStop(`${region.id}: ${region.classification}`, cx256, cy256)}
+                              className="flex-1 py-1 px-2 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-200 font-bold cursor-pointer flex items-center justify-center gap-1"
+                            >
+                              <Sparkles className="w-3 h-3" />
+                              <span>Add Science POI</span>
+                            </button>
+                            <button
+                              onClick={() => convertFindingToHazard(`${region.id}: ${region.classification}`, cx256, cy256)}
+                              className="flex-1 py-1 px-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 font-bold cursor-pointer flex items-center justify-center gap-1"
+                            >
+                              <ShieldAlert className="w-3 h-3" />
+                              <span>Mark Hazard</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* B. THREE-TIER GEOLOGICAL IDENTIFICATION */}
+              <div className="space-y-2.5">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5 font-mono">
+                  <Layers3 className="w-3.5 h-3.5" />
+                  <span>B. Geological Identification (Visually Observed vs. Inferred vs. Geographically Verified)</span>
+                </h4>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                  {/* Tier 1: Visually Detected */}
+                  <div className="p-3 rounded-xl bg-black/40 border border-cyan-500/30 space-y-2">
+                    <div className="flex items-center justify-between border-b border-cyan-500/20 pb-1.5">
+                      <span className="text-[10px] font-mono font-bold uppercase text-cyan-300">
+                        1. Visually Detected Terrain
+                      </span>
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                        Direct Image Evidence
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-200 leading-relaxed">
+                      {terrainIntelligence.geologicalIdentification.visuallyDetected.summary}
+                    </p>
+                    <div className="space-y-1 text-[10px] font-mono text-slate-300">
+                      <div>
+                        <span className="text-slate-400">Materials: </span>
+                        {terrainIntelligence.geologicalIdentification.visuallyDetected.surfaceMaterials.join('; ') || 'None isolated'}
+                      </div>
+                      <div>
+                        <span className="text-slate-400">Formations: </span>
+                        {terrainIntelligence.geologicalIdentification.visuallyDetected.rockFormations.join('; ') || 'None isolated'}
+                      </div>
+                      <div>
+                        <span className="text-slate-400">Textures/Fractures: </span>
+                        {terrainIntelligence.geologicalIdentification.visuallyDetected.fracturesAndTextures.join('; ') || 'None isolated'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tier 2: Geologically Inferred */}
+                  <div className="p-3 rounded-xl bg-black/40 border border-amber-500/30 space-y-2">
+                    <div className="flex items-center justify-between border-b border-amber-500/20 pb-1.5">
+                      <span className="text-[10px] font-mono font-bold uppercase text-amber-300">
+                        2. Geologically Inferred Context
+                      </span>
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                        Provisional Hypothesis
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-200 leading-relaxed">
+                      {terrainIntelligence.geologicalIdentification.geologicallyInferred.provisionalSummary}
+                    </p>
+                    <p className="text-[10px] text-amber-200/90 bg-amber-950/30 border border-amber-500/25 rounded-lg p-2 leading-snug">
+                      {terrainIntelligence.geologicalIdentification.geologicallyInferred.confidenceCaveat}
+                    </p>
+                    <p className="text-[10px] text-slate-400 leading-snug">
+                      {terrainIntelligence.geologicalIdentification.geologicallyInferred.mineralogicalNote}
+                    </p>
+                  </div>
+
+                  {/* Tier 3: Geographically Verified */}
+                  <div className="p-3 rounded-xl bg-black/40 border border-emerald-500/30 space-y-2">
+                    <div className="flex items-center justify-between border-b border-emerald-500/20 pb-1.5">
+                      <span className="text-[10px] font-mono font-bold uppercase text-emerald-300">
+                        3. Geographically Verified Units
+                      </span>
+                      <span
+                        className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                          terrainIntelligence.geologicalIdentification.geographicallyVerified.status === 'verified_footprint'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            : terrainIntelligence.geologicalIdentification.geographicallyVerified.status === 'mission_basin_context'
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                            : 'bg-slate-800 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        {terrainIntelligence.geologicalIdentification.geographicallyVerified.status === 'verified_footprint'
+                          ? 'Exact Coords'
+                          : terrainIntelligence.geologicalIdentification.geographicallyVerified.status === 'mission_basin_context'
+                          ? 'Landing Basin Context'
+                          : 'Unverified Location'}
+                      </span>
+                    </div>
+
+                    <div className="text-xs font-bold text-white">
+                      {terrainIntelligence.geologicalIdentification.geographicallyVerified.headline}
+                    </div>
+
+                    <div className="text-[10px] font-mono text-cyan-300">
+                      {terrainIntelligence.geologicalIdentification.geographicallyVerified.coordinateLabel}
+                    </div>
+
+                    {terrainIntelligence.geologicalIdentification.geographicallyVerified.primaryUnit ? (
+                      <div className="space-y-1 text-[10px] bg-emerald-950/20 border border-emerald-500/25 rounded-lg p-2">
+                        <div className="font-mono text-white font-bold">
+                          SIM 3292 Unit {terrainIntelligence.geologicalIdentification.geographicallyVerified.primaryUnit.unitSymbol} ·{' '}
+                          {terrainIntelligence.geologicalIdentification.geographicallyVerified.primaryUnit.unitName}
+                        </div>
+                        <div className="text-emerald-300 font-mono">
+                          Epoch: {terrainIntelligence.geologicalIdentification.geographicallyVerified.primaryUnit.epoch} · Quadrangle:{' '}
+                          {terrainIntelligence.geologicalIdentification.geographicallyVerified.quadrangle || 'N/A'}
+                        </div>
+                        <p className="text-slate-300 leading-snug">
+                          {terrainIntelligence.geologicalIdentification.geographicallyVerified.primaryUnit.lithology}
+                        </p>
+                        {terrainIntelligence.geologicalIdentification.geographicallyVerified.molaElevationM !== null && (
+                          <div className="text-cyan-300 font-mono pt-0.5">
+                            MOLA Elevation: {terrainIntelligence.geologicalIdentification.geographicallyVerified.molaElevationM.toFixed(1)} m (
+                            {terrainIntelligence.geologicalIdentification.geographicallyVerified.molaDatum})
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-slate-300 bg-slate-900/70 border border-slate-800 rounded-lg p-2 leading-snug">
+                        {terrainIntelligence.geologicalIdentification.geographicallyVerified.notes}
+                      </div>
+                    )}
+
+                    {terrainIntelligence.geologicalIdentification.geographicallyVerified.citation && (
+                      <div className="text-[9px] font-mono text-slate-400">
+                        Provenance: {terrainIntelligence.geologicalIdentification.geographicallyVerified.citation}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* C. SCIENTIFIC TERRAIN REPORT */}
+              <div className="p-3.5 rounded-xl bg-black/40 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5 font-mono">
+                    <FileText className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>C. Scientific Terrain Report</span>
+                  </h4>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    Brightness {terrainIntelligence.meanBrightness} · RMS Contrast {terrainIntelligence.rmsContrast} · Roughness {terrainIntelligence.roughnessScore}%
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-[10px] font-mono uppercase text-cyan-400 font-bold block">Overall Terrain Composition</span>
+                      <p className="text-slate-300 leading-relaxed">{terrainIntelligence.scientificReport.overallComposition}</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono uppercase text-cyan-400 font-bold block">Geological Features</span>
+                      <p className="text-slate-300 leading-relaxed">{terrainIntelligence.scientificReport.geologicalFeaturesSummary}</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono uppercase text-cyan-400 font-bold block">Rock &amp; Soil Characteristics</span>
+                      <p className="text-slate-300 leading-relaxed">{terrainIntelligence.scientificReport.rockAndSoilCharacteristics}</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono uppercase text-cyan-400 font-bold block">Regional Context</span>
+                      <p className="text-slate-300 leading-relaxed">{terrainIntelligence.scientificReport.regionalContext}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-[10px] font-mono uppercase text-amber-400 font-bold block">Traversal Hazards</span>
+                      <ul className="list-disc pl-4 text-slate-300 space-y-0.5">
+                        {terrainIntelligence.scientificReport.traversalHazards.map((h, i) => (
+                          <li key={i}>{h}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono uppercase text-indigo-300 font-bold block">Sampling Opportunities</span>
+                      <ul className="list-disc pl-4 text-slate-300 space-y-0.5">
+                        {terrainIntelligence.scientificReport.samplingOpportunities.map((s, i) => (
+                          <li key={i}>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono uppercase text-slate-400 font-bold block">Data &amp; Measurement Limitations</span>
+                      <ul className="list-disc pl-4 text-slate-400 space-y-0.5">
+                        {terrainIntelligence.scientificReport.dataLimitations.map((l, i) => (
+                          <li key={i}>{l}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 

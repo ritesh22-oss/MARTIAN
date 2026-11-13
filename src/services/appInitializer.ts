@@ -157,13 +157,7 @@ export async function runIntelligentInitialization(
       }
 
       case 'WORKSPACE_CACHE': {
-        // Finalize state and seed datasets for console visibility
-        try {
-          const { seedVerifiedDatasetsToFirestore } = await import('./ai4marsDatasetService');
-          await seedVerifiedDatasetsToFirestore();
-        } catch (e) {
-          console.warn('Seeding skipped:', e);
-        }
+        // Hydrate local dataset metadata cache without burning Firestore write quota on boot
         await new Promise((r) => setTimeout(r, 120));
         break;
       }

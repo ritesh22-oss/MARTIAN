@@ -494,6 +494,61 @@ export const SIM3292_UNIT_GLOSSARY: Record<string, {
     epoch: 'Late Amazonian (<0.5 Ga)',
     lithology: 'Volatile-rich mid-to-high latitude plains and crater-floor glacial/ice-rich mantling units.',
     boundaryContext: 'Diffuse gradational contacts controlled by obliquity-driven ice deposition.'
+  },
+  eHv: {
+    epoch: 'Early Hesperian (~3.71–3.61 Ga)',
+    lithology: 'Volcanic ridged plains and low-viscosity basalt flows capping older Noachian basement (Syrtis Major volcanic province).',
+    boundaryContext: 'Overlies and embays Noachian highland massifs (mNhm) and deltaic transition deposits.'
+  },
+  lHt: {
+    epoch: 'Late Hesperian (~3.61–3.37 Ga)',
+    lithology: 'Sedimentary and volcanic transitional plains at boundary between dichotomy highlands and northern lowlands.',
+    boundaryContext: 'Gradational to sharp contact with adjacent Hesperian volcanic and Noachian highland units.'
+  },
+  eHh: {
+    epoch: 'Early Hesperian (~3.71–3.61 Ga)',
+    lithology: 'Early Hesperian highland plateau materials, moderately cratered and incised by degraded valley systems.',
+    boundaryContext: 'Stratigraphically above Late Noachian highlands, underlying younger Hesperian lava flows.'
+  },
+  Hpe: {
+    epoch: 'Hesperian (~3.71–3.37 Ga)',
+    lithology: 'Hesperian polar volcanic/edifice constructs and associated regional volcaniclastic deposits.',
+    boundaryContext: 'Buried or embayed by polar layered deposits and seasonal ice caps.'
+  },
+  Hp: {
+    epoch: 'Hesperian (~3.71–3.37 Ga)',
+    lithology: 'Hesperian polar and circum-polar sedimentary plains deposits.',
+    boundaryContext: 'Unconformably overlain by Amazonian polar cap units.'
+  },
+  Ap: {
+    epoch: 'Amazonian (<3.37 Ga)',
+    lithology: 'Amazonian polar layered deposits and residual ice/dust cap units.',
+    boundaryContext: 'Confined to high latitudes above 75° N and S.'
+  },
+  Apu: {
+    epoch: 'Amazonian (<3.37 Ga)',
+    lithology: 'Amazonian polar undivided deposits, fine layered ice-silicate sequences.',
+    boundaryContext: 'Seasonal retreat and advance scarps.'
+  },
+  Nhe: {
+    epoch: 'Noachian (~4.10–3.71 Ga)',
+    lithology: 'Noachian highland volcanic and impact edifice complexes.',
+    boundaryContext: 'Highly degraded and cratered ancient volcanic constructs.'
+  },
+  Nhu: {
+    epoch: 'Noachian (~4.10–3.71 Ga)',
+    lithology: 'Noachian highland undivided terrain, heterogeneous impact breccia and basement megaregolith.',
+    boundaryContext: 'Extensive highland basement forming the southern crustal plate.'
+  },
+  lNl: {
+    epoch: 'Late Noachian (~3.83–3.71 Ga)',
+    lithology: 'Late Noachian lowland and basin-floor layered sedimentary deposits.',
+    boundaryContext: 'Depositional basin floors dissected by terminal channels.'
+  },
+  mAl: {
+    epoch: 'Middle Amazonian (~1.50–0.50 Ga)',
+    lithology: 'Middle Amazonian lowland smooth plains, eolian mantles, and fine sediment sheets.',
+    boundaryContext: 'Superimposed on older northern lowland volcanic basement.'
   }
 };
 

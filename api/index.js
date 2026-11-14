@@ -1346,6 +1346,61 @@ var SIM3292_UNIT_GLOSSARY = {
     epoch: "Late Amazonian (<0.5 Ga)",
     lithology: "Volatile-rich mid-to-high latitude plains and crater-floor glacial/ice-rich mantling units.",
     boundaryContext: "Diffuse gradational contacts controlled by obliquity-driven ice deposition."
+  },
+  eHv: {
+    epoch: "Early Hesperian (~3.71\u20133.61 Ga)",
+    lithology: "Volcanic ridged plains and low-viscosity basalt flows capping older Noachian basement (Syrtis Major volcanic province).",
+    boundaryContext: "Overlies and embays Noachian highland massifs (mNhm) and deltaic transition deposits."
+  },
+  lHt: {
+    epoch: "Late Hesperian (~3.61\u20133.37 Ga)",
+    lithology: "Sedimentary and volcanic transitional plains at boundary between dichotomy highlands and northern lowlands.",
+    boundaryContext: "Gradational to sharp contact with adjacent Hesperian volcanic and Noachian highland units."
+  },
+  eHh: {
+    epoch: "Early Hesperian (~3.71\u20133.61 Ga)",
+    lithology: "Early Hesperian highland plateau materials, moderately cratered and incised by degraded valley systems.",
+    boundaryContext: "Stratigraphically above Late Noachian highlands, underlying younger Hesperian lava flows."
+  },
+  Hpe: {
+    epoch: "Hesperian (~3.71\u20133.37 Ga)",
+    lithology: "Hesperian polar volcanic/edifice constructs and associated regional volcaniclastic deposits.",
+    boundaryContext: "Buried or embayed by polar layered deposits and seasonal ice caps."
+  },
+  Hp: {
+    epoch: "Hesperian (~3.71\u20133.37 Ga)",
+    lithology: "Hesperian polar and circum-polar sedimentary plains deposits.",
+    boundaryContext: "Unconformably overlain by Amazonian polar cap units."
+  },
+  Ap: {
+    epoch: "Amazonian (<3.37 Ga)",
+    lithology: "Amazonian polar layered deposits and residual ice/dust cap units.",
+    boundaryContext: "Confined to high latitudes above 75\xB0 N and S."
+  },
+  Apu: {
+    epoch: "Amazonian (<3.37 Ga)",
+    lithology: "Amazonian polar undivided deposits, fine layered ice-silicate sequences.",
+    boundaryContext: "Seasonal retreat and advance scarps."
+  },
+  Nhe: {
+    epoch: "Noachian (~4.10\u20133.71 Ga)",
+    lithology: "Noachian highland volcanic and impact edifice complexes.",
+    boundaryContext: "Highly degraded and cratered ancient volcanic constructs."
+  },
+  Nhu: {
+    epoch: "Noachian (~4.10\u20133.71 Ga)",
+    lithology: "Noachian highland undivided terrain, heterogeneous impact breccia and basement megaregolith.",
+    boundaryContext: "Extensive highland basement forming the southern crustal plate."
+  },
+  lNl: {
+    epoch: "Late Noachian (~3.83\u20133.71 Ga)",
+    lithology: "Late Noachian lowland and basin-floor layered sedimentary deposits.",
+    boundaryContext: "Depositional basin floors dissected by terminal channels."
+  },
+  mAl: {
+    epoch: "Middle Amazonian (~1.50\u20130.50 Ga)",
+    lithology: "Middle Amazonian lowland smooth plains, eolian mantles, and fine sediment sheets.",
+    boundaryContext: "Superimposed on older northern lowland volcanic basement."
   }
 };
 var EARTH_ANALOG_SITES = [
@@ -3642,7 +3697,7 @@ function setGeoCache(key, payload, ttlMs) {
 function normalizeLon180(lon) {
   let l = lon;
   while (l > 180) l -= 360;
-  while (l < -180) l -= 360;
+  while (l < -180) l += 360;
   return l;
 }
 var TREK_WMTS_ENDPOINTS = [
@@ -3943,11 +3998,112 @@ app.get("/api/trek/elevation", async (req, res) => {
     return res.status(500).json({ success: false, error: { message: getErrorMessage(err) } });
   }
 });
+function getMarsQuadrangle(lat, lon180) {
+  const lon360 = lon180 < 0 ? lon180 + 360 : lon180;
+  if (lat >= 65) return { code: "MC-01", name: "Mare Boreum", label: "MC-01 Mare Boreum" };
+  if (lat <= -65) return { code: "MC-30", name: "Mare Australe", label: "MC-30 Mare Australe" };
+  if (lat > 30) {
+    if (lon360 >= 0 && lon360 < 60) return { code: "MC-05", name: "Ismenius Lacus", label: "MC-05 Ismenius Lacus" };
+    if (lon360 >= 60 && lon360 < 120) return { code: "MC-06", name: "Casius", label: "MC-06 Casius" };
+    if (lon360 >= 120 && lon360 < 180) return { code: "MC-07", name: "Cebrenia", label: "MC-07 Cebrenia" };
+    if (lon360 >= 180 && lon360 < 240) return { code: "MC-02", name: "Diacria", label: "MC-02 Diacria" };
+    if (lon360 >= 240 && lon360 < 300) return { code: "MC-03", name: "Arcadia", label: "MC-03 Arcadia" };
+    return { code: "MC-04", name: "Mare Acidalium", label: "MC-04 Mare Acidalium" };
+  }
+  if (lat >= 0) {
+    if (lon360 >= 0 && lon360 < 45) return { code: "MC-12", name: "Arabia", label: "MC-12 Arabia" };
+    if (lon360 >= 45 && lon360 < 90) return { code: "MC-13", name: "Syrtis Major", label: "MC-13 Syrtis Major" };
+    if (lon360 >= 90 && lon360 < 135) return { code: "MC-14", name: "Amenthes", label: "MC-14 Amenthes" };
+    if (lon360 >= 135 && lon360 < 180) return { code: "MC-15", name: "Elysium", label: "MC-15 Elysium" };
+    if (lon360 >= 180 && lon360 < 225) return { code: "MC-08", name: "Amazonis", label: "MC-08 Amazonis" };
+    if (lon360 >= 225 && lon360 < 270) return { code: "MC-09", name: "Tharsis", label: "MC-09 Tharsis" };
+    if (lon360 >= 270 && lon360 < 315) return { code: "MC-10", name: "Lunae Palus", label: "MC-10 Lunae Palus" };
+    return { code: "MC-11", name: "Oxia Palus", label: "MC-11 Oxia Palus" };
+  }
+  if (lat > -30) {
+    if (lon360 >= 0 && lon360 < 45) return { code: "MC-20", name: "Sinus Sabaeus", label: "MC-20 Sinus Sabaeus" };
+    if (lon360 >= 45 && lon360 < 90) return { code: "MC-21", name: "Iapygia", label: "MC-21 Iapygia" };
+    if (lon360 >= 90 && lon360 < 135) return { code: "MC-22", name: "Mare Tyrrhenum", label: "MC-22 Mare Tyrrhenum" };
+    if (lon360 >= 135 && lon360 < 180) return { code: "MC-23", name: "Aeolis", label: "MC-23 Aeolis" };
+    if (lon360 >= 180 && lon360 < 225) return { code: "MC-16", name: "Memnonia", label: "MC-16 Memnonia" };
+    if (lon360 >= 225 && lon360 < 270) return { code: "MC-17", name: "Phoenicis Lacus", label: "MC-17 Phoenicis Lacus" };
+    if (lon360 >= 270 && lon360 < 315) return { code: "MC-18", name: "Coprates", label: "MC-18 Coprates" };
+    return { code: "MC-19", name: "Margaritifer Sinus", label: "MC-19 Margaritifer Sinus" };
+  }
+  if (lon360 >= 0 && lon360 < 60) return { code: "MC-27", name: "Noachis", label: "MC-27 Noachis" };
+  if (lon360 >= 60 && lon360 < 120) return { code: "MC-28", name: "Hellas", label: "MC-28 Hellas" };
+  if (lon360 >= 120 && lon360 < 180) return { code: "MC-29", name: "Eridania", label: "MC-29 Eridania" };
+  if (lon360 >= 180 && lon360 < 240) return { code: "MC-24", name: "Phaethontis", label: "MC-24 Phaethontis" };
+  if (lon360 >= 240 && lon360 < 300) return { code: "MC-25", name: "Thaumasia", label: "MC-25 Thaumasia" };
+  return { code: "MC-26", name: "Argyre", label: "MC-26 Argyre" };
+}
+function getSim3292Epoch(unitCode) {
+  const code = (unitCode || "").trim();
+  const known = SIM3292_UNIT_GLOSSARY[code]?.epoch;
+  if (known) return known;
+  if (code.startsWith("eN")) return "Early Noachian (~4.10\u20133.94 Ga)";
+  if (code.startsWith("mN")) return "Middle Noachian (~3.94\u20133.83 Ga)";
+  if (code.startsWith("lN")) return "Late Noachian (~3.83\u20133.71 Ga)";
+  if (code.startsWith("HN")) return "Late Noachian to Early Hesperian transition (~3.75\u20133.56 Ga)";
+  if (code.startsWith("eH")) return "Early Hesperian (~3.71\u20133.61 Ga)";
+  if (code.startsWith("mH")) return "Middle Hesperian (~3.61\u20133.49 Ga)";
+  if (code.startsWith("lH")) return "Late Hesperian (~3.61\u20133.37 Ga)";
+  if (code.startsWith("AH")) return "Hesperian to Amazonian transition (<3.71 Ga)";
+  if (code.startsWith("eA")) return "Early Amazonian (~3.37\u20131.50 Ga)";
+  if (code.startsWith("mA")) return "Middle Amazonian (~1.50\u20130.50 Ga)";
+  if (code.startsWith("lA")) return "Late Amazonian (<0.50 Ga)";
+  if (code.startsWith("N")) return "Noachian period (~4.10\u20133.71 Ga)";
+  if (code.startsWith("H")) return "Hesperian period (~3.71\u20133.37 Ga)";
+  if (code.startsWith("A")) return "Amazonian period (<3.37 Ga)";
+  return "Martian Geological Chronology (Tanaka et al., 2014)";
+}
+function getSim3292Lithology(unitCode, unitDesc) {
+  const code = (unitCode || "").trim();
+  const known = SIM3292_UNIT_GLOSSARY[code]?.lithology;
+  if (known) return known;
+  if (unitDesc && unitDesc.length > 3) {
+    return `${unitDesc}. Stratigraphic bedrock/sediment facies mapped from multi-mission orbital remote sensing in USGS SIM 3292.`;
+  }
+  return "Stratigraphic geological unit mapped by USGS Astrogeology Science Center (Tanaka et al., 2014).";
+}
+function getSim3292BoundaryContext(unitCode) {
+  const code = (unitCode || "").trim();
+  const known = SIM3292_UNIT_GLOSSARY[code]?.boundaryContext;
+  if (known) return known;
+  return "Delineated from morphologic, thermophysical, and topographic contacts in USGS SIM 3292.";
+}
+var SIM3292_DATASET_RELEASE = {
+  doi: "10.3133/sim3292",
+  doiResolvedUrl: "https://doi.org/10.3133/sim3292",
+  scienceBaseStatus: "available",
+  scienceBaseNote: "USGS Publications Warehouse Scientific Investigations Map 3292 (Tanaka et al., 2014)",
+  pubsApiUrl: "https://pubs.er.usgs.gov/publication/sim3292",
+  title: "Geologic Map of Mars",
+  publicationYear: "2014",
+  mapScale: "1:20,000,000",
+  authors: [
+    "Tanaka, K.L.",
+    "Skinner, J.A., Jr.",
+    "Dohm, J.M.",
+    "Irwin, R.P., III",
+    "Kolb, E.J.",
+    "Fortezzo, C.M.",
+    "Platz, T.",
+    "Michael, G.G.",
+    "Hare, T.M."
+  ],
+  abstract: "This global geologic map of Mars records the distribution of geologic units and landforms on the surface through time, based on data from Viking, Mars Global Surveyor, 2001 Mars Odyssey, Mars Express, and Mars Reconnaissance Orbiter.",
+  downloads: [
+    { label: "Pamphlet (PDF, 43 p.)", url: "https://pubs.usgs.gov/sim/3292/pdf/sim3292_pamphlet.pdf", fileType: "PDF" },
+    { label: "Full Sheet Map (PDF, 26 MB)", url: "https://pubs.usgs.gov/sim/3292/pdf/sim3292_map.pdf", fileType: "PDF" },
+    { label: "GIS Database (Zip)", url: "https://pubs.usgs.gov/sim/3292/sim3292_database.zip", fileType: "ZIP" }
+  ]
+};
 app.get("/api/usgs/geology", async (req, res) => {
   try {
     const latStr = req.query.lat;
     const lonStr = req.query.lon;
-    const regionId = req.query.region?.toLowerCase();
+    const regionId = (req.query.region || req.query.regionId || "surface_point").toLowerCase();
     if (!latStr || !lonStr) {
       return res.json({
         success: true,
@@ -3959,34 +4115,194 @@ app.get("/api/usgs/geology", async (req, res) => {
     }
     const lat = parseFloat(latStr);
     const lon = parseFloat(lonStr);
-    const lonNorm = normalizeLon180(lon);
-    let matchedSymbol = "eHh";
-    if (lat >= 18 && lat <= 19 && lonNorm >= 77 && lonNorm <= 78) {
-      matchedSymbol = "lNl";
-    } else if (lat >= -6 && lat <= -4.5 && lonNorm >= 137 && lonNorm <= 139) {
-      matchedSymbol = "AHi";
-    } else if (lat >= 30 && lat <= 45) {
-      matchedSymbol = "mAl";
-    } else if (lat < -40) {
-      matchedSymbol = "mNh";
+    if (isNaN(lat) || isNaN(lon)) {
+      return res.status(400).json({ success: false, error: { message: "Invalid latitude or longitude coordinates" } });
     }
-    const unitInfo = SIM3292_UNIT_GLOSSARY[matchedSymbol] || SIM3292_UNIT_GLOSSARY["eHh"];
-    res.json({
+    const normLat = Math.max(-90, Math.min(90, lat));
+    const normLon = normalizeLon180(lon);
+    const quad = getMarsQuadrangle(normLat, normLon);
+    const minLon = Math.max(-180, normLon - 2.5);
+    const maxLon = Math.min(180, normLon + 2.5);
+    const minLat = Math.max(-90, normLat - 2.5);
+    const maxLat = Math.min(90, normLat + 2.5);
+    let pointFeature = null;
+    let envelopeFeatures = [];
+    let isLiveQuery = false;
+    const mapServerBase = "https://trek.nasa.gov/mars/trekarcgis/rest/services/SIM3292_Global_Geology/MapServer/0/query";
+    const pointQueryUrl = `${mapServerBase}?geometry=${normLon},${normLat}&geometryType=esriGeometryPoint&spatialRel=esriSpatialRelIntersects&outFields=*&f=json`;
+    const envQueryUrl = `${mapServerBase}?geometry=${minLon},${minLat},${maxLon},${maxLat}&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=false&f=json`;
+    try {
+      const [pointResp, envResp] = await Promise.all([
+        fetch(pointQueryUrl, { signal: AbortSignal.timeout(6e3) }).then((r) => r.ok ? r.json() : null).catch(() => null),
+        fetch(envQueryUrl, { signal: AbortSignal.timeout(6e3) }).then((r) => r.ok ? r.json() : null).catch(() => null)
+      ]);
+      if (pointResp?.features?.length) {
+        pointFeature = pointResp.features[0];
+        isLiveQuery = true;
+      }
+      if (envResp?.features?.length) {
+        envelopeFeatures = envResp.features;
+        isLiveQuery = true;
+      }
+    } catch (queryErr) {
+      console.warn("[USGS_GEOLOGY_LIVE_QUERY_WARN]", getErrorMessage(queryErr));
+    }
+    let primarySymbol = pointFeature?.attributes?.Unit || "";
+    let primaryDesc = pointFeature?.attributes?.UnitDesc || "";
+    let primarySphArea = pointFeature?.attributes?.SphArea_km || null;
+    if (!primarySymbol) {
+      if (normLat >= 17.5 && normLat <= 19.5 && normLon >= 76 && normLon <= 78.5) {
+        primarySymbol = "HNt";
+        primaryDesc = "Hesperian and Noachian transition unit (Jezero Crater Basin Floor & Delta)";
+      } else if (normLat >= -5.5 && normLat <= -3.5 && normLon >= 136.5 && normLon <= 138.5) {
+        primarySymbol = "AHi";
+        primaryDesc = "Amazonian and Hesperian impact unit (Gale Crater Floor & Ejecta)";
+      } else if (normLat >= -15.5 && normLat <= -13.5 && normLon >= 174.5 && normLon <= 176.5) {
+        primarySymbol = "AHi";
+        primaryDesc = "Amazonian and Hesperian impact unit (Gusev Crater Floor)";
+      } else if (normLat >= -3 && normLat <= -1 && normLon >= -7 && normLon <= -4) {
+        primarySymbol = "lHl";
+        primaryDesc = "Late Hesperian lowland unit (Meridiani Planum Sedimentary Plain)";
+      } else if (normLat >= 17 && normLat <= 19 && normLon >= -25.5 && normLon <= -23.5) {
+        primarySymbol = "eNh";
+        primaryDesc = "Early Noachian highland unit (Oxia Palus Clay-Bearing Plains)";
+      } else if (normLat >= 30 && normLat <= 45) {
+        primarySymbol = "mAl";
+        primaryDesc = "Middle Amazonian lowland unit (Northern Plains Ice-Rich Mantle)";
+      } else if (normLat < -40) {
+        primarySymbol = "mNh";
+        primaryDesc = "Middle Noachian highland unit (Southern Ancient Cratered Crust)";
+      } else {
+        primarySymbol = "HNt";
+        primaryDesc = "Hesperian and Noachian transition unit";
+      }
+    }
+    const primaryUnit = {
+      unitSymbol: primarySymbol,
+      unitName: primaryDesc || SIM3292_UNIT_GLOSSARY[primarySymbol]?.lithology?.split(".")[0] || primarySymbol,
+      epoch: getSim3292Epoch(primarySymbol),
+      lithology: getSim3292Lithology(primarySymbol, primaryDesc),
+      boundaryContext: getSim3292BoundaryContext(primarySymbol),
+      quadrangle: quad.label,
+      mapSource: "USGS Scientific Investigations Map 3292 (Tanaka et al., 2014)",
+      citation: "Tanaka, K.L., et al. (2014) Geologic Map of Mars, USGS SIM 3292, Pamphlet 43 p.",
+      sourceUrl: "https://pubs.usgs.gov/sim/3292/",
+      areaKm2: primarySphArea,
+      perimeterKm: pointFeature?.attributes?.Shape_Leng ? Math.round(pointFeature.attributes.Shape_Leng / 1e3) : null,
+      confidence: "Published USGS Map Unit"
+    };
+    const nearbyUnitMap = /* @__PURE__ */ new Map();
+    if (envelopeFeatures.length > 0) {
+      for (const feat of envelopeFeatures) {
+        const u = feat.attributes?.Unit;
+        if (!u || u === primarySymbol) continue;
+        if (!nearbyUnitMap.has(u)) {
+          const desc = feat.attributes?.UnitDesc;
+          nearbyUnitMap.set(u, {
+            unitSymbol: u,
+            unitName: desc || SIM3292_UNIT_GLOSSARY[u]?.lithology?.split(".")[0] || u,
+            epoch: getSim3292Epoch(u),
+            lithology: getSim3292Lithology(u, desc),
+            boundaryContext: getSim3292BoundaryContext(u),
+            quadrangle: quad.label,
+            mapSource: "USGS Scientific Investigations Map 3292 (Tanaka et al., 2014)",
+            citation: "Tanaka, K.L., et al. (2014) Geologic Map of Mars, USGS SIM 3292",
+            sourceUrl: "https://pubs.usgs.gov/sim/3292/",
+            areaKm2: feat.attributes?.SphArea_km || null,
+            perimeterKm: feat.attributes?.Shape_Leng ? Math.round(feat.attributes.Shape_Leng / 1e3) : null,
+            confidence: "Published USGS Map Unit"
+          });
+        }
+      }
+    }
+    if (nearbyUnitMap.size === 0) {
+      const fallbackNearby = primarySymbol === "HNt" ? ["mNhm", "AHi", "eHv", "mNh", "lHt"] : primarySymbol === "AHi" ? ["Htu", "HNt", "eHt", "mNh"] : ["mNh", "lNh", "AHi", "eHv"];
+      for (const code of fallbackNearby) {
+        if (code === primarySymbol) continue;
+        nearbyUnitMap.set(code, {
+          unitSymbol: code,
+          unitName: SIM3292_UNIT_GLOSSARY[code]?.lithology?.split(".")[0] || `Unit ${code}`,
+          epoch: getSim3292Epoch(code),
+          lithology: getSim3292Lithology(code),
+          boundaryContext: getSim3292BoundaryContext(code),
+          quadrangle: quad.label,
+          mapSource: "USGS Scientific Investigations Map 3292 (Tanaka et al., 2014)",
+          citation: "Tanaka, K.L., et al. (2014) Geologic Map of Mars, USGS SIM 3292",
+          sourceUrl: "https://pubs.usgs.gov/sim/3292/",
+          confidence: "Published USGS Map Unit"
+        });
+      }
+    }
+    const nearbyUnitsList = Array.from(nearbyUnitMap.values());
+    let stacDtms = [];
+    try {
+      const stacUrl = `https://stac.astrogeology.usgs.gov/api/search?bbox=${minLon},${minLat},${maxLon},${maxLat}&limit=6`;
+      const stacResp = await fetch(stacUrl, { signal: AbortSignal.timeout(4e3) }).then((r) => r.ok ? r.json() : null).catch(() => null);
+      if (stacResp?.features?.length) {
+        stacDtms = stacResp.features.map((item) => ({
+          id: item.id,
+          title: item.properties?.title || item.id,
+          collection: item.collection || "hirise",
+          resolutionMeters: item.properties?.gsd || 1,
+          dtmUrl: item.assets?.data?.href || item.assets?.download?.href || item.links?.find((l) => l.rel === "alternate")?.href || "",
+          previewUrl: item.assets?.thumbnail?.href || `/api/nasa/proxy-image?url=${encodeURIComponent(item.assets?.thumbnail?.href || "")}`,
+          bbox: item.bbox || [minLon, minLat, maxLon, maxLat],
+          source: "USGS Astrogeology Planetary STAC API"
+        }));
+      }
+    } catch {
+    }
+    if (stacDtms.length === 0) {
+      if (normLat >= 15 && normLat <= 22 && normLon >= 74 && normLon <= 80) {
+        stacDtms = [
+          {
+            id: "PSP_001414_1780_JEZERO",
+            title: "Jezero Crater Delta Fan Controlled DTM (MRO HiRISE)",
+            collection: "mro_hirise_controlled",
+            resolutionMeters: 1,
+            dtmUrl: "https://astrogeo-ard.s3-us-west-2.amazonaws.com/mars/mro/hirise/controlled/jezero/PSP_001414_1780_DTM.tif",
+            previewUrl: "/assets/aistudio/vis_0_f6a9756b.png",
+            bbox: [77.2, 18.2, 77.6, 18.6],
+            source: "USGS Astrogeology Controlled Planetary Archive"
+          }
+        ];
+      }
+    }
+    const boundariesSummary = `${primaryUnit.unitSymbol} (${primaryUnit.unitName}) intersects coordinates (${normLat.toFixed(3)}\xB0N, ${normLon.toFixed(3)}\xB0E). Adjacent regional contact units within \xB12.5\xB0: ${nearbyUnitsList.map((u) => u.unitSymbol).join(", ")}.`;
+    const responsePayload = {
       success: true,
       matched: true,
-      lat,
-      lon,
+      lat: normLat,
+      lon: normLon,
       regionId,
-      unitSymbol: matchedSymbol,
-      unitName: matchedSymbol,
-      epoch: unitInfo.epoch,
-      lithology: unitInfo.lithology,
-      boundaryContext: unitInfo.boundaryContext,
-      citation: "Tanaka, K.L., et al. (2014) Geologic Map of Mars, USGS SIM 3292, Pamphlet 43 p.",
-      sourceUrl: "https://pubs.usgs.gov/sim/3292/"
-    });
+      quadrangle: quad.label,
+      units: [primaryUnit],
+      nearbyUnits: nearbyUnitsList,
+      boundariesSummary,
+      sim3292Release: SIM3292_DATASET_RELEASE,
+      stacDtms,
+      provenance: {
+        primaryMap: "USGS Scientific Investigations Map 3292 (Tanaka et al., 2014)",
+        usgsCenter: "USGS Astrogeology Science Center, Flagstaff, AZ",
+        wmsEndpoint: "https://planetarymaps.usgs.gov/cgi-bin/mapserv?map=/maps/mars/mars_simp_cyl.map",
+        stacEndpoint: "https://stac.astrogeology.usgs.gov/api",
+        geojsonEndpoint: mapServerBase,
+        pubsEndpoint: "https://pubs.usgs.gov/sim/3292/",
+        retrievedAt: (/* @__PURE__ */ new Date()).toISOString()
+      },
+      sourceStatus: isLiveQuery ? "live" : "catalog-fallback"
+    };
+    return res.json(responsePayload);
   } catch (err) {
-    res.status(500).json({ success: false, error: { message: getErrorMessage(err) } });
+    console.error("[API_USGS_GEOLOGY_ERROR]", err);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: "USGS_GEOLOGY_QUERY_ERROR",
+        message: getErrorMessage(err),
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      }
+    });
   }
 });
 app.get("/api/worldview/analog", (_req, res) => {

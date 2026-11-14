@@ -362,10 +362,8 @@ export async function fetchUserMissions() {
       const colRef = collection(db, 'users', userId, 'missions');
       const snapshot = await getDocs(colRef);
       const docs = snapshot.docs.map(d => d.data());
-      if (docs.length > 0) {
-        setLocalMissions(docs);
-        return docs;
-      }
+      setLocalMissions(docs);
+      return docs;
     } catch (error) {
       if (error?.code === 'resource-exhausted' || (error?.message && error.message.includes('resource-exhausted'))) {
         markFirestoreQuotaExceeded();
@@ -403,12 +401,8 @@ export function subscribeToUserMissions(callback) {
       colRef,
       (snapshot) => {
         const remoteMissions = snapshot.docs.map(doc => doc.data());
-        if (remoteMissions.length > 0) {
-          setLocalMissions(remoteMissions);
-          callback(remoteMissions);
-        } else {
-          callback(getLocalMissions());
-        }
+        setLocalMissions(remoteMissions);
+        callback(remoteMissions);
       },
       (error) => {
         if (error?.code === 'resource-exhausted' || (error?.message && error.message.includes('resource-exhausted'))) {

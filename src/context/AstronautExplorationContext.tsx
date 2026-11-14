@@ -1,6 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '../firebase';
 import { useWorkspace } from './WorkspaceContext';
-import { sharedExplorationStore, ActiveExplorationSession } from '../services/sharedExplorationStore';
+import { sharedExplorationStore, ActiveExplorationSession, ExplorationTargetRecord } from '../services/sharedExplorationStore';
+import {
+  saveTargetObservation,
+  syncPendingTargetObservationsToFirestore,
+  TargetLifecycleStatus
+} from '../services/targetPersistenceService';
 import {
   fetchUsgsGeologyContext,
   fetchTrekElevationPoint,
@@ -9,6 +16,7 @@ import {
   TrekElevationSample,
   SpaceWeatherApiResponse
 } from '../services/marsGeospatialService';
+import { TerrainRegionItem } from '../services/terrainIntelligenceService';
 import { computeMultiStrategyRoutes, MultiStrategyRouteOutput } from '../utils/marsPathfinding';
 import {
   SuitConfigId,
@@ -60,6 +68,7 @@ export interface ScientificObjective {
 
 export interface GeologicalTarget {
   id: string;
+  regionId: string;
   name: string;
   lat: number | null;
   lon: number | null;
@@ -69,12 +78,28 @@ export interface GeologicalTarget {
   supportingImage: string;
   dataSource: string;
   instrument: string;
-  confidencePct: number;
+  confidencePct: number | null;
   relevance: string;
   recommendedMethod: string;
-  status: 'Not Investigated' | 'Planned' | 'In Progress' | 'Sample Collected' | 'Completed' | 'Rejected';
+  status: TargetLifecycleStatus;
   notes: string[];
   photoUrls: string[];
+  areaPx?: number;
+  areaPct?: number;
+  boundingBox?: ExplorationTargetRecord['boundingBox'];
+  colorDistribution?: TerrainRegionItem['colorDistribution'];
+  textureAndRoughness?: TerrainRegionItem['textureAndRoughness'];
+  shapeAndSpatial?: TerrainRegionItem['shapeAndSpatial'];
+  visualEvidence?: string;
+  classificationJustification?: string;
+  mineralogyCaveat?: string;
+  isAmbiguous?: boolean;
+  ambiguityReason?: string | null;
+  maskColor?: string;
+  overlayMaskDataUrl?: string;
+  processingMethod?: string;
+  modelVersion?: string | null;
+  syncState?: 'firestore' | 'local_guest' | 'local_pending_sync' | 'session_only';
 }
 
 export type SuitConfigType = SuitConfigId;
@@ -143,6 +168,7 @@ export interface AstronautExplorationContextType {
   terrainIntelligence: any | null;
   isProcessingIntelligence: boolean;
   processUploadedPhoto: (file: File) => Promise<void>;
+  retryAiAnalysis: () => Promise<void>;
 
   // Locations & Coordinates
   selectedLocationId: string;
@@ -157,8 +183,10 @@ export interface AstronautExplorationContextType {
 
   // Geological Targets
   geologicalTargets: GeologicalTarget[];
+  targetSyncError: string | null;
   updateTargetStatus: (id: string, status: GeologicalTarget['status']) => void;
   addTargetNote: (id: string, note: string) => void;
+  updateActiveImageCoordinates: (lat: number | null, lon: number | null) => void;
 
   // Suit Mobility Model
   suitConfig: SuitConfigType;
@@ -321,6 +349,7 @@ export const AstronautExplorationProvider: React.FC<{ children: React.ReactNode 
 
   const [objectives, setObjectives] = useState<ScientificObjective[]>(INITIAL_OBJECTIVES);
   const [geologicalTargets, setGeologicalTargets] = useState<GeologicalTarget[]>([]);
+  const [targetSyncError, setTargetSyncError] = useState<string | null>(null);
   const [suitConfig, setSuitConfig] = useState<SuitConfigType>('standard');
   const [suitConfigs, setSuitConfigs] = useState<Record<SuitConfigType, SuitConfigInputRecord>>(() => createEmptySuitConfigs());
   const [environmentGravity, setEnvironmentGravity] = useState<FieldProvenance>(() => createReferenceGravity());
@@ -341,13 +370,35 @@ export const AstronautExplorationProvider: React.FC<{ children: React.ReactNode 
   const [spaceWeatherLoading, setSpaceWeatherLoading] = useState<boolean>(false);
   const [spaceWeatherError, setSpaceWeatherError] = useState<string | null>(null);
 
+  // Sync any pending target notes/statuses to Firestore whenever user authenticates
+  useEffect(() => {
+    const unsubAuth = onAuthStateChanged(auth, async (u) => {
+      if (u) {
+        try {
+          const syncedCount = await syncPendingTargetObservationsToFirestore();
+          if (syncedCount > 0) {
+            const sess = sharedExplorationStore.getSession();
+            sess.geologicalTargets.forEach(t => {
+              if (t.syncState !== 'firestore') {
+                sharedExplorationStore.updateGeologicalTarget(t.id, { syncState: 'firestore' });
+              }
+            });
+          }
+        } catch {
+          // ignore
+        }
+      }
+    });
+    return () => unsubAuth();
+  }, []);
+
   // Reactive Subscription to Shared Exploration Session Store
   useEffect(() => {
     const unsubscribe = sharedExplorationStore.subscribe((session) => {
       setActiveSession(session);
-      // Always sync targets strictly to active session (clears old targets immediately when new image starts)
       const dynamicTargets: GeologicalTarget[] = (session.geologicalTargets || []).map(t => ({
         id: t.id,
+        regionId: t.regionId,
         name: t.name,
         lat: t.lat,
         lon: t.lon,
@@ -362,7 +413,23 @@ export const AstronautExplorationProvider: React.FC<{ children: React.ReactNode 
         recommendedMethod: t.recommendedMethod,
         status: t.status,
         notes: t.notes,
-        photoUrls: t.photoUrls
+        photoUrls: t.photoUrls,
+        areaPx: t.areaPx,
+        areaPct: t.areaPct,
+        boundingBox: t.boundingBox,
+        colorDistribution: t.colorDistribution,
+        textureAndRoughness: t.textureAndRoughness,
+        shapeAndSpatial: t.shapeAndSpatial,
+        visualEvidence: t.visualEvidence,
+        classificationJustification: t.classificationJustification,
+        mineralogyCaveat: t.mineralogyCaveat,
+        isAmbiguous: t.isAmbiguous,
+        ambiguityReason: t.ambiguityReason,
+        maskColor: t.maskColor,
+        overlayMaskDataUrl: t.overlayMaskDataUrl,
+        processingMethod: t.processingMethod,
+        modelVersion: t.modelVersion,
+        syncState: t.syncState
       }));
       setGeologicalTargets(dynamicTargets);
 
@@ -574,6 +641,29 @@ export const AstronautExplorationProvider: React.FC<{ children: React.ReactNode 
     }
   };
 
+  const retryAiAnalysis = async () => {
+    const imgUrl = activeSession.imageMetadata?.url;
+    if (!imgUrl) return;
+    setIsProcessingIntelligence(true);
+    try {
+      await sharedExplorationStore.processAndSyncImage(
+        imgUrl,
+        activeSession.imageMetadata.fileName,
+        activeSession.activeRegion || selectedLocationId || 'jezero',
+        undefined,
+        undefined,
+        {
+          ...activeSession.provenance,
+          forceRefresh: true
+        }
+      );
+    } catch (err) {
+      console.error('Failed to retry AI analysis:', err);
+    } finally {
+      setIsProcessingIntelligence(false);
+    }
+  };
+
   const addObjective = (obj: ScientificObjective) => {
     setObjectives(prev => [obj, ...prev]);
   };
@@ -582,12 +672,68 @@ export const AstronautExplorationProvider: React.FC<{ children: React.ReactNode 
     setObjectives(prev => prev.map(o => (o.id === id ? { ...o, status } : o)));
   };
 
+  const persistTargetChange = useCallback(
+    async (tgt: GeologicalTarget, nextStatus: TargetLifecycleStatus, nextNotes: string[]) => {
+      const imageKey =
+        activeSession.imageMetadata.imageContentKey ||
+        activeSession.provenance.identifier ||
+        activeSession.imageMetadata.fileName;
+      setTargetSyncError(null);
+      try {
+        const saved = await saveTargetObservation({
+          imageKey,
+          imageName: activeSession.imageMetadata.fileName,
+          targetId: tgt.id,
+          regionId: tgt.regionId,
+          targetName: tgt.name,
+          status: nextStatus,
+          notes: nextNotes
+        });
+        sharedExplorationStore.updateGeologicalTarget(tgt.id, {
+          status: nextStatus,
+          notes: nextNotes,
+          syncState: saved.syncState
+        });
+      } catch (err: any) {
+        setTargetSyncError(err?.message || 'Firestore target sync failed; change preserved in local cache.');
+        sharedExplorationStore.updateGeologicalTarget(tgt.id, {
+          status: nextStatus,
+          notes: nextNotes,
+          syncState: 'local_pending_sync'
+        });
+      }
+    },
+    [activeSession.imageMetadata.fileName, activeSession.imageMetadata.imageContentKey, activeSession.provenance.identifier]
+  );
+
   const updateTargetStatus = (id: string, status: GeologicalTarget['status']) => {
-    setGeologicalTargets(prev => prev.map(t => (t.id === id ? { ...t, status } : t)));
+    const target = geologicalTargets.find(t => t.id === id);
+    if (!target) return;
+    sharedExplorationStore.updateGeologicalTarget(id, { status });
+    persistTargetChange(target, status, target.notes);
   };
 
   const addTargetNote = (id: string, note: string) => {
-    setGeologicalTargets(prev => prev.map(t => (t.id === id ? { ...t, notes: [...t.notes, note] } : t)));
+    const target = geologicalTargets.find(t => t.id === id);
+    if (!target) return;
+    const nextNotes = [...target.notes, note];
+    sharedExplorationStore.updateGeologicalTarget(id, { notes: nextNotes });
+    persistTargetChange(target, target.status, nextNotes);
+  };
+
+  const updateActiveImageCoordinates = (lat: number | null, lon: number | null) => {
+    const hasValid = typeof lat === 'number' && typeof lon === 'number' && Number.isFinite(lat) && Number.isFinite(lon);
+    sharedExplorationStore.updateSession({
+      provenance: {
+        ...activeSession.provenance,
+        lat: hasValid ? lat : null,
+        lon: hasValid ? lon : null,
+        coordinateScope: hasValid ? 'exact_verified' : 'unavailable',
+        locationLabel: hasValid
+          ? `Operator-specified (${lat!.toFixed(3)}°N, ${lon!.toFixed(3)}°E)`
+          : 'Coordinates Unavailable'
+      }
+    });
   };
 
   const effectiveRouteDistanceM = customRouteDistanceM ?? routes[selectedRouteId]?.distanceM ?? activeSession.activeRoute?.distanceM ?? null;
@@ -697,6 +843,7 @@ export const AstronautExplorationProvider: React.FC<{ children: React.ReactNode 
         terrainIntelligence: activeSession.terrainReport,
         isProcessingIntelligence,
         processUploadedPhoto,
+        retryAiAnalysis,
         selectedLocationId,
         setSelectedLocationId,
         currentCoordinates,
@@ -705,8 +852,10 @@ export const AstronautExplorationProvider: React.FC<{ children: React.ReactNode 
         addObjective,
         updateObjectiveStatus,
         geologicalTargets,
+        targetSyncError,
         updateTargetStatus,
         addTargetNote,
+        updateActiveImageCoordinates,
         suitConfig,
         setSuitConfig,
         getSuitConfigDetails,

@@ -82,27 +82,25 @@ export const MissionRecordProvider = ({ children }: { children: React.ReactNode 
 
   const { user } = useAuth();
 
-  // Load missions and subscribe to updates, ensuring a default mission exists
+  // Load missions and subscribe to updates without hardcoded default missions
   const loadMissions = useCallback(async () => {
     if (isLoadingInFlightRef.current) return;
     isLoadingInFlightRef.current = true;
     setIsLoading(true);
     try {
       const data = await fetchUserMissions();
-      let list = data;
-      if (!list || list.length === 0) {
-        const defaultMsn = createNewMissionRecord({ name: 'Jezero Delta Traverse Sol 428', description: 'Default Initial Mission' });
-        await saveMissionRecord(defaultMsn, { localOnly: true });
-        list = [defaultMsn];
-      }
+      const list = Array.isArray(data) ? data : [];
       setMissions(list);
 
       const savedId = localStorage.getItem('marsnav_active_mission_id');
       if (savedId && list.some((m: any) => m.id === savedId)) {
         setActiveMissionId(savedId);
-      } else {
+      } else if (list.length > 0) {
         setActiveMissionId(list[0].id);
         localStorage.setItem('marsnav_active_mission_id', list[0].id);
+      } else {
+        setActiveMissionId(null);
+        localStorage.removeItem('marsnav_active_mission_id');
       }
     } finally {
       setIsLoading(false);
@@ -114,10 +112,12 @@ export const MissionRecordProvider = ({ children }: { children: React.ReactNode 
     loadMissions();
 
     const unsubscribe = subscribeToUserMissions((updatedList: any) => {
-      if (updatedList && updatedList.length > 0) {
-        setMissions(updatedList);
-        setActiveMissionId((prev: string | null) => (prev && updatedList.some((m: any) => m.id === prev)) ? prev : updatedList[0].id);
-      }
+      const list = Array.isArray(updatedList) ? updatedList : [];
+      setMissions(list);
+      setActiveMissionId((prev: string | null) => {
+        if (prev && list.some((m: any) => m.id === prev)) return prev;
+        return list.length > 0 ? list[0].id : null;
+      });
     });
 
     return () => unsubscribe();

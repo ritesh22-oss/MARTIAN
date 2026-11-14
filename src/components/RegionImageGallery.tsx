@@ -538,16 +538,18 @@ export default function RegionImageGallery({
               >
                 {/* Image Thumbnail Container */}
                 <div className="relative aspect-video bg-black overflow-hidden flex items-center justify-center">
-                  <img
-                    src={getSafeUrl(record.thumbnailUrl || record.assetUrl)}
-                    alt={record.title}
-                    loading="lazy"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 select-none"
-                    onError={(e) => {
-                      // Do not fall back silently to unrelated image
-                      (e.currentTarget as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
+                  {getSafeUrl(record.thumbnailUrl || record.assetUrl) && (
+                    <img
+                      src={getSafeUrl(record.thumbnailUrl || record.assetUrl)}
+                      alt={record.title}
+                      loading="lazy"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 select-none"
+                      onError={(e) => {
+                        // Do not fall back silently to unrelated image
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  )}
 
                   {/* Gradient Overlay */}
                   <div className="absolute inset-0 bg-gradient-to-t from-[#080B16] via-transparent to-black/30 pointer-events-none" />
@@ -762,14 +764,16 @@ export default function RegionImageGallery({
                     transform: `scale(${modalZoom}) translate(${modalPan.x}px, ${modalPan.y}px)`
                   }}
                 >
-                  <img
-                    src={getSafeUrl(activeModalImage.assetUrl || activeModalImage.thumbnailUrl)}
-                    alt={activeModalImage.title}
-                    className="max-h-[70vh] w-auto max-w-full object-contain rounded-lg shadow-2xl pointer-events-none"
-                    onError={(e) => {
-                      setAssetLoadFailed(true);
-                    }}
-                  />
+                  {getSafeUrl(activeModalImage.assetUrl || activeModalImage.thumbnailUrl) && (
+                    <img
+                      src={getSafeUrl(activeModalImage.assetUrl || activeModalImage.thumbnailUrl)}
+                      alt={activeModalImage.title}
+                      className="max-h-[70vh] w-auto max-w-full object-contain rounded-lg shadow-2xl pointer-events-none"
+                      onError={(e) => {
+                        setAssetLoadFailed(true);
+                      }}
+                    />
+                  )}
                 </div>
 
                 {assetLoadFailed && (

@@ -12,8 +12,17 @@ import {
   ObstacleSizeCategory,
   UploadedImageValidation
 } from './terrainVisionService';
+import {
+  extractImageMetadataAndHash,
+  ExtractedExifMetadata,
+  computeDeterministicBytesHash
+} from './exifExtractor';
+import {
+  segmentHtmlImageElement,
+  SegmentedRegionMeasurement
+} from './terrainSegmentationEngine';
 
-export const DATASET_VERSION = 'MARSNAV_TI_v3_SIM3292';
+export const DATASET_VERSION = 'MARSNAV_TI_v4_SEGMENTED';
 
 export type CoordinateProvenanceScope =
   | 'exact_verified'
@@ -30,10 +39,13 @@ export type TerrainRegionClassification =
   | 'Erosion Feature'
   | 'Boulder Field'
   | 'Geological Boundary'
+  | 'UNCLASSIFIED'
+  | 'UNKNOWN'
   | 'Other Formation';
 
 export interface TerrainRegionItem {
   id: string;
+  regionId: string;
   title: string;
   classification: TerrainRegionClassification | string;
   locationDescription: string;
@@ -41,12 +53,50 @@ export interface TerrainRegionItem {
   normY: number;
   normWidth: number;
   normHeight: number;
+  pixelX: number;
+  pixelY: number;
+  pixelWidth: number;
+  pixelHeight: number;
+  areaPx: number;
+  areaPct: number;
+  colorDistribution: {
+    meanRgb: [number, number, number];
+    stdRgb: [number, number, number];
+    redBlueRatio: number;
+    redGreenRatio: number;
+    dominantTone: string;
+  };
+  textureAndRoughness: {
+    meanLuminance: number;
+    luminanceStd: number;
+    meanEdgeGradient: number;
+    edgeDensityPct: number;
+    roughnessIndex: number;
+    localTextureStd: number;
+  };
+  shapeAndSpatial: {
+    perimeterPx: number;
+    compactness: number;
+    aspectRatio: number;
+    spatialZone: string;
+  };
   visualCharacteristics: string;
-  confidence: number;
+  classificationJustification: string;
+  surfaceEvidence: string;
+  /** Strictly null unless calibrated ground-truth validation exists; never fabricated. */
+  confidence: number | null;
+  confidenceStatus: 'uncalibrated_cv_only' | 'uncalibrated_ai_visual' | 'unavailable';
   scientificSignificance: string;
   roverTraversalConcerns: string;
+  recommendedMethod: string;
   hazardLevel: 'low' | 'moderate' | 'high';
-  source: 'gemini-vision' | 'deterministic-cv';
+  isAmbiguous: boolean;
+  ambiguityReason: string | null;
+  maskColor: string;
+  overlayMaskDataUrl?: string;
+  processingMethod: string;
+  modelVersion: string | null;
+  source: 'gemini-vision+cv-segmentation' | 'deterministic-cv-segmentation';
 }
 
 export interface DetectedObstacleOutput {
@@ -56,7 +106,7 @@ export interface DetectedObstacleOutput {
   sizeCategory: ObstacleSizeCategory;
   hazardStatus: ObstacleHazardStatus;
   riskLevel: 'high' | 'moderate' | 'low';
-  riskColor: string; // '#ef4444' (Red - High), '#f97316' (Orange - Moderate), '#eab308' (Yellow - Low)
+  riskColor: string;
   traversalRelevance: string;
   detectionMethod: 'CV Localizer' | 'Gemini Vision';
   confidence: number;
@@ -118,7 +168,11 @@ export interface ScientificTerrainReport {
 
 export interface CompleteTerrainIntelligenceReport {
   imageIdentifier: string;
+  imageContentKey: string;
   datasetVersion: string;
+  detectedFormat: string;
+  fileSizeBytes: number | null;
+  exifMetadata: ExtractedExifMetadata;
   naturalWidth: number;
   naturalHeight: number;
   aspectRatio: string;
@@ -130,13 +184,18 @@ export interface CompleteTerrainIntelligenceReport {
   };
   meanBrightness: number;
   rmsContrast: number;
+  edgeDensityPct: number;
   roughnessScore: number;
   shadowContrast: number;
   dominantFeature: string;
   segmentationMaskUrl?: string;
+  processingMethod: string;
+  modelVersion: string | null;
   aiAvailable: boolean;
   aiStatus: string;
   aiStatusMessage?: string;
+  aiFallbackBanner?: string;
+  structuredAiOutput?: Record<string, any> | null;
   regions: TerrainRegionItem[];
   detectedBoulders: DetectedObstacleOutput[];
   geologicalIdentification: GeologicalIdentificationResult;
@@ -158,6 +217,7 @@ export interface CompleteTerrainIntelligenceReport {
 export interface AnalyzeTerrainIntelligenceParams {
   imageUrl: string;
   imageIdentifier: string;
+  file?: File | Blob | null;
   mission?: string;
   camera?: string;
   sol?: number;
@@ -211,12 +271,6 @@ function normalizeBox(
   };
 }
 
-function describeNormalizedZone(cx: number, cy: number): string {
-  const v = cy < 0.33 ? 'Upper (Far-field)' : cy < 0.67 ? 'Mid-frame' : 'Lower (Foreground)';
-  const h = cx < 0.33 ? 'Left' : cx < 0.67 ? 'Center' : 'Right';
-  return `${v} ${h}`;
-}
-
 function boxIoU(
   a: { normX: number; normY: number; normWidth: number; normHeight: number },
   b: { normX: number; normY: number; normWidth: number; normHeight: number }
@@ -266,9 +320,94 @@ function coerceHazardStatus(raw: any): ObstacleHazardStatus {
   return 'Detected visual obstacle';
 }
 
+function deriveHazardLevel(seg: SegmentedRegionMeasurement): 'low' | 'moderate' | 'high' {
+  if (seg.isAmbiguous) return 'moderate';
+  if (seg.textureAndRoughness.edgeDensityPct >= 22 || seg.textureAndRoughness.roughnessIndex >= 0.55) {
+    return 'high';
+  }
+  if (
+    seg.provisionalVisualClass.includes('Sand') ||
+    seg.textureAndRoughness.edgeDensityPct >= 14 ||
+    seg.textureAndRoughness.roughnessIndex >= 0.36
+  ) {
+    return 'moderate';
+  }
+  return 'low';
+}
+
+function buildCvOnlyRegionItem(seg: SegmentedRegionMeasurement, processingMethod: string): TerrainRegionItem {
+  const { colorDistribution: cd, textureAndRoughness: tr, shapeAndSpatial: ss, boundingBox: bb } = seg;
+  const visualEvidence = `Measured ${seg.areaPct}% of frame (${seg.areaPx.toLocaleString()} px) in ${ss.spatialZone}. Mean RGB (${cd.meanRgb.join(', ')}, R/B ${cd.redBlueRatio}, ${cd.dominantTone}); luminance ${tr.meanLuminance}/255 (σ=${tr.luminanceStd}); Sobel edge gradient ${tr.meanEdgeGradient}, edge density ${tr.edgeDensityPct}%, roughness proxy ${tr.roughnessIndex}; compactness ${ss.compactness}, aspect ${ss.aspectRatio}:1.`;
+
+  let sig = `Visually distinct ${cd.dominantTone.toLowerCase()} terrain region (${seg.areaPct}% area) isolated by pixel color/texture segmentation.`;
+  let concern = `Edge density ${tr.edgeDensityPct}% and roughness ${tr.roughnessIndex}; verify micro-relief before traverse.`;
+  let method = 'Close-range optical imaging and spectrometer follow-up required to determine composition.';
+  let justification = `Assigned "${seg.provisionalVisualClass}" from measured R/B=${cd.redBlueRatio}, luminance=${tr.meanLuminance}±${tr.luminanceStd}, and edge density=${tr.edgeDensityPct}% without external ground truth.`;
+
+  if (seg.isAmbiguous && seg.ambiguityReason) {
+    sig = 'Region exhibits insufficient contrast or illumination clipping for reliable optical geological interpretation.';
+    concern = 'Surface relief obscured; treat traverse stability as unknown.';
+    method = 'Re-acquire under higher SNR/oblique illumination or stereo imaging.';
+    justification = seg.ambiguityReason;
+  } else if (seg.provisionalVisualClass.includes('Rock') || seg.provisionalVisualClass.includes('Fractured')) {
+    sig = `High-edge clast/outcrop signature (${tr.edgeDensityPct}% edge pixels, σ_lum=${tr.luminanceStd}) indicates competent rock relief or fractured exposure.`;
+    concern = 'Sharp clast boundaries and relief transitions pose wheel-impact or clearance hazards.';
+    method = 'Stereo hazard check + targeted LIBS/XRF or Raman spectroscopy for rock mineralogy.';
+  } else if (seg.provisionalVisualClass.includes('Outcrop') || seg.provisionalVisualClass.includes('Slab')) {
+    sig = `Brighter coherent surface (${tr.meanLuminance}/255 lum, low edge clutter ${tr.edgeDensityPct}%) consistent with exposed consolidated plate morphology.`;
+    concern = 'Check slab step edges and joint fractures along bounding perimeter.';
+    method = 'High-resolution close-up imaging for grain/lamination textures + contact spectroscopy.';
+  } else if (seg.provisionalVisualClass.includes('Sand') || seg.provisionalVisualClass.includes('Aeolian')) {
+    sig = `Warm fine-grained signature (R/B=${cd.redBlueRatio}, low local texture σ=${tr.localTextureStd}) consistent with unconsolidated wind-sorted fines.`;
+    concern = 'Elevated wheel-slip and sinkage risk across loose fine-grained drift.';
+    method = 'Wheel-trench inspection or grain-scale macro imaging prior to heavy traverse.';
+  }
+
+  return {
+    id: seg.regionId,
+    regionId: seg.regionId,
+    title: seg.isAmbiguous ? `${seg.regionId} · ${seg.provisionalVisualClass} (${ss.spatialZone})` : `${seg.regionId} · ${seg.provisionalVisualClass}`,
+    classification: seg.provisionalVisualClass,
+    locationDescription: `${ss.spatialZone} (X:${Math.round(bb.normX * 100)}–${Math.round((bb.normX + bb.normWidth) * 100)}%, Y:${Math.round(bb.normY * 100)}–${Math.round((bb.normY + bb.normHeight) * 100)}%)`,
+    normX: bb.normX,
+    normY: bb.normY,
+    normWidth: bb.normWidth,
+    normHeight: bb.normHeight,
+    pixelX: bb.pixelX,
+    pixelY: bb.pixelY,
+    pixelWidth: bb.pixelWidth,
+    pixelHeight: bb.pixelHeight,
+    areaPx: seg.areaPx,
+    areaPct: seg.areaPct,
+    colorDistribution: cd,
+    textureAndRoughness: tr,
+    shapeAndSpatial: ss,
+    visualCharacteristics: visualEvidence,
+    classificationJustification: justification,
+    surfaceEvidence: visualEvidence,
+    confidence: null,
+    confidenceStatus: 'uncalibrated_cv_only',
+    scientificSignificance: sig,
+    roverTraversalConcerns: concern,
+    recommendedMethod: method,
+    hazardLevel: deriveHazardLevel(seg),
+    isAmbiguous: seg.isAmbiguous,
+    ambiguityReason: seg.ambiguityReason,
+    maskColor: seg.maskColor,
+    overlayMaskDataUrl: seg.overlayMaskDataUrl,
+    processingMethod,
+    modelVersion: null,
+    source: 'deterministic-cv-segmentation'
+  };
+}
+
 interface CvPixelExtraction {
   naturalWidth: number;
   naturalHeight: number;
+  detectedFormat: string;
+  fileSizeBytes: number | null;
+  exifMetadata: ExtractedExifMetadata;
+  imageContentKey: string;
   pixelComposition: {
     soilPct: number;
     bedrockPct: number;
@@ -277,20 +416,44 @@ interface CvPixelExtraction {
   };
   meanBrightness: number;
   rmsContrast: number;
+  edgeDensityPct: number;
   roughnessScore: number;
   shadowContrast: number;
   dominantFeature: string;
   segmentationMaskUrl?: string;
-  cvRegions: TerrainRegionItem[];
+  processingMethod: string;
+  segmentedRegions: SegmentedRegionMeasurement[];
   cvObstacles: DetectedTerrainObstacle[];
   imageBase64ForUpload?: string;
   mimeTypeForUpload?: string;
 }
 
-async function loadAndInspectCompleteImage(imageUrl: string, fileName: string, signal?: AbortSignal): Promise<CvPixelExtraction> {
+async function loadAndInspectCompleteImage(
+  imageUrl: string,
+  fileName: string,
+  fileInput?: File | Blob | null,
+  signal?: AbortSignal
+): Promise<CvPixelExtraction> {
   const safeSrc = getSafeImageUrl(imageUrl);
 
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+  // Extract real EXIF/XMP metadata and deterministic file hash if file bytes are present
+  let blobForExif: File | Blob | null = fileInput || null;
+  if (!blobForExif && (imageUrl.startsWith('blob:') || imageUrl.startsWith('data:'))) {
+    try {
+      const resp = await fetch(imageUrl, { signal });
+      if (resp.ok) blobForExif = await resp.blob();
+    } catch {
+      // ignore if blob revoked or unreadable
+    }
+  }
+
+  const exifPromise = extractImageMetadataAndHash(blobForExif, fileName);
+
+  const imgPromise = new Promise<HTMLImageElement>((resolve, reject) => {
+    if (!safeSrc) {
+      reject(new Error('Image source URL is empty.'));
+      return;
+    }
     if (signal?.aborted) {
       reject(new DOMException('Image inspection aborted', 'AbortError'));
       return;
@@ -329,14 +492,16 @@ async function loadAndInspectCompleteImage(imageUrl: string, fileName: string, s
     }
   });
 
+  const [exifRes, img] = await Promise.all([exifPromise, imgPromise]);
+
   const nw = img.naturalWidth;
   const nh = img.naturalHeight;
 
   const stubValidation: UploadedImageValidation = {
     fileName,
-    format: fileName.toLowerCase().endsWith('.png') ? 'PNG' : 'JPEG',
-    fileSizeBytes: 0,
-    fileSizeFormatted: 'N/A',
+    format: exifRes.exif.detectedFormat !== 'UNKNOWN' ? exifRes.exif.detectedFormat : fileName.toLowerCase().endsWith('.png') ? 'PNG' : 'JPEG',
+    fileSizeBytes: exifRes.exif.fileSizeBytes ?? 0,
+    fileSizeFormatted: exifRes.exif.fileSizeBytes ? `${(exifRes.exif.fileSizeBytes / 1024).toFixed(1)} KB` : 'N/A',
     width: nw,
     height: nh,
     aspectRatio: `${(nw / Math.max(1, nh)).toFixed(2)}:1`,
@@ -349,249 +514,22 @@ async function loadAndInspectCompleteImage(imageUrl: string, fileName: string, s
     validationNotes: []
   };
 
-  // Run full pixel-level obstacle localizer + segmentation mask
-  const cvResult = analyzeImageTerrainFeatures(img, stubValidation, [], { width: nw, height: nh });
+  // Run full pixel-level obstacle localizer + deterministic SLIC/feature-distance segmentation
+  const cvObstaclesResult = analyzeImageTerrainFeatures(img, stubValidation, [], { width: nw, height: nh });
+  const segmentation = segmentHtmlImageElement(img, 260);
 
-  // Derive tile regions from a quick downsampled inspect pass for Region Summary boxes
-  const maxSide = 480;
-  const scale = Math.min(1, maxSide / Math.max(nw, nh));
-  const workW = Math.max(32, Math.round(nw * scale));
-  const workH = Math.max(32, Math.round(nh * scale));
-
-  const canvas = document.createElement('canvas');
-  canvas.width = workW;
-  canvas.height = workH;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) throw new Error('Canvas 2D context unavailable.');
-
-  ctx.drawImage(img, 0, 0, workW, workH);
-  const { data } = ctx.getImageData(0, 0, workW, workH);
-  const totalPx = workW * workH;
-
-  const gray = new Float32Array(totalPx);
-  const edge = new Float32Array(totalPx);
-  const warmth = new Float32Array(totalPx);
-
-  let sumGray = 0;
-  let sumGraySq = 0;
-
-  for (let i = 0; i < totalPx; i++) {
-    const p = i * 4;
-    const r = data[p];
-    const g = data[p + 1];
-    const b = data[p + 2];
-    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    gray[i] = lum;
-    warmth[i] = r - b;
-    sumGray += lum;
-    sumGraySq += lum * lum;
+  let imageContentKey = exifRes.contentHash || segmentation.pixelSignatureHash;
+  if (!exifRes.contentHash) {
+    // Stable digest combining URL/id and pixel signature hash
+    const enc = new TextEncoder().encode(`${fileName}|${segmentation.pixelSignatureHash}`);
+    imageContentKey = await computeDeterministicBytesHash(enc);
   }
 
-  const meanBrightness = sumGray / totalPx;
-  const variance = Math.max(1, sumGraySq / totalPx - meanBrightness * meanBrightness);
-  const rmsContrast = Math.sqrt(variance);
-
-  for (let y = 1; y < workH - 1; y++) {
-    for (let x = 1; x < workW - 1; x++) {
-      const idx = y * workW + x;
-      const gx =
-        -gray[(y - 1) * workW + (x - 1)] + gray[(y - 1) * workW + (x + 1)] +
-        -2 * gray[y * workW + (x - 1)] + 2 * gray[y * workW + (x + 1)] +
-        -gray[(y + 1) * workW + (x - 1)] + gray[(y + 1) * workW + (x + 1)];
-      const gy =
-        -gray[(y - 1) * workW + (x - 1)] - 2 * gray[(y - 1) * workW + x] - gray[(y - 1) * workW + (x + 1)] +
-        gray[(y + 1) * workW + (x - 1)] + 2 * gray[(y + 1) * workW + x] + gray[(y + 1) * workW + (x + 1)];
-      edge[idx] = Math.sqrt(gx * gx + gy * gy);
-    }
-  }
-
-  const cols = 4;
-  const rows = 3;
-  const tileW = workW / cols;
-  const tileH = workH / rows;
-
-  interface TileProfile {
-    col: number;
-    row: number;
-    normX: number;
-    normY: number;
-    normWidth: number;
-    normHeight: number;
-    soilRatio: number;
-    bedrockRatio: number;
-    sandRatio: number;
-    rockRatio: number;
-    meanEdge: number;
-    meanLum: number;
-    classification: TerrainRegionClassification;
-    hazardLevel: 'low' | 'moderate' | 'high';
-  }
-
-  const tiles: TileProfile[] = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const x0 = Math.floor(c * tileW);
-      const x1 = Math.min(workW, Math.floor((c + 1) * tileW));
-      const y0 = Math.floor(r * tileH);
-      const y1 = Math.min(workH, Math.floor((r + 1) * tileH));
-
-      let tCount = 0;
-      let tBed = 0;
-      let tSand = 0;
-      let tRock = 0;
-      let tSoil = 0;
-      let tEdge = 0;
-      let tLum = 0;
-
-      for (let yy = y0; yy < y1; yy++) {
-        for (let xx = x0; xx < x1; xx++) {
-          const idx = yy * workW + xx;
-          const gVal = gray[idx];
-          const eVal = edge[idx];
-          const wVal = warmth[idx];
-          tCount++;
-          tEdge += eVal;
-          tLum += gVal;
-
-          if ((gVal > meanBrightness + 1.15 * rmsContrast && eVal > 50) || (gVal < Math.max(25, meanBrightness - 1.15 * rmsContrast) && eVal > 42) || eVal > 78) {
-            tRock++;
-          } else if (gVal > meanBrightness + 0.25 * rmsContrast && eVal < 36) {
-            tBed++;
-          } else if (wVal > 14 && eVal < 38) {
-            tSand++;
-          } else {
-            tSoil++;
-          }
-        }
-      }
-
-      if (tCount === 0) continue;
-      const soilRatio = tSoil / tCount;
-      const bedrockRatio = tBed / tCount;
-      const sandRatio = tSand / tCount;
-      const rockRatio = tRock / tCount;
-      const meanEdge = tEdge / tCount;
-      const meanLum = tLum / tCount;
-
-      let classification: TerrainRegionClassification = 'Regolith & Loose Soil';
-      let hazardLevel: 'low' | 'moderate' | 'high' = 'low';
-
-      if (rockRatio >= 0.14 || meanEdge >= 42) {
-        classification = rockRatio >= 0.2 ? 'Boulder Field' : 'Fractured Rock Surface';
-        hazardLevel = rockRatio >= 0.22 ? 'high' : 'moderate';
-      } else if (bedrockRatio >= 0.28) {
-        classification = meanEdge > 24 ? 'Rocky Outcrop' : 'Bedrock Exposure';
-        hazardLevel = meanEdge > 30 ? 'moderate' : 'low';
-      } else if (sandRatio >= 0.22) {
-        classification = 'Sand Deposit / Dune';
-        hazardLevel = 'moderate';
-      }
-
-      tiles.push({
-        col: c,
-        row: r,
-        normX: x0 / workW,
-        normY: y0 / workH,
-        normWidth: (x1 - x0) / workW,
-        normHeight: (y1 - y0) / workH,
-        soilRatio,
-        bedrockRatio,
-        sandRatio,
-        rockRatio,
-        meanEdge,
-        meanLum,
-        classification,
-        hazardLevel
-      });
-    }
-  }
-
-  const mergedTiles: TileProfile[] = [];
-  const used = new Set<number>();
-  for (let i = 0; i < tiles.length; i++) {
-    if (used.has(i)) continue;
-    const base = { ...tiles[i] };
-    used.add(i);
-
-    let spanCols = 1;
-    for (let j = i + 1; j < tiles.length; j++) {
-      if (used.has(j)) continue;
-      const cand = tiles[j];
-      if (cand.row === base.row && cand.col === base.col + spanCols && cand.classification === base.classification) {
-        used.add(j);
-        spanCols++;
-        base.normWidth = Number((base.normWidth + cand.normWidth).toFixed(4));
-        base.soilRatio = (base.soilRatio + cand.soilRatio) / 2;
-        base.bedrockRatio = (base.bedrockRatio + cand.bedrockRatio) / 2;
-        base.sandRatio = (base.sandRatio + cand.sandRatio) / 2;
-        base.rockRatio = (base.rockRatio + cand.rockRatio) / 2;
-        base.meanEdge = (base.meanEdge + cand.meanEdge) / 2;
-      } else if (cand.row !== base.row) {
-        break;
-      }
-    }
-    mergedTiles.push(base);
-  }
-
-  const prioritized = [...mergedTiles]
-    .sort((a, b) => {
-      const scoreA = a.rockRatio * 3 + a.bedrockRatio * 2 + a.sandRatio * 2 + (a.meanEdge / 60);
-      const scoreB = b.rockRatio * 3 + b.bedrockRatio * 2 + b.sandRatio * 2 + (b.meanEdge / 60);
-      return scoreB - scoreA;
-    })
-    .slice(0, 6);
-
-  const cvRegions: TerrainRegionItem[] = prioritized.map((tile, idx) => {
-    const cx = tile.normX + tile.normWidth / 2;
-    const cy = tile.normY + tile.normHeight / 2;
-    const locLabel = describeNormalizedZone(cx, cy);
-    const box = normalizeBox(tile.normX, tile.normY, tile.normWidth, tile.normHeight, 0.06);
-
-    const dominantPct = Math.round(
-      Math.max(tile.soilRatio, tile.bedrockRatio, tile.sandRatio, tile.rockRatio) * 100
-    );
-
-    const charParts = [
-      `Edge gradient ${tile.meanEdge.toFixed(1)} px/step`,
-      `mean luminance ${Math.round(tile.meanLum)}/255`,
-      `${Math.round(tile.bedrockRatio * 100)}% bright-flat plate`,
-      `${Math.round(tile.rockRatio * 100)}% high-contrast rock/shadow`,
-      `${Math.round(tile.sandRatio * 100)}% warm fine-grain`
-    ];
-
-    let sig = 'Representative regolith matrix suitable for baseline optical surface texture correlation.';
-    let concern = 'Low wheel-obstruction density in 2D pixel contrast; verify fine-scale sinkage locally.';
-    if (tile.classification === 'Boulder Field' || tile.classification === 'Fractured Rock Surface') {
-      sig = 'High-relief clasts and angular rock edges indicate mechanical weathering, ejecta, or fractured caprock.';
-      concern = 'Sharp rock edges and cast shadows pose wheel-puncture, hang-up, and high-clearance hazards.';
-    } else if (tile.classification === 'Bedrock Exposure' || tile.classification === 'Rocky Outcrop') {
-      sig = 'Coherent high-albedo, low-variance slab morphology consistent with exposed lithified outcrop.';
-      concern = 'Firm bearing capacity generally favorable; inspect step edges for vertical drop-offs.';
-    } else if (tile.classification === 'Sand Deposit / Dune') {
-      sig = 'Smooth warm-toned unconsolidated windblown drift or ripple infill.';
-      concern = 'Elevated rover wheel-slip and sinkage risk in unconsolidated aeolian fines.';
-    }
-
-    return {
-      id: `cv_region_${idx + 1}`,
-      title: `${tile.classification} (${locLabel})`,
-      classification: tile.classification,
-      locationDescription: `${locLabel} zone (~${Math.round(box.normX * 100)}–${Math.round((box.normX + box.normWidth) * 100)}% X, ${Math.round(box.normY * 100)}–${Math.round((box.normY + box.normHeight) * 100)}% Y)`,
-      ...box,
-      visualCharacteristics: `${dominantPct}% dominant regional pixel signature (${charParts.join(', ')}).`,
-      confidence: Number(Math.min(0.92, Math.max(0.55, 0.58 + (tile.meanEdge / 140))).toFixed(2)),
-      scientificSignificance: sig,
-      roverTraversalConcerns: concern,
-      hazardLevel: tile.hazardLevel,
-      source: 'deterministic-cv'
-    };
-  });
-
-  // For local blob/data URLs, produce base64 from a proportionally scaled canvas so Gemini sees the complete uncropped image
+  // Produce proportionally scaled JPEG for Gemini Vision (preserving full frame for uploads, /assets, or CORS/proxied NASA images)
   let imageBase64ForUpload: string | undefined;
   let mimeTypeForUpload: string | undefined;
-  if (imageUrl.startsWith('blob:') || imageUrl.startsWith('data:')) {
-    const uploadMax = 1440;
+  try {
+    const uploadMax = 1024;
     const upScale = Math.min(1, uploadMax / Math.max(nw, nh));
     const upW = Math.max(64, Math.round(nw * upScale));
     const upH = Math.max(64, Math.round(nh * upScale));
@@ -601,24 +539,38 @@ async function loadAndInspectCompleteImage(imageUrl: string, fileName: string, s
     const upCtx = upCanvas.getContext('2d');
     if (upCtx) {
       upCtx.drawImage(img, 0, 0, upW, upH);
-      const dataUrl = upCanvas.toDataURL('image/jpeg', 0.88);
+      const dataUrl = upCanvas.toDataURL('image/jpeg', 0.84);
       imageBase64ForUpload = dataUrl.split(',')[1];
       mimeTypeForUpload = 'image/jpeg';
     }
+  } catch {
+    // Fallback to imageUrl on backend if canvas is tainted
   }
+
+  const dominantFeature = segmentation.globalStats.isLowInformationImage
+    ? 'UNCLASSIFIED / Low-Contrast Frame'
+    : segmentation.regions[0]
+      ? `${segmentation.regions[0].provisionalVisualClass} (${segmentation.regions[0].areaPct}% area)`
+      : cvObstaclesResult.dominantFeature;
 
   return {
     naturalWidth: nw,
     naturalHeight: nh,
-    pixelComposition: cvResult.pixelComposition,
-    meanBrightness: Math.round(meanBrightness),
-    rmsContrast: Math.round(rmsContrast),
-    roughnessScore: cvResult.surfaceTextureScore,
-    shadowContrast: cvResult.shadowContrastRatio,
-    dominantFeature: cvResult.dominantFeature,
-    segmentationMaskUrl: cvResult.segmentationMaskUrl,
-    cvRegions,
-    cvObstacles: cvResult.detectedObstacles,
+    detectedFormat: stubValidation.format,
+    fileSizeBytes: exifRes.exif.fileSizeBytes,
+    exifMetadata: exifRes.exif,
+    imageContentKey,
+    pixelComposition: cvObstaclesResult.pixelComposition,
+    meanBrightness: Math.round(segmentation.globalStats.meanBrightness),
+    rmsContrast: Number(segmentation.globalStats.rmsContrast.toFixed(1)),
+    edgeDensityPct: segmentation.globalStats.edgeDensityPct,
+    roughnessScore: segmentation.globalStats.roughnessScore,
+    shadowContrast: cvObstaclesResult.shadowContrastRatio,
+    dominantFeature,
+    segmentationMaskUrl: segmentation.segmentationMaskUrl || cvObstaclesResult.segmentationMaskUrl,
+    processingMethod: segmentation.processingMethod,
+    segmentedRegions: segmentation.regions,
+    cvObstacles: cvObstaclesResult.detectedObstacles,
     imageBase64ForUpload,
     mimeTypeForUpload
   };
@@ -628,32 +580,50 @@ export async function analyzeCompleteTerrainImage(
   params: AnalyzeTerrainIntelligenceParams
 ): Promise<CompleteTerrainIntelligenceReport> {
   const startT = performance.now();
-  const cacheKey = `${params.imageIdentifier || params.imageUrl}::${DATASET_VERSION}`;
+  const cacheKey = `${params.imageIdentifier || params.imageUrl}::${params.coordinateScope || 'unavailable'}::${params.lat ?? 'na'},${params.lon ?? 'na'}::${DATASET_VERSION}`;
   if (!params.forceRefresh && reportCache.has(cacheKey)) {
     return reportCache.get(cacheKey)!;
   }
 
-  // 1. Complete-frame pixel analysis preserving exact aspect ratio
-  const cv = await loadAndInspectCompleteImage(params.imageUrl, params.imageIdentifier, params.signal);
+  // 1. Complete-frame EXIF inspection + real deterministic pixel segmentation
+  const cv = await loadAndInspectCompleteImage(params.imageUrl, params.imageIdentifier, params.file, params.signal);
 
   if (params.signal?.aborted) {
     throw new DOMException('Terrain analysis aborted', 'AbortError');
   }
 
-  // 2. Parallel external requests: AI Complete-Frame Vision + Conditional USGS/Trek Geo-verification
+  // 2. Parallel external requests: AI Complete-Frame Vision (grounded on real regionId segments) + Conditional USGS/Trek Geo-verification
+  const measuredRegionsPayload = cv.segmentedRegions.map(r => ({
+    regionId: r.regionId,
+    areaPct: r.areaPct,
+    areaPx: r.areaPx,
+    spatialZone: r.shapeAndSpatial.spatialZone,
+    meanRgb: r.colorDistribution.meanRgb,
+    redBlueRatio: r.colorDistribution.redBlueRatio,
+    edgeDensityPct: r.textureAndRoughness.edgeDensityPct,
+    roughnessIndex: r.textureAndRoughness.roughnessIndex,
+    normX: r.boundingBox.normX,
+    normY: r.boundingBox.normY,
+    normWidth: r.boundingBox.normWidth,
+    normHeight: r.boundingBox.normHeight
+  }));
+
   const visionPromise = (async () => {
     try {
       const payload: Record<string, any> = {
+        imageId: cv.imageContentKey || params.imageIdentifier,
         fileName: params.imageIdentifier,
+        imageWidth: cv.naturalWidth,
+        imageHeight: cv.naturalHeight,
         missionContext: params.mission || params.source,
-        cameraContext: params.camera,
-        solContext: params.sol
+        cameraContext: params.camera || (cv.exifMetadata.model ? `${cv.exifMetadata.make || ''} ${cv.exifMetadata.model}`.trim() : undefined),
+        solContext: params.sol,
+        measuredRegions: measuredRegionsPayload,
+        imageUrl: params.imageUrl
       };
       if (cv.imageBase64ForUpload) {
         payload.imageBase64 = cv.imageBase64ForUpload;
         payload.mimeType = cv.mimeTypeForUpload || 'image/jpeg';
-      } else {
-        payload.imageUrl = params.imageUrl;
       }
 
       const resp = await fetch('/api/gemini/analyze-terrain', {
@@ -662,16 +632,28 @@ export async function analyzeCompleteTerrainImage(
         body: JSON.stringify(payload),
         signal: params.signal
       });
+      const parsedBody = await resp.json().catch(() => null);
       if (!resp.ok) {
-        return { aiAvailable: false, aiStatus: `http_${resp.status}`, message: `Server HTTP ${resp.status}`, analysis: null };
+        return {
+          aiAvailable: false,
+          aiStatus: parsedBody?.aiStatus || `http_${resp.status}`,
+          httpStatus: resp.status,
+          errorCode: parsedBody?.errorCode || `HTTP_${resp.status}`,
+          fallbackBanner: parsedBody?.fallbackBanner || 'AI ANALYSIS UNAVAILABLE\nFALLBACK: PIXEL-BASED COMPUTER VISION',
+          message: parsedBody?.message || `Gemini Vision HTTP ${resp.status}`,
+          modelVersion: null,
+          analysis: null
+        };
       }
-      return await resp.json();
+      return parsedBody;
     } catch (err: any) {
       if (err?.name === 'AbortError') throw err;
       return {
         aiAvailable: false,
         aiStatus: 'network_error',
+        fallbackBanner: 'AI ANALYSIS UNAVAILABLE\nFALLBACK: PIXEL-BASED COMPUTER VISION',
         message: err?.message || 'Vision service request failed.',
+        modelVersion: null,
         analysis: null
       };
     }
@@ -690,10 +672,11 @@ export async function analyzeCompleteTerrainImage(
 
   const geoPromise = (async (): Promise<{
     geology: UsgsGeologyResponse | null;
+    geologyError: string | null;
     elevation: TrekElevationSample | null;
   }> => {
     if (!hasCoordinates) {
-      return { geology: null, elevation: null };
+      return { geology: null, geologyError: null, elevation: null };
     }
     const [geologyRes, elevRes] = await Promise.allSettled([
       fetchUsgsGeologyContext(params.lat!, params.lon!, params.regionId),
@@ -701,6 +684,7 @@ export async function analyzeCompleteTerrainImage(
     ]);
     return {
       geology: geologyRes.status === 'fulfilled' ? geologyRes.value : null,
+      geologyError: geologyRes.status === 'rejected' ? String(geologyRes.reason?.message || geologyRes.reason || 'USGS SIM 3292 query failed') : null,
       elevation: elevRes.status === 'fulfilled' ? elevRes.value : null
     };
   })();
@@ -713,36 +697,65 @@ export async function analyzeCompleteTerrainImage(
 
   const aiAvailable = Boolean(visionRes?.aiAvailable && visionRes?.analysis);
   const aiAnalysis = aiAvailable ? visionRes.analysis : null;
+  const modelVersion: string | null = aiAvailable ? String(visionRes?.modelVersion || visionRes?.source || 'gemini-4-hydrogen') : null;
+  const aiFallbackBanner: string | undefined = !aiAvailable
+    ? String(visionRes?.fallbackBanner || 'AI ANALYSIS UNAVAILABLE\nFALLBACK: PIXEL-BASED COMPUTER VISION')
+    : undefined;
+  const combinedMethod = aiAvailable
+    ? `${cv.processingMethod} + ${modelVersion} (Interactions API)`
+    : `${cv.processingMethod} [FALLBACK: PIXEL-BASED COMPUTER VISION]`;
 
-  // 3. Build Regions (AI Vision when available, else deterministic CV)
-  let regions: TerrainRegionItem[] = [];
-  if (aiAnalysis && Array.isArray(aiAnalysis.regions) && aiAnalysis.regions.length > 0) {
-    regions = aiAnalysis.regions
-      .slice(0, 10)
-      .map((r: any, idx: number): TerrainRegionItem => {
-        const box = normalizeBox(r.normX, r.normY, r.normWidth, r.normHeight, 0.05);
-        const hLevel = String(r.hazardLevel || '').toLowerCase();
-        const hazardLevel: 'low' | 'moderate' | 'high' =
-          hLevel === 'high' ? 'high' : hLevel === 'moderate' ? 'moderate' : 'low';
-        return {
-          id: typeof r.id === 'string' && r.id.trim() ? r.id.trim() : `ai_region_${idx + 1}`,
-          title: String(r.title || r.classification || `Terrain Region ${idx + 1}`),
-          classification: String(r.classification || 'Other Formation'),
-          locationDescription: String(r.locationDescription || describeNormalizedZone(box.normX + box.normWidth / 2, box.normY + box.normHeight / 2)),
-          ...box,
-          visualCharacteristics: String(r.visualCharacteristics || 'Visually identified surface morphology.'),
-          confidence: Number(clamp01(Number(r.confidence), 0.72).toFixed(2)),
-          scientificSignificance: String(r.scientificSignificance || 'Surface morphological region observed in optical imagery.'),
-          roverTraversalConcerns: String(r.roverTraversalConcerns || 'Assess micro-topography locally prior to traversal.'),
-          hazardLevel,
-          source: 'gemini-vision'
-        };
-      });
-  } else {
-    regions = cv.cvRegions;
+  // 3. Fuse AI regionInterpretations strictly onto the real segmented pixel regions (preserving real boxes, masks & metrics)
+  const aiByRegionId = new Map<string, any>();
+  if (aiAnalysis && Array.isArray(aiAnalysis.regionInterpretations)) {
+    for (const ri of aiAnalysis.regionInterpretations) {
+      if (ri?.regionId) {
+        aiByRegionId.set(String(ri.regionId).trim().toUpperCase(), ri);
+      }
+    }
   }
 
-  // 4. Fuse AI boulders + CV pixel-tight obstacles + high-hazard rock regions
+  const regions: TerrainRegionItem[] = cv.segmentedRegions.map((seg, idx) => {
+    const base = buildCvOnlyRegionItem(seg, combinedMethod);
+    const aiMatch =
+      aiByRegionId.get(seg.regionId.toUpperCase()) ||
+      (Array.isArray(aiAnalysis?.regionInterpretations) ? aiAnalysis.regionInterpretations[idx] : null);
+
+    if (!aiMatch || seg.isAmbiguous) {
+      return base;
+    }
+
+    const aiClass = String(aiMatch.provisionalClass || '').trim();
+    const isUnknown =
+      Boolean(aiMatch.isAmbiguous) ||
+      aiClass.toUpperCase() === 'UNKNOWN' ||
+      aiClass.toUpperCase() === 'UNCLASSIFIED';
+    const finalClass = aiClass ? (isUnknown ? aiClass.toUpperCase() : aiClass) : base.classification;
+    const hLevel = String(aiMatch.hazardLevel || '').toLowerCase();
+    const hazardLevel: 'low' | 'moderate' | 'high' =
+      hLevel === 'high' ? 'high' : hLevel === 'moderate' ? 'moderate' : hLevel === 'low' ? 'low' : base.hazardLevel;
+
+    return {
+      ...base,
+      title: `${seg.regionId} · ${finalClass}`,
+      classification: finalClass,
+      visualCharacteristics: String(aiMatch.visualDescription || base.visualCharacteristics),
+      classificationJustification: String(aiMatch.classificationJustification || base.classificationJustification),
+      surfaceEvidence: String(aiMatch.surfaceEvidence || base.surfaceEvidence),
+      scientificSignificance: String(aiMatch.scientificRelevance || base.scientificSignificance),
+      roverTraversalConcerns: String(aiMatch.traversalConcerns || base.roverTraversalConcerns),
+      recommendedMethod: String(aiMatch.recommendedMethod || base.recommendedMethod),
+      hazardLevel,
+      isAmbiguous: isUnknown,
+      ambiguityReason: isUnknown ? String(aiMatch.classificationJustification || 'AI vision flagged region as visually ambiguous.') : null,
+      confidence: null,
+      confidenceStatus: 'uncalibrated_ai_visual',
+      modelVersion,
+      source: 'gemini-vision+cv-segmentation'
+    };
+  });
+
+  // 4. Fuse AI boulders + CV pixel-tight obstacles (preserving MarsWalk pathfinding obstacle geometry)
   const mergedObstacles: DetectedObstacleOutput[] = [];
 
   const getRiskMeta = (sizeCat: ObstacleSizeCategory): { riskLevel: 'high' | 'moderate' | 'low'; riskColor: string } => {
@@ -755,12 +768,27 @@ export async function analyzeCompleteTerrainImage(
     return { riskLevel: 'low', riskColor: '#eab308' };
   };
 
-  if (aiAnalysis && Array.isArray(aiAnalysis.boulders)) {
-    aiAnalysis.boulders.slice(0, 24).forEach((b: any, i: number) => {
-      const box = normalizeBox(Number(b.normX), Number(b.normY), Number(b.normWidth), Number(b.normHeight), 0.025);
+  const aiBoulderList = Array.isArray(aiAnalysis?.boulders)
+    ? aiAnalysis.boulders
+    : Array.isArray(aiAnalysis?.detected_boulders)
+      ? aiAnalysis.detected_boulders
+      : Array.isArray(aiAnalysis?.visible_obstacles)
+        ? aiAnalysis.visible_obstacles
+        : [];
+
+  if (aiAnalysis && aiBoulderList.length > 0) {
+    aiBoulderList.slice(0, 24).forEach((b: any, i: number) => {
+      const boxCoords = b.box && typeof b.box === 'object' ? b.box : b;
+      const box = normalizeBox(
+        Number(boxCoords.normX ?? boxCoords.norm_x),
+        Number(boxCoords.normY ?? boxCoords.norm_y),
+        Number(boxCoords.normWidth ?? boxCoords.norm_width),
+        Number(boxCoords.normHeight ?? boxCoords.norm_height),
+        0.025
+      );
       const classification = String(b.classification || 'boulder');
-      const sizeCategory = coerceSizeCategory(b.sizeCategory, box.normWidth, box.normHeight, classification);
-      const hazardStatus = coerceHazardStatus(b.hazardStatus);
+      const sizeCategory = coerceSizeCategory(b.sizeCategory ?? b.size_category, box.normWidth, box.normHeight, classification);
+      const hazardStatus = coerceHazardStatus(b.hazardStatus ?? b.hazard_status);
       const pxX = Math.round(box.normX * cv.naturalWidth);
       const pxY = Math.round(box.normY * cv.naturalHeight);
       const pxW = Math.max(1, Math.round(box.normWidth * cv.naturalWidth));
@@ -775,9 +803,9 @@ export async function analyzeCompleteTerrainImage(
         hazardStatus,
         riskLevel,
         riskColor,
-        traversalRelevance: String(b.traversalRelevance || 'Obstacle detected in optical image; maintain safe stand-off margin.'),
+        traversalRelevance: String(b.traversalRelevance || b.traversal_relevance || 'Obstacle detected in optical image; maintain safe stand-off margin.'),
         detectionMethod: 'Gemini Vision',
-        confidence: Number(clamp01(Number(b.confidence), 0.76).toFixed(2)),
+        confidence: 1,
         ...box,
         pixelX: pxX,
         pixelY: pxY,
@@ -785,12 +813,11 @@ export async function analyzeCompleteTerrainImage(
         pixelHeight: pxH,
         physicalWidthM: null,
         physicalHeightM: null,
-        dimensionsNote: String(b.dimensionsNote || `Visual estimate only (${pxW}×${pxH} px) — physical scale unavailable`)
+        dimensionsNote: `Visual bounding box (${pxW}×${pxH} px) — physical scale unavailable`
       });
     });
   }
 
-  // Add CV obstacles that don't heavily overlap with an already listed AI boulder
   for (const cvObs of cv.cvObstacles) {
     const cvBox = {
       normX: cvObs.normX,
@@ -824,12 +851,12 @@ export async function analyzeCompleteTerrainImage(
     }
   }
 
-  // Mandatory: Incorporate prominent high-risk / moderate-risk rock regions as unified hard obstacles
-  // (e.g. massive rocky outcrops, boulder fields, fractured rock scarps that span wide visual areas)
+  // Incorporate high-hazard segmented regions as route obstacles
   regions.forEach((reg, rIdx) => {
     const isRockHazard =
-      reg.hazardLevel === 'high' ||
-      (reg.hazardLevel === 'moderate' && ['Rocky Outcrop', 'Boulder Field', 'Fractured Rock Surface'].includes(reg.classification));
+      !reg.isAmbiguous &&
+      (reg.hazardLevel === 'high' ||
+        (reg.hazardLevel === 'moderate' && (reg.classification.includes('Rock') || reg.classification.includes('Outcrop') || reg.classification.includes('Fractured'))));
     if (!isRockHazard) return;
 
     const regBox = {
@@ -842,69 +869,67 @@ export async function analyzeCompleteTerrainImage(
     const alreadyCovered = mergedObstacles.some(m => boxIoU(m, regBox) > 0.28);
     if (!alreadyCovered && mergedObstacles.length < 36) {
       const sizeCat: ObstacleSizeCategory =
-        reg.normWidth * reg.normHeight * 100 >= 6.5
-          ? 'massive_boulder'
-          : reg.normWidth * reg.normHeight * 100 >= 2.2
-            ? 'large_boulder'
-            : 'rock_cluster';
+        reg.areaPct >= 14 ? 'massive_boulder' : reg.areaPct >= 6 ? 'large_boulder' : 'rock_cluster';
       const { riskLevel, riskColor } = getRiskMeta(sizeCat);
-      const pxW = Math.max(1, Math.round(reg.normWidth * cv.naturalWidth));
-      const pxH = Math.max(1, Math.round(reg.normHeight * cv.naturalHeight));
 
       mergedObstacles.push({
         id: `reg_obs_${rIdx + 1}`,
-        label: `${reg.title} (${reg.classification})`,
+        label: `${reg.regionId} (${reg.classification})`,
         classification: 'boulder',
         sizeCategory: sizeCat,
         hazardStatus: 'Potential traversal hazard',
         riskLevel,
         riskColor,
-        traversalRelevance: `Prominent unified rock formation (${reg.classification}); impassable core. Route must detour around perimeter.`,
-        detectionMethod: reg.source === 'gemini-vision' ? 'Gemini Vision' : 'CV Localizer',
-        confidence: Number((reg.confidence / 100).toFixed(2)),
+        traversalRelevance: `High-relief segmented region (${reg.areaPct}% area, edge density ${reg.textureAndRoughness.edgeDensityPct}%); route should detour.`,
+        detectionMethod: aiAvailable ? 'Gemini Vision' : 'CV Localizer',
+        confidence: 1,
         ...regBox,
-        pixelX: Math.round(reg.normX * cv.naturalWidth),
-        pixelY: Math.round(reg.normY * cv.naturalHeight),
-        pixelWidth: pxW,
-        pixelHeight: pxH,
+        pixelX: reg.pixelX,
+        pixelY: reg.pixelY,
+        pixelWidth: reg.pixelWidth,
+        pixelHeight: reg.pixelHeight,
         physicalWidthM: null,
         physicalHeightM: null,
-        dimensionsNote: `Visual region estimate (${pxW}×${pxH} px, ${reg.locationDescription}) — physical scale unavailable`
+        dimensionsNote: `Segmented pixel region (${reg.pixelWidth}×${reg.pixelHeight} px, ${reg.areaPct}% frame) — physical scale unavailable`
       });
     }
   });
 
   // 5. Build 3-Tier Geological Identification (Strict Scientific Integrity)
-  const visibleFeatures: string[] = Array.isArray(aiAnalysis?.visibleFeatures) && aiAnalysis.visibleFeatures.length > 0
-    ? aiAnalysis.visibleFeatures
-    : [
-        `${cv.pixelComposition.soilPct}% unconsolidated regolith / soil matrix`,
-        ...(cv.pixelComposition.bedrockPct > 4 ? [`${cv.pixelComposition.bedrockPct}% coherent light-toned bedrock plates`] : []),
-        ...(cv.pixelComposition.sandPct > 4 ? [`${cv.pixelComposition.sandPct}% fine warm-toned aeolian drift`] : []),
-        ...(cv.pixelComposition.rockPct > 2 ? [`${cv.pixelComposition.rockPct}% high-contrast rock/shadow clasts`] : [])
-      ];
+  const visibleFeatures: string[] =
+    Array.isArray(aiAnalysis?.visibleFeatures) && aiAnalysis.visibleFeatures.length > 0
+      ? aiAnalysis.visibleFeatures
+      : regions.map(
+          r =>
+            `${r.regionId} (${r.areaPct}%): ${r.classification} — RGB (${r.colorDistribution.meanRgb.join(',')}), edge ${r.textureAndRoughness.edgeDensityPct}%`
+        );
 
-  const rockFormations: string[] = Array.isArray(aiAnalysis?.rockFormations) && aiAnalysis.rockFormations.length > 0
-    ? aiAnalysis.rockFormations
-    : regions
-        .filter(r => ['Bedrock Exposure', 'Rocky Outcrop', 'Layered Sedimentary Formation', 'Fractured Rock Surface', 'Boulder Field'].includes(r.classification))
-        .map(r => `${r.classification} — ${r.locationDescription}`);
+  const rockFormations: string[] =
+    Array.isArray(aiAnalysis?.rockFormations) && aiAnalysis.rockFormations.length > 0
+      ? aiAnalysis.rockFormations
+      : regions
+          .filter(r => !r.isAmbiguous && (r.classification.includes('Rock') || r.classification.includes('Outcrop') || r.classification.includes('Fractured')))
+          .map(r => `${r.regionId}: ${r.classification} in ${r.shapeAndSpatial.spatialZone} (${r.areaPct}% area)`);
 
-  const visibleFractures: string[] = Array.isArray(aiAnalysis?.visibleFractures) && aiAnalysis.visibleFractures.length > 0
-    ? aiAnalysis.visibleFractures
-    : [`Optical surface roughness index ${cv.roughnessScore} (RMS contrast ${cv.rmsContrast}, shadow ratio ${(cv.shadowContrast * 100).toFixed(1)}%)`];
+  const visibleFractures: string[] =
+    Array.isArray(aiAnalysis?.visibleFractures) && aiAnalysis.visibleFractures.length > 0
+      ? aiAnalysis.visibleFractures
+      : [
+          `Measured full-frame edge density ${cv.edgeDensityPct}%, roughness index ${cv.roughnessScore}, RMS luminance contrast ${cv.rmsContrast}.`
+        ];
 
-  const sedimentaryStructures: string[] = Array.isArray(aiAnalysis?.sedimentaryStructures) && aiAnalysis.sedimentaryStructures.length > 0
-    ? aiAnalysis.sedimentaryStructures
-    : ['No definitive stratified sedimentary bedding verified from deterministic CV pixels alone.'];
+  const sedimentaryStructures: string[] =
+    Array.isArray(aiAnalysis?.sedimentaryStructures) && aiAnalysis.sedimentaryStructures.length > 0
+      ? aiAnalysis.sedimentaryStructures
+      : ['No diagnostic sedimentary bedding confirmed from pixel segmentation alone.'];
 
   const visuallySummary = aiAnalysis?.geologicalFeaturesSummary
     ? String(aiAnalysis.geologicalFeaturesSummary)
-    : `Complete-frame optical pixel analysis (${cv.naturalWidth}×${cv.naturalHeight} px) identifies ${cv.dominantFeature.toLowerCase()} (${cv.pixelComposition.soilPct}% soil/regolith, ${cv.pixelComposition.bedrockPct}% bright plate/bedrock, ${cv.pixelComposition.sandPct}% sand drift, ${cv.pixelComposition.rockPct}% high-relief rock clasts).`;
+    : `Segmented ${cv.naturalWidth}×${cv.naturalHeight} px (${cv.detectedFormat}) frame into ${regions.length} distinct pixel region${regions.length === 1 ? '' : 's'} (mean brightness ${cv.meanBrightness}/255, RMS contrast ${cv.rmsContrast}, edge density ${cv.edgeDensityPct}%).`;
 
   const provisionalSummary = aiAnalysis?.provisionalGeologicalInference
     ? String(aiAnalysis.provisionalGeologicalInference)
-    : `Provisional morphology suggests ${cv.pixelComposition.bedrockPct > 25 ? 'exposed consolidated lithic plates interbedded with wind-blown fines' : 'a regolith-mantled impact/aeolian surface with scattered rock clasts'}. Lithology and mineralogy cannot be confirmed from RGB optical pixels without orbital CRISM/THEMIS spectra or APXS/SHERLOC contact measurements.`;
+    : `Provisional morphology from segmented regions only (${regions.map(r => `${r.regionId}: ${r.classification} [${r.areaPct}%]`).join('; ')}). Mineralogy and lithology cannot be verified from RGB imagery without spectral or contact measurements.`;
 
   // Tier 3: Geographically Verified Geology
   const primaryUnit = geoRes.geology?.units?.[0] || null;
@@ -918,7 +943,9 @@ export async function analyzeCompleteTerrainImage(
     geoVerified = {
       status: 'unavailable',
       matched: false,
-      headline: 'No verified geological classification available for this location.',
+      headline: geoRes.geologyError
+        ? 'USGS SIM 3292 upstream query unavailable.'
+        : 'No verified geological classification available for this location.',
       coordinateLabel: hasCoordinates ? `${params.lat!.toFixed(4)}° N, ${params.lon!.toFixed(4)}° E` : 'Coordinates unavailable',
       coordinateScope: hasCoordinates ? coordinateScope : 'unavailable',
       quadrangle: geoRes.geology?.quadrangle || null,
@@ -932,14 +959,16 @@ export async function analyzeCompleteTerrainImage(
       molaSource: geoRes.elevation?.source || null,
       citation: null,
       notes: !hasCoordinates
-        ? 'No verified geological classification available for this location. Frame lacks planetocentric coordinates or orbital footprint registration.'
-        : (geoRes.geology?.note || 'No verified geological classification available for this location.')
+        ? 'Frame lacks verified planetocentric lat/lon coordinates; no USGS SIM 3292 map unit assigned.'
+        : geoRes.geologyError
+          ? geoRes.geologyError
+          : geoRes.geology?.note || 'No published USGS SIM 3292 polygon matched these coordinates.'
     };
   } else if (coordinateScope === 'mission_landing_basin') {
     geoVerified = {
       status: 'mission_basin_context',
       matched: true,
-      headline: `Basin-Level Context: Unit ${primaryUnit!.unitSymbol} (${primaryUnit!.unitName})`,
+      headline: `Basin-Level Context: Unit ${primaryUnit!.unitSymbol} · ${primaryUnit!.unitName}`,
       coordinateLabel: `${params.lat!.toFixed(4)}° N, ${params.lon!.toFixed(4)}° E (${params.locationLabel || params.mission || 'Mission Basin'})`,
       coordinateScope: 'mission_landing_basin',
       quadrangle: geoRes.geology?.quadrangle || primaryUnit!.quadrangle,
@@ -952,7 +981,7 @@ export async function analyzeCompleteTerrainImage(
       molaDatum: geoRes.elevation?.datum || 'MOLA Areoid',
       molaSource: geoRes.elevation?.source || null,
       citation: primaryUnit!.citation,
-      notes: `Grounded in USGS–NASA SIM 3292 (1:20,000,000 scale) at nominal ${params.mission || 'mission'} landing-basin coordinates. Reflects regional basin stratigraphy rather than an exact single-frame rover footprint.`
+      notes: `Point-in-polygon query against USGS SIM 3292 (WKID 104905) at nominal ${params.mission || 'mission'} landing-basin center.`
     };
   } else {
     geoVerified = {
@@ -971,44 +1000,43 @@ export async function analyzeCompleteTerrainImage(
       molaDatum: geoRes.elevation?.datum || 'MOLA Areoid',
       molaSource: geoRes.elevation?.source || null,
       citation: primaryUnit!.citation,
-      notes: `Verified against published USGS SIM 3292 geologic mapping (${geoRes.geology?.sourceStatus || 'live'}) and NASA JPL Mars Trek MOLA altimetry.`
+      notes: `Verified via live USGS SIM 3292 point-in-polygon query (WKID 104905) and NASA JPL Mars Trek MOLA altimetry.`
     };
   }
 
   // 6. Build Structured Scientific Terrain Report
-  const traversalHazards: string[] = Array.isArray(aiAnalysis?.terrainObstacles) && aiAnalysis.terrainObstacles.length > 0
-    ? aiAnalysis.terrainObstacles
-    : mergedObstacles.length > 0
-      ? mergedObstacles.slice(0, 6).map(o => `${o.label} (${o.sizeCategory.replace('_', ' ')}): ${o.traversalRelevance}`)
-      : regions
-          .filter(r => r.hazardLevel !== 'low')
-          .map(r => `${r.title}: ${r.roverTraversalConcerns}`);
+  const traversalHazards: string[] =
+    Array.isArray(aiAnalysis?.terrainObstacles) && aiAnalysis.terrainObstacles.length > 0
+      ? aiAnalysis.terrainObstacles
+      : mergedObstacles.length > 0
+        ? mergedObstacles.slice(0, 6).map(o => `${o.label} (${o.sizeCategory.replace('_', ' ')}): ${o.traversalRelevance}`)
+        : regions.filter(r => r.hazardLevel !== 'low').map(r => `${r.regionId} (${r.classification}): ${r.roverTraversalConcerns}`);
 
   if (traversalHazards.length === 0) {
-    traversalHazards.push('Low macro-boulder density detected; inspect localized fine-regolith sinkage and shadow pits before high-speed drive.');
+    traversalHazards.push(`No dense macro-obstacle clusters isolated; full-frame edge density ${cv.edgeDensityPct}%.`);
   }
 
-  const samplingOpportunities: string[] = Array.isArray(aiAnalysis?.samplingOpportunities) && aiAnalysis.samplingOpportunities.length > 0
-    ? aiAnalysis.samplingOpportunities
-    : regions
-        .filter(r => ['Bedrock Exposure', 'Rocky Outcrop', 'Layered Sedimentary Formation', 'Fractured Rock Surface'].includes(r.classification))
-        .map(r => `${r.title} — ${r.scientificSignificance}`);
+  const samplingOpportunities: string[] =
+    Array.isArray(aiAnalysis?.samplingOpportunities) && aiAnalysis.samplingOpportunities.length > 0
+      ? aiAnalysis.samplingOpportunities
+      : regions
+          .filter(r => !r.isAmbiguous)
+          .slice(0, 4)
+          .map(r => `${r.regionId} (${r.classification}, ${r.areaPct}% area) — ${r.recommendedMethod}`);
 
-  if (samplingOpportunities.length === 0) {
-    samplingOpportunities.push('Regolith grain-size sorting and undisturbed surface soil trench/scoop sampling.');
+  const dataLimitations: string[] = [
+    ...(Array.isArray(aiAnalysis?.dataLimitations) ? aiAnalysis.dataLimitations : []),
+    'RGB pixel intensity and texture do not confirm mineralogy, hydration state, or elemental chemistry without spectroscopy (CRISM, SuperCam, PIXL, SHERLOC).',
+    '2D optical frame provides relative pixel geometry only; absolute metric scale and slope require stereo/DEM elevation calibration.'
+  ];
+
+  if (cv.exifMetadata.exifStatus === 'none_present') {
+    dataLimitations.push('Uploaded image contains no embedded EXIF/XMP camera metadata tags.');
+  } else if (cv.exifMetadata.gpsCaveat) {
+    dataLimitations.push(cv.exifMetadata.gpsCaveat);
   }
-
-  const dataLimitations: string[] = Array.isArray(aiAnalysis?.dataLimitations) && aiAnalysis.dataLimitations.length > 0
-    ? [...aiAnalysis.dataLimitations]
-    : [
-        'Visual estimate only — calibrated depth/elevation data unavailable from a single 2D optical reflectance image without stereoscopic/orbital DEM.',
-        'Bulk chemical composition and hydration state cannot be determined without spectrometer payloads (CRISM, SuperCam, PIXL, SHERLOC).'
-      ];
-
   if (!hasCoordinates) {
-    dataLimitations.push('Frame lacks planetocentric lat/lon footprint; regional USGS SIM 3292 geologic unit mapping is unavailable.');
-  } else if (coordinateScope === 'mission_landing_basin') {
-    dataLimitations.push('Coordinates represent nominal rover mission landing-basin center (~1:20M SIM 3292 regional context), not individual camera-frame frustum footprint.');
+    dataLimitations.push('Frame lacks verified Mars planetocentric coordinates; USGS SIM 3292 geologic unit mapping is unavailable.');
   }
   if (!aiAvailable && visionRes?.message) {
     dataLimitations.push(String(visionRes.message));
@@ -1017,71 +1045,81 @@ export async function analyzeCompleteTerrainImage(
   const scientificReport: ScientificTerrainReport = {
     overallComposition: aiAnalysis?.overallComposition
       ? String(aiAnalysis.overallComposition)
-      : `Full-frame optical pixel breakdown (${cv.naturalWidth}×${cv.naturalHeight} px): ${cv.pixelComposition.soilPct}% regolith/soil, ${cv.pixelComposition.bedrockPct}% bright bedrock plate, ${cv.pixelComposition.sandPct}% warm aeolian sand, and ${cv.pixelComposition.rockPct}% high-contrast rock/shadow features.`,
+      : `Region breakdown across ${regions.length} segmented zone${regions.length === 1 ? '' : 's'}: ${regions.map(r => `${r.regionId} ${r.classification} (${r.areaPct}%)`).join(', ')}.`,
     geologicalFeaturesSummary: visuallySummary,
     rockAndSoilCharacteristics: aiAnalysis?.rockAndSoilCharacteristics
       ? String(aiAnalysis.rockAndSoilCharacteristics)
-      : `Mean brightness ${cv.meanBrightness}/255 with RMS contrast ${cv.rmsContrast} and edge roughness index ${cv.roughnessScore}. ${cv.pixelComposition.rockPct > 10 ? 'Noticeable angular relief and shadow-casting clasts present.' : 'Predominantly low-relief surface matrix with localized clast contrast.'}`,
-    regionalContext: geoVerified.matched && primaryUnit
-      ? `${geoVerified.headline} (${geoVerified.quadrangle}). ${primaryUnit.epoch} — ${primaryUnit.lithology}${geoVerified.molaElevationM !== null ? ` Regional MOLA datum: ${geoVerified.molaElevationM.toFixed(0)} m.` : ''}`
-      : 'No verified geological classification available for this location.',
+      : `Mean brightness ${cv.meanBrightness}/255, RMS contrast ${cv.rmsContrast}, Sobel edge density ${cv.edgeDensityPct}%, roughness proxy ${cv.roughnessScore}.`,
+    regionalContext:
+      geoVerified.matched && primaryUnit
+        ? `${geoVerified.headline} (${geoVerified.quadrangle}). ${primaryUnit.epoch} — ${primaryUnit.lithology}`
+        : geoVerified.headline,
     traversalHazards,
     samplingOpportunities,
-    dataLimitations
+    dataLimitations: Array.from(new Set(dataLimitations))
   };
 
   const report: CompleteTerrainIntelligenceReport = {
     imageIdentifier: params.imageIdentifier || 'MARS_SURFACE_FRAME',
+    imageContentKey: cv.imageContentKey,
     datasetVersion: DATASET_VERSION,
+    detectedFormat: cv.detectedFormat,
+    fileSizeBytes: cv.fileSizeBytes,
+    exifMetadata: cv.exifMetadata,
     naturalWidth: cv.naturalWidth,
     naturalHeight: cv.naturalHeight,
     aspectRatio: `${(cv.naturalWidth / Math.max(1, cv.naturalHeight)).toFixed(2)}:1`,
     pixelComposition: cv.pixelComposition,
     meanBrightness: cv.meanBrightness,
     rmsContrast: cv.rmsContrast,
+    edgeDensityPct: cv.edgeDensityPct,
     roughnessScore: cv.roughnessScore,
     shadowContrast: cv.shadowContrast,
     dominantFeature: aiAnalysis?.dominantFeature ? String(aiAnalysis.dominantFeature) : cv.dominantFeature,
     segmentationMaskUrl: cv.segmentationMaskUrl,
+    processingMethod: combinedMethod,
+    modelVersion,
     aiAvailable,
     aiStatus: String(visionRes?.aiStatus || (aiAvailable ? 'ok' : 'unavailable')),
     aiStatusMessage: visionRes?.message ? String(visionRes.message) : undefined,
+    aiFallbackBanner,
+    structuredAiOutput: aiAnalysis,
     regions,
     detectedBoulders: mergedObstacles,
     geologicalIdentification: {
       visuallyDetected: {
         summary: visuallySummary,
         surfaceMaterials: visibleFeatures,
-        rockFormations: rockFormations.length > 0 ? rockFormations : ['No distinct consolidated rock outcrops isolated in CV pass.'],
+        rockFormations: rockFormations.length > 0 ? rockFormations : ['No high-relief consolidated outcrops isolated in this frame.'],
         fracturesAndTextures: visibleFractures,
         sedimentaryIndicators: sedimentaryStructures
       },
       geologicallyInferred: {
         provisionalSummary,
-        confidenceCaveat: 'Provisional interpretation derived from 2D optical morphology only; subject to illumination geometry and dust cover.',
-        mineralogicalNote: 'Mineralogy requires orbital hyperspectral (CRISM) or in-situ laser/X-ray spectroscopy.'
+        confidenceCaveat: 'No calibrated ground-truth confidence percentage is assigned; morphological labels are provisional.',
+        mineralogicalNote: 'RGB optical reflectance cannot determine mineral composition without spectroscopy or contact instruments.'
       },
       geographicallyVerified: geoVerified
     },
     scientificReport,
     visibleFeatures,
-    rockFormations: rockFormations.length > 0 ? rockFormations : ['No consolidated outcrops isolated'],
+    rockFormations: rockFormations.length > 0 ? rockFormations : ['No high-relief consolidated outcrops isolated'],
     visibleFractures,
     sedimentaryStructures,
     terrainObstacles: traversalHazards,
     sandAndRegolith: aiAnalysis?.sandAndRegolith
       ? String(aiAnalysis.sandAndRegolith)
-      : `${cv.pixelComposition.soilPct}% regolith soil matrix, ${cv.pixelComposition.sandPct}% fine warm aeolian drift.`,
+      : `${cv.pixelComposition.soilPct}% regolith/soil matrix, ${cv.pixelComposition.sandPct}% warm fine-grain pixels.`,
     surfaceTexture: aiAnalysis?.surfaceTexture
       ? String(aiAnalysis.surfaceTexture)
-      : `Optical roughness index ${cv.roughnessScore}, RMS contrast ${cv.rmsContrast}.`,
-    geologicalRelevance: aiAnalysis?.geologicalRelevance
-      ? String(aiAnalysis.geologicalRelevance)
-      : provisionalSummary,
+      : `Sobel edge density ${cv.edgeDensityPct}%, roughness proxy ${cv.roughnessScore}, RMS contrast ${cv.rmsContrast}.`,
+    geologicalRelevance: aiAnalysis?.geologicalRelevance ? String(aiAnalysis.geologicalRelevance) : provisionalSummary,
     recommendedInvestigationMethod: aiAnalysis?.recommendedInvestigationMethod
       ? String(aiAnalysis.recommendedInvestigationMethod)
-      : 'Micro-imaging and local spectroscopic assessment required prior to contact sampling.',
-    imageQuality: aiAnalysis?.imageQuality ? String(aiAnalysis.imageQuality) : `${cv.naturalWidth}×${cv.naturalHeight} px (${cv.rmsContrast > 28 ? 'High' : 'Moderate'} Contrast)`,
+      : 'Optical close-range documentation followed by spectrometer verification (CRISM / PIXL / SHERLOC).',
+    imageQuality: aiAnalysis?.imageQuality
+      ? String(aiAnalysis.imageQuality)
+      : `${cv.naturalWidth}×${cv.naturalHeight} px · ${cv.detectedFormat} · RMS contrast ${cv.rmsContrast}`,
     generatedAt: new Date().toISOString(),
     processingTimeMs: Math.round(performance.now() - startT)
   };

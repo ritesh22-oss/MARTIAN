@@ -770,7 +770,7 @@ export default function RoutePlanner({ onOpenMissions }) {
         isOpen={isSaveModalOpen}
         onClose={() => setIsSaveModalOpen(false)}
         initialData={{
-          title: `Jezero Grid Traverse (${startPos.x},${startPos.y}) → (${goalPos.x},${goalPos.y})`,
+          title: `Jezero Grid Traverse Plan`,
           routeType: activeDisplayMode === 'marks_walk' ? 'Marks Walk User Route' : 'A* Trajectory Grid Path',
           distanceM: activeDisplayMode === 'marks_walk' ? Math.round(marksWalkMetrics.steps * 1.5) : pathResult ? Math.round(pathResult.pixelLength * 1.5) : 0,
           energyWh: activeDisplayMode === 'marks_walk' ? Math.round(marksWalkMetrics.cost * 1.2) : pathResult ? Math.round(pathResult.totalCost * 1.2) : 0,

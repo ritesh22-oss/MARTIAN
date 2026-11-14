@@ -19,7 +19,7 @@ function getSafeImgSrc(url: string): string {
 }
 
 export const AstronautSafetyMonitoring: React.FC = () => {
-  const { activeSession, getSuitConfigDetails, routes, selectedRouteId } = useAstronautExploration();
+  const { activeSession, getSuitConfigDetails, routes, selectedRouteId, retryAiAnalysis, isProcessingIntelligence } = useAstronautExploration();
   const [selectedHazardId, setSelectedHazardId] = useState<string | null>(null);
   const [showYellowBoxes, setShowYellowBoxes] = useState<boolean>(true);
   const [showSegMask, setShowSegMask] = useState<boolean>(false);
@@ -359,11 +359,13 @@ export const AstronautSafetyMonitoring: React.FC = () => {
                 className="relative w-full max-h-[540px] bg-black rounded-xl overflow-hidden border border-slate-800"
                 style={{ aspectRatio: `${imgW} / ${imgH}` }}
               >
-                <img
-                  src={getSafeImgSrc(activeSession.imageMetadata.url)}
-                  className="w-full h-full object-contain"
-                  alt="Terrain Hazard Map"
-                />
+                {getSafeImgSrc(activeSession.imageMetadata.url) && (
+                  <img
+                    src={getSafeImgSrc(activeSession.imageMetadata.url)}
+                    className="w-full h-full object-contain"
+                    alt="Terrain Hazard Map"
+                  />
+                )}
 
                 {showSegMask && analysis.segmentationMaskUrl && (
                   <img
@@ -519,6 +521,26 @@ export const AstronautSafetyMonitoring: React.FC = () => {
               </div>
             )}
 
+            {hasImage && !analysis.aiAvailable && (
+              <div className="p-2.5 rounded-xl bg-amber-950/35 border border-amber-500/40 text-[10px] font-mono text-amber-200 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="font-bold text-amber-300">AI ANALYSIS UNAVAILABLE</div>
+                    <div className="text-cyan-300 font-bold">FALLBACK: PIXEL-BASED COMPUTER VISION</div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isProcessingIntelligence}
+                    onClick={() => retryAiAnalysis()}
+                    className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 font-bold cursor-pointer disabled:opacity-50 shrink-0"
+                  >
+                    {isProcessingIntelligence ? 'Retrying...' : 'Retry AI Analysis'}
+                  </button>
+                </div>
+                {analysis.aiStatusMessage && <div className="font-sans text-amber-200/90">{analysis.aiStatusMessage}</div>}
+              </div>
+            )}
+
             <div className="p-2.5 rounded-xl bg-amber-950/25 border border-amber-500/30 text-[10px] font-mono text-amber-200 flex items-start gap-2">
               <Info className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
               <span>Visual estimate only — calibrated depth/elevation data unavailable without stereo or HiRISE DEM.</span>
@@ -583,7 +605,9 @@ export const AstronautSafetyMonitoring: React.FC = () => {
               <Compass className="w-4 h-4 text-orange-400" />
               <span>Terrain Safety Audit</span>
             </h3>
-            <span className="text-[10px] text-slate-400 font-mono">CV + Gemini Vision</span>
+            <span className={`text-[10px] font-mono ${analysis.aiAvailable ? 'text-emerald-300' : 'text-amber-300'}`}>
+              {analysis.aiAvailable ? 'CV + Gemini 4 Hydrogen' : 'FALLBACK: PIXEL-BASED CV'}
+            </span>
           </div>
 
           <div className="space-y-3 font-mono text-xs">

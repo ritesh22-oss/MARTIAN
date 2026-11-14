@@ -13,6 +13,11 @@ import {
   CoordinateProvenanceScope,
   TerrainRegionItem
 } from './terrainIntelligenceService';
+import { ExtractedExifMetadata } from './exifExtractor';
+import {
+  loadSavedTargetsForImage,
+  TargetLifecycleStatus
+} from './targetPersistenceService';
 import {
   ObstacleHazardStatus,
   ObstacleSizeCategory,
@@ -51,6 +56,7 @@ export interface ActiveImageProvenance {
 
 export interface ExplorationTargetRecord {
   id: string;
+  regionId: string;
   name: string;
   lat: number | null;
   lon: number | null;
@@ -60,13 +66,38 @@ export interface ExplorationTargetRecord {
   supportingImage: string;
   dataSource: string;
   instrument: string;
-  confidencePct: number;
+  confidencePct: number | null;
   relevance: string;
   recommendedMethod: string;
-  status: 'Not Investigated' | 'Planned' | 'In Progress' | 'Sample Collected' | 'Completed' | 'Rejected';
+  status: TargetLifecycleStatus;
   dataNature: 'Observed' | 'Derived' | 'Modeled' | 'Historical' | 'Unknown';
   notes: string[];
   photoUrls: string[];
+  areaPx?: number;
+  areaPct?: number;
+  boundingBox?: {
+    normX: number;
+    normY: number;
+    normWidth: number;
+    normHeight: number;
+    pixelX: number;
+    pixelY: number;
+    pixelWidth: number;
+    pixelHeight: number;
+  };
+  colorDistribution?: TerrainRegionItem['colorDistribution'];
+  textureAndRoughness?: TerrainRegionItem['textureAndRoughness'];
+  shapeAndSpatial?: TerrainRegionItem['shapeAndSpatial'];
+  visualEvidence?: string;
+  classificationJustification?: string;
+  mineralogyCaveat?: string;
+  isAmbiguous?: boolean;
+  ambiguityReason?: string | null;
+  maskColor?: string;
+  overlayMaskDataUrl?: string;
+  processingMethod?: string;
+  modelVersion?: string | null;
+  syncState?: 'firestore' | 'local_guest' | 'local_pending_sync' | 'session_only';
 }
 
 export interface ExplorationWaypoint {
@@ -168,6 +199,8 @@ export interface ActiveExplorationSession {
     format: string;
     url: string;
     source: string;
+    imageContentKey?: string;
+    exifMetadata?: ExtractedExifMetadata;
   };
   imageAnalysis: {
     visibleFeatures: string[];
@@ -196,6 +229,7 @@ export interface ActiveExplorationSession {
     recommendedInvestigationMethod: string;
     aiAvailable: boolean;
     aiStatusMessage?: string;
+    aiFallbackBanner?: string;
     dataNature: 'Observed' | 'Derived' | 'Modeled' | 'Unavailable';
   };
   terrainReport: CompleteTerrainIntelligenceReport | null;
@@ -341,6 +375,7 @@ const initialSession: ActiveExplorationSession = {
     recommendedInvestigationMethod: 'Awaiting surface image.',
     aiAvailable: false,
     aiStatusMessage: 'No active image selected.',
+    aiFallbackBanner: undefined,
     dataNature: 'Unavailable'
   },
   terrainReport: null,
@@ -510,6 +545,24 @@ class SharedExplorationStore {
     } else {
       this.notifyListeners();
     }
+  }
+
+  public updateGeologicalTarget(
+    targetId: string,
+    updates: Partial<Pick<ExplorationTargetRecord, 'status' | 'notes' | 'syncState'>>
+  ) {
+    const nextTargets = this.currentSession.geologicalTargets.map(t =>
+      t.id === targetId ? { ...t, ...updates } : t
+    );
+    this.currentSession = {
+      ...this.currentSession,
+      geologicalTargets: nextTargets,
+      lastUpdated: new Date().toISOString()
+    };
+    if (this.currentImageKey && this.currentSession.analysisStatus === 'completed') {
+      this.sessionCache.set(this.currentImageKey, this.currentSession);
+    }
+    this.notifyListeners();
   }
 
   public recalculateRoute() {
@@ -808,6 +861,7 @@ class SharedExplorationStore {
         const report = await analyzeCompleteTerrainImage({
           imageUrl,
           imageIdentifier: resolvedProvenance.identifier,
+          file: isFile ? fileOrUrl : undefined,
           mission: resolvedProvenance.rover,
           camera: resolvedProvenance.camera,
           sol: resolvedProvenance.sol,
@@ -880,65 +934,82 @@ class SharedExplorationStore {
           true
         );
 
-        // Construct active-image geological targets from detected regions + obstacles
+        // Rehydrate any saved Firestore / local statuses & field notes for this exact image
+        let savedByRegion: Record<string, any> = {};
+        try {
+          savedByRegion = await loadSavedTargetsForImage(report.imageContentKey);
+        } catch {
+          savedByRegion = {};
+        }
+
+        // Construct active-image geological targets directly from real segmented pixel regions
         const hasCoords = resolvedProvenance.lat !== null && resolvedProvenance.lon !== null;
         const primaryGeoUnit = report.geologicalIdentification.geographicallyVerified.primaryUnit;
         const dynamicTargets: ExplorationTargetRecord[] = [];
+        const mineralogyCaveat =
+          report.geologicalIdentification.geologicallyInferred.mineralogicalNote;
 
-        report.regions.slice(0, 5).forEach((reg, idx) => {
+        report.regions.forEach((reg, idx) => {
           const cxPct = Number(((reg.normX + reg.normWidth * 0.5) * 100).toFixed(1));
           const cyPct = Number(((reg.normY + reg.normHeight * 0.5) * 100).toFixed(1));
+          const regCode = reg.regionId || `REG-${String(idx + 1).padStart(2, '0')}`;
+          const saved = savedByRegion[regCode];
+          const baseNotes = [
+            `Measured region: ${reg.areaPct}% of frame (${reg.areaPx.toLocaleString()} px) in ${reg.shapeAndSpatial.spatialZone}.`,
+            primaryGeoUnit
+              ? `Regional USGS SIM 3292 (${resolvedProvenance.coordinateScope === 'exact_verified' ? 'exact point' : 'basin context'}): ${primaryGeoUnit.unitSymbol} (${primaryGeoUnit.unitName})`
+              : 'USGS map unit: Unavailable without verified Mars planetocentric coordinates.'
+          ];
+
           dynamicTargets.push({
-            id: `tgt_${imageId}_reg_${idx + 1}`,
+            id: `tgt_${report.imageContentKey.slice(0, 12)}_${regCode}`,
+            regionId: regCode,
             name: reg.title,
-            lat: hasCoords ? Number((resolvedProvenance.lat! + (reg.normY - 0.5) * 0.002).toFixed(5)) : null,
-            lon: hasCoords ? Number((resolvedProvenance.lon! + (reg.normX - 0.5) * 0.002).toFixed(5)) : null,
+            lat: null,
+            lon: null,
             xPct: cxPct,
             yPct: cyPct,
             classification: reg.classification,
             supportingImage: imageUrl,
             dataSource: resolvedProvenance.source,
-            instrument: `${resolvedProvenance.rover} / ${resolvedProvenance.camera}`,
-            confidencePct: reg.confidence,
+            instrument:
+              report.exifMetadata.model
+                ? `${report.exifMetadata.make || ''} ${report.exifMetadata.model}`.trim()
+                : `${resolvedProvenance.rover} / ${resolvedProvenance.camera}`,
+            confidencePct: null,
             relevance: reg.scientificSignificance,
-            recommendedMethod: report.recommendedInvestigationMethod,
-            status: idx === 0 ? 'In Progress' : 'Planned',
+            recommendedMethod: reg.recommendedMethod || report.recommendedInvestigationMethod,
+            status: saved?.status || 'DETECTED',
             dataNature: 'Derived',
-            notes: [
-              `Visual region (${reg.locationDescription}): ${reg.visualCharacteristics}`,
-              primaryGeoUnit
-                ? `Regional USGS SIM 3292 context: ${primaryGeoUnit.unitSymbol} (${primaryGeoUnit.unitName})`
-                : 'USGS map unit: No verified geological classification available for this location.'
-            ],
-            photoUrls: [imageUrl]
+            notes: Array.isArray(saved?.notes) && saved.notes.length > 0 ? saved.notes : baseNotes,
+            photoUrls: [imageUrl],
+            areaPx: reg.areaPx,
+            areaPct: reg.areaPct,
+            boundingBox: {
+              normX: reg.normX,
+              normY: reg.normY,
+              normWidth: reg.normWidth,
+              normHeight: reg.normHeight,
+              pixelX: reg.pixelX,
+              pixelY: reg.pixelY,
+              pixelWidth: reg.pixelWidth,
+              pixelHeight: reg.pixelHeight
+            },
+            colorDistribution: reg.colorDistribution,
+            textureAndRoughness: reg.textureAndRoughness,
+            shapeAndSpatial: reg.shapeAndSpatial,
+            visualEvidence: reg.surfaceEvidence || reg.visualCharacteristics,
+            classificationJustification: reg.classificationJustification,
+            mineralogyCaveat,
+            isAmbiguous: reg.isAmbiguous,
+            ambiguityReason: reg.ambiguityReason,
+            maskColor: reg.maskColor,
+            overlayMaskDataUrl: reg.overlayMaskDataUrl,
+            processingMethod: reg.processingMethod,
+            modelVersion: reg.modelVersion,
+            syncState: saved?.syncState || 'session_only'
           });
         });
-
-        if (dynamicTargets.length === 0) {
-          boulders.slice(0, 4).forEach((obs, idx) => {
-            const cxPct = Number(((obs.normX + obs.normWidth * 0.5) * 100).toFixed(1));
-            const cyPct = Number(((obs.normY + obs.normHeight * 0.5) * 100).toFixed(1));
-            dynamicTargets.push({
-              id: `tgt_${imageId}_obs_${idx + 1}`,
-              name: obs.label,
-              lat: hasCoords ? Number((resolvedProvenance.lat! + (obs.normY - 0.5) * 0.002).toFixed(5)) : null,
-              lon: hasCoords ? Number((resolvedProvenance.lon! + (obs.normX - 0.5) * 0.002).toFixed(5)) : null,
-              xPct: cxPct,
-              yPct: cyPct,
-              classification: obs.sizeCategory ? obs.sizeCategory.replace('_', ' ') : obs.classification,
-              supportingImage: imageUrl,
-              dataSource: resolvedProvenance.source,
-              instrument: `${resolvedProvenance.rover} / ${resolvedProvenance.camera}`,
-              confidencePct: Math.round(obs.confidence * 100),
-              relevance: obs.traversalRelevance || obs.dimensionsNote,
-              recommendedMethod: 'Optical close-range documentation & spectroscopic confirmation.',
-              status: idx === 0 ? 'In Progress' : 'Planned',
-              dataNature: 'Derived',
-              notes: [`Detected via ${obs.detectionMethod || 'CV Localizer'}: ${obs.dimensionsNote}`],
-              photoUrls: [imageUrl]
-            });
-          });
-        }
 
         const geoVerified = report.geologicalIdentification.geographicallyVerified;
         const molaElev = geoVerified.molaElevationM;
@@ -950,12 +1021,14 @@ class SharedExplorationStore {
           provenance: resolvedProvenance,
           imageMetadata: {
             fileName: resolvedFileName,
-            sizeBytes: isFile ? fileOrUrl.size : localValidation?.fileSizeBytes || 0,
+            sizeBytes: report.fileSizeBytes ?? (isFile ? fileOrUrl.size : localValidation?.fileSizeBytes || 0),
             width: report.naturalWidth,
             height: report.naturalHeight,
-            format: inferMimeType(resolvedFileName),
+            format: report.detectedFormat || inferMimeType(resolvedFileName),
             url: imageUrl,
-            source: resolvedProvenance.source
+            source: resolvedProvenance.source,
+            imageContentKey: report.imageContentKey,
+            exifMetadata: report.exifMetadata
           },
           imageAnalysis: {
             visibleFeatures: report.visibleFeatures,
@@ -979,6 +1052,7 @@ class SharedExplorationStore {
             recommendedInvestigationMethod: report.recommendedInvestigationMethod,
             aiAvailable: report.aiAvailable,
             aiStatusMessage: report.aiStatusMessage,
+            aiFallbackBanner: report.aiFallbackBanner,
             dataNature: hasCoords ? 'Observed' : 'Derived'
           },
           terrainReport: report,

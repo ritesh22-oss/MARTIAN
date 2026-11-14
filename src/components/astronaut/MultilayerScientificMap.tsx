@@ -69,7 +69,7 @@ export interface ScientificDetection {
   pixelArea: number;
   physicalDimensions: string;
   calibrationStatus: 'uncalibrated_2d' | 'calibrated_rover_frame';
-  detectionMethod: 'Gemini 2.5 Flash Vision' | 'Deterministic CV Localizer' | 'AI4Mars Semantic Registry';
+  detectionMethod: 'Gemini 4 Hydrogen Vision' | 'Deterministic CV Localizer' | 'AI4Mars Semantic Registry';
   sourceImageId: string;
   traversalRisk: 'low' | 'moderate' | 'high' | 'critical';
   notes?: string;
@@ -260,7 +260,7 @@ export const MultilayerScientificMap: React.FC = () => {
         pixelArea: pArea,
         physicalDimensions: physicalDim,
         calibrationStatus: b.physicalWidthM ? 'calibrated_rover_frame' : 'uncalibrated_2d',
-        detectionMethod: b.detectionMethod === 'Gemini Vision' ? 'Gemini 2.5 Flash Vision' : 'Deterministic CV Localizer',
+        detectionMethod: b.detectionMethod === 'Gemini Vision' ? 'Gemini 4 Hydrogen Vision' : 'Deterministic CV Localizer',
         sourceImageId: activeSession.imageMetadata.fileName || 'Mars_Frame.jpg',
         traversalRisk: (b.riskLevel as any) || 'moderate',
         notes: b.dimensionsNote || b.traversalRelevance || 'Localized via computer vision gradient contours.'
@@ -304,7 +304,7 @@ export const MultilayerScientificMap: React.FC = () => {
           pixelArea: pW * pH,
           physicalDimensions: 'Regional Unit (Calibration Unavailable on Single Frame)',
           calibrationStatus: 'uncalibrated_2d',
-          detectionMethod: r.source === 'gemini-vision' ? 'Gemini 2.5 Flash Vision' : 'Deterministic CV Localizer',
+          detectionMethod: r.source === 'gemini-vision+cv-segmentation' ? 'Gemini 4 Hydrogen Vision' : 'Deterministic CV Localizer',
           sourceImageId: activeSession.imageMetadata.fileName || 'Mars_Frame.jpg',
           traversalRisk: r.hazardLevel === 'high' ? 'high' : r.hazardLevel === 'moderate' ? 'moderate' : 'low',
           notes: r.visualCharacteristics || r.scientificSignificance
@@ -856,7 +856,7 @@ export const MultilayerScientificMap: React.FC = () => {
               {/* 2. NASA / USGS ORBITAL FUSION VIEW */}
               {activeViewMode === 'orbital' && (
                 <div className="w-full h-full relative">
-                  {orbitalVisibilities.optical_trek && (
+                  {orbitalVisibilities.optical_trek && baseOpticalUrl && (
                     <img
                       src={baseOpticalUrl}
                       alt="NASA Mars Trek CTX / Viking Optical Base"
@@ -867,7 +867,7 @@ export const MultilayerScientificMap: React.FC = () => {
 
                   {/* Overlays */}
                   <div className="absolute inset-0 pointer-events-none">
-                    {orbitalVisibilities.hillshade && (
+                    {orbitalVisibilities.hillshade && hillshadeUrl && (
                       <img
                         src={hillshadeUrl}
                         alt="HRSC MOLA Color Hillshade"
@@ -875,7 +875,7 @@ export const MultilayerScientificMap: React.FC = () => {
                         className="absolute inset-0 w-full h-full object-contain mix-blend-screen"
                       />
                     )}
-                    {orbitalVisibilities.thermal_day && (
+                    {orbitalVisibilities.thermal_day && themisDayUrl && (
                       <img
                         src={themisDayUrl}
                         alt="USGS THEMIS IR Day"
@@ -883,7 +883,7 @@ export const MultilayerScientificMap: React.FC = () => {
                         className="absolute inset-0 w-full h-full object-contain"
                       />
                     )}
-                    {orbitalVisibilities.thermal_night && (
+                    {orbitalVisibilities.thermal_night && themisNightUrl && (
                       <img
                         src={themisNightUrl}
                         alt="USGS THEMIS IR Night"
@@ -891,7 +891,7 @@ export const MultilayerScientificMap: React.FC = () => {
                         className="absolute inset-0 w-full h-full object-contain mix-blend-lighten"
                       />
                     )}
-                    {orbitalVisibilities.geology_sim3292 && (
+                    {orbitalVisibilities.geology_sim3292 && sim3292Url && (
                       <img
                         src={sim3292Url}
                         alt="USGS SIM 3292 Geology"
@@ -956,11 +956,13 @@ export const MultilayerScientificMap: React.FC = () => {
                     <span className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded bg-black/80 border border-slate-700 text-[10px] font-mono text-emerald-300 font-bold">
                       NASA Mars Trek Orbital
                     </span>
-                    <img
-                      src={baseOpticalUrl}
-                      alt="NASA Mars Trek CTX"
-                      className="w-full h-full object-contain"
-                    />
+                    {baseOpticalUrl && (
+                      <img
+                        src={baseOpticalUrl}
+                        alt="NASA Mars Trek CTX"
+                        className="w-full h-full object-contain"
+                      />
+                    )}
                   </div>
                 </div>
               )}
@@ -1098,10 +1100,27 @@ export const MultilayerScientificMap: React.FC = () => {
                   <div className="text-[10px] text-slate-400">Stereo baseline required for physical metric bounds.</div>
                 </div>
 
-                <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 space-y-1">
+                <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 space-y-1.5">
                   <span className="text-slate-500 uppercase text-[10px]">Vision Processing Pipeline</span>
-                  <div className="font-bold text-white">{activeSession.imageAnalysis?.aiAvailable ? 'Gemini 2.5 Flash + OpenCV' : 'OpenCV Edge Gradient CV'}</div>
+                  <div className={`font-bold ${activeSession.imageAnalysis?.aiAvailable ? 'text-emerald-300' : 'text-amber-300'}`}>
+                    {activeSession.imageAnalysis?.aiAvailable
+                      ? 'Gemini 4 Hydrogen (Interactions API) + Pixel CV'
+                      : 'AI ANALYSIS UNAVAILABLE · FALLBACK: PIXEL-BASED COMPUTER VISION'}
+                  </div>
                   <div className="text-[10px] text-cyan-400">Status: {activeSession.analysisStatus || 'completed'}</div>
+                  {activeImageUrl && !activeSession.imageAnalysis?.aiAvailable && activeSession.imageAnalysis?.aiStatusMessage && (
+                    <div className="text-[10px] text-amber-200/90 font-sans pt-0.5">{activeSession.imageAnalysis.aiStatusMessage}</div>
+                  )}
+                  {activeImageUrl && !activeSession.imageAnalysis?.aiAvailable && (
+                    <button
+                      type="button"
+                      disabled={isReanalyzing}
+                      onClick={handleReanalyze}
+                      className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 font-mono text-[10px] font-bold cursor-pointer disabled:opacity-50"
+                    >
+                      {isReanalyzing ? 'Retrying AI...' : 'Retry AI Analysis'}
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -1221,11 +1240,11 @@ export const MultilayerScientificMap: React.FC = () => {
                   <span className="text-[10px] font-bold uppercase text-cyan-400 block">Dominant Geological Formations</span>
                   <p className="text-slate-300 text-xs leading-relaxed font-sans">
                     {activeSession.imageAnalysis?.dominantFeature ||
-                      'Layered Noachian-Hesperian lacustrine delta strata with basaltic float clasts and indurated bedrock surfaces.'}
+                      'No image analyzed yet; upload or select a Martian surface frame.'}
                   </p>
                   <div className="text-[11px] text-slate-400">
-                    Surface Roughness Index: <strong className="text-white">{activeSession.imageAnalysis?.roughnessScore ?? 0.38}</strong> ·
-                    Regolith Texture: <strong className="text-slate-200">{activeSession.imageAnalysis?.sandAndRegolith || 'Cohesive aeolian mantling with minor pebble lag.'}</strong>
+                    Surface Roughness Index: <strong className="text-white">{activeSession.imageAnalysis?.roughnessScore ?? 'N/A'}</strong> ·
+                    Regolith Texture: <strong className="text-slate-200">{activeSession.imageAnalysis?.sandAndRegolith || 'Unavailable until image analysis completes.'}</strong>
                   </div>
                 </div>
               </div>
@@ -1535,11 +1554,13 @@ export const MultilayerScientificMap: React.FC = () => {
 
                 {analogSites.find(s => s.id === selectedAnalogId) && (
                   <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-950 p-2.5 space-y-2">
-                    <img
-                      src={analogSites.find(s => s.id === selectedAnalogId)!.previewImageUrl}
-                      alt={analogSites.find(s => s.id === selectedAnalogId)!.name}
-                      className="w-full h-32 object-contain bg-black rounded"
-                    />
+                    {analogSites.find(s => s.id === selectedAnalogId)!.previewImageUrl && (
+                      <img
+                        src={analogSites.find(s => s.id === selectedAnalogId)!.previewImageUrl}
+                        alt={analogSites.find(s => s.id === selectedAnalogId)!.name}
+                        className="w-full h-32 object-contain bg-black rounded"
+                      />
+                    )}
                     <div className="text-[10px] text-slate-300">
                       <strong>{analogSites.find(s => s.id === selectedAnalogId)!.name}</strong>: {analogSites.find(s => s.id === selectedAnalogId)!.analogRationale}
                     </div>

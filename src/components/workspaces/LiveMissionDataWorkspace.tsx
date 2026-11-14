@@ -452,17 +452,19 @@ export const LiveMissionDataWorkspace: React.FC = () => {
                   >
                     {/* Thumbnail Container */}
                     <div className="relative aspect-[4/3] bg-black overflow-hidden flex items-center justify-center">
-                      <img
-                        src={img.thumbnailUrl}
-                        alt={img.title}
-                        loading="lazy"
-                        className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
-                        onError={(e) => {
-                          // Fallback placeholder with honest label
-                          (e.currentTarget as HTMLImageElement).src =
-                            'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="225" viewBox="0 0 300 225"><rect width="100%" height="100%" fill="%230f172a"/><text x="50%" y="50%" fill="%2364748b" font-family="monospace" font-size="12" text-anchor="middle">Thumbnail Stored on NASA PDS</text></svg>';
-                        }}
-                      />
+                      {img.thumbnailUrl && (
+                        <img
+                          src={img.thumbnailUrl}
+                          alt={img.title}
+                          loading="lazy"
+                          className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
+                          onError={(e) => {
+                            // Fallback placeholder with honest label
+                            (e.currentTarget as HTMLImageElement).src =
+                              'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="225" viewBox="0 0 300 225"><rect width="100%" height="100%" fill="%230f172a"/><text x="50%" y="50%" fill="%2364748b" font-family="monospace" font-size="12" text-anchor="middle">Thumbnail Stored on NASA PDS</text></svg>';
+                          }}
+                        />
+                      )}
 
                       {/* Overlaid Badges */}
                       <div className="absolute top-2 left-2 flex items-center gap-1.5">
@@ -609,14 +611,16 @@ export const LiveMissionDataWorkspace: React.FC = () => {
                     >
                       {/* HiRISE Image Viewer */}
                       <div className="relative w-full h-48 bg-slate-950 overflow-hidden group">
-                        <img
-                          src={`/api/nasa/proxy-image?url=${encodeURIComponent(product.thumbnailUrl)}`}
-                          alt={product.title}
-                          className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="100%" height="100%" fill="%230f172a"/><text x="50%" y="50%" fill="%2364748b" font-family="monospace" font-size="12" text-anchor="middle">Image Data Unavailable</text></svg>';
-                          }}
-                        />
+                        {product.thumbnailUrl && (
+                          <img
+                            src={`/api/nasa/proxy-image?url=${encodeURIComponent(product.thumbnailUrl)}`}
+                            alt={product.title}
+                            className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="100%" height="100%" fill="%230f172a"/><text x="50%" y="50%" fill="%2364748b" font-family="monospace" font-size="12" text-anchor="middle">Image Data Unavailable</text></svg>';
+                            }}
+                          />
+                        )}
                         <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent text-[10px] text-slate-300 font-mono truncate">
                           HiRISE Orthoimage Preview
                         </div>
@@ -725,11 +729,13 @@ export const LiveMissionDataWorkspace: React.FC = () => {
             {/* Modal Content */}
             <div className="p-6 overflow-y-auto space-y-4">
               <div className="relative bg-black rounded-lg overflow-hidden flex items-center justify-center max-h-[50vh]">
-                <img
-                  src={activeDetailModal.fullResUrl || activeDetailModal.thumbnailUrl}
-                  alt={activeDetailModal.title}
-                  className="max-h-[50vh] w-auto object-contain"
-                />
+                {(activeDetailModal.fullResUrl || activeDetailModal.thumbnailUrl) && (
+                  <img
+                    src={activeDetailModal.fullResUrl || activeDetailModal.thumbnailUrl}
+                    alt={activeDetailModal.title}
+                    className="max-h-[50vh] w-auto object-contain"
+                  />
+                )}
               </div>
 
               {/* Metadata Table */}

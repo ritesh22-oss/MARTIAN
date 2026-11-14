@@ -388,18 +388,20 @@ export default function ImageAcquisitionPanel({ onImageSelected }: { onImageSele
                         className="group bg-slate-900/80 border border-slate-800 hover:border-cyan-500/60 rounded-xl overflow-hidden shadow-lg cursor-pointer transition-all flex flex-col"
                       >
                         <div className="relative aspect-video bg-black/60 overflow-hidden">
-                          <img
-                            src={getSafeImageUrl(thumbSrc)}
-                            alt={img.title}
-                            onError={e => {
-                              const el = e.currentTarget;
-                              if (el.src.includes('/api/nasa/proxy-image') && thumbSrc) {
-                                el.src = thumbSrc;
-                              }
-                            }}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                            loading="lazy"
-                          />
+                          {getSafeImageUrl(thumbSrc) && (
+                            <img
+                              src={getSafeImageUrl(thumbSrc)}
+                              alt={img.title}
+                              onError={e => {
+                                const el = e.currentTarget;
+                                if (el.src.includes('/api/nasa/proxy-image') && thumbSrc) {
+                                  el.src = thumbSrc;
+                                }
+                              }}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              loading="lazy"
+                            />
+                          )}
                           <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-mono text-cyan-300 border border-cyan-500/30">
                             {img.sol > 0 ? `Sol ${img.sol}` : img.nasaId || 'NASA Archive'}
                           </div>
@@ -459,18 +461,20 @@ export default function ImageAcquisitionPanel({ onImageSelected }: { onImageSele
 
             <div className="p-6 flex flex-col gap-4">
               <div className="relative aspect-video bg-black rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
-                <img
-                  src={getSafeImageUrl(previewImage.fullResUrl || previewImage.thumbnailUrl)}
-                  alt={previewImage.title}
-                  onError={e => {
-                    const el = e.currentTarget;
-                    const fallback = previewImage.fullResUrl || previewImage.thumbnailUrl;
-                    if (el.src.includes('/api/nasa/proxy-image') && fallback) {
-                      el.src = fallback;
-                    }
-                  }}
-                  className="max-h-[50vh] object-contain"
-                />
+                {getSafeImageUrl(previewImage.fullResUrl || previewImage.thumbnailUrl) && (
+                  <img
+                    src={getSafeImageUrl(previewImage.fullResUrl || previewImage.thumbnailUrl)}
+                    alt={previewImage.title}
+                    onError={e => {
+                      const el = e.currentTarget;
+                      const fallback = previewImage.fullResUrl || previewImage.thumbnailUrl;
+                      if (el.src.includes('/api/nasa/proxy-image') && fallback) {
+                        el.src = fallback;
+                      }
+                    }}
+                    className="max-h-[50vh] object-contain"
+                  />
+                )}
                 {resolvingAsset && (
                   <div className="absolute bottom-2 right-2 px-2.5 py-1 rounded bg-black/80 text-[10px] font-mono text-cyan-300 flex items-center gap-1.5 border border-cyan-500/30">
                     <Loader2 className="w-3 h-3 animate-spin" />

@@ -73,6 +73,23 @@ service cloud.firestore {
              data.timestamp is string;
     }
 
+    function isValidGeologicalTarget(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'imageKey', 'regionId', 'status', 'notes', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'userId', 'imageKey', 'imageName', 'targetId', 'regionId', 'targetName', 'status', 'notes', 'createdAt', 'updatedAt']) &&
+             isValidId(data.id) &&
+             data.userId == userId &&
+             data.imageKey is string && data.imageKey.size() <= 160 &&
+             (!('imageName' in data) || (data.imageName is string && data.imageName.size() <= 240)) &&
+             (!('targetId' in data) || (data.targetId is string && data.targetId.size() <= 128)) &&
+             data.regionId is string && data.regionId.size() <= 64 &&
+             (!('targetName' in data) || (data.targetName is string && data.targetName.size() <= 200)) &&
+             data.status in ['DETECTED', 'Not Investigated', 'Planned', 'In Progress', 'Sample Collected', 'Completed', 'Rejected'] &&
+             data.notes is list && data.notes.size() <= 50 &&
+             (data.notes.size() == 0 || (data.notes[0] is string && data.notes[0].size() <= 1000)) &&
+             data.createdAt is string && data.createdAt.size() <= 64 &&
+             data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
     // Connection testing
     match /test/connection {
       allow read: if true;
@@ -97,6 +114,18 @@ service cloud.firestore {
         allow get, list: if isOwner(userId);
         allow create: if isOwner(userId) && isValidId(messageId) && isValidChatMessage(incoming(), userId);
         allow delete: if isOwner(userId) && isValidId(messageId);
+      }
+
+      // Persisted Geological Target Statuses & Field Notes
+      match /geologicalTargets/{targetKey} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(targetKey) && isValidGeologicalTarget(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(targetKey) &&
+                         isValidGeologicalTarget(incoming(), userId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'notes', 'updatedAt', 'targetName']);
+        allow delete: if isOwner(userId) && isValidId(targetKey);
       }
     }
 

@@ -328,6 +328,32 @@ export const MarsSurfaceExplorer: React.FC = () => {
                   : 'Click orbital map to sample'}
             </strong>
           </p>
+          {activeLayerId === 'active_photo' && activeSession.imageMetadata.url && activeSession.analysisStatus === 'completed' && !activeSession.imageAnalysis?.aiAvailable && (
+            <div className="mt-1.5 inline-flex flex-wrap items-center gap-2 px-2.5 py-1.5 rounded-lg bg-amber-950/35 border border-amber-500/40 text-[10px] font-mono">
+              <span className="font-bold text-amber-300">AI ANALYSIS UNAVAILABLE</span>
+              <span className="text-slate-500">·</span>
+              <span className="font-bold text-cyan-300">FALLBACK: PIXEL-BASED COMPUTER VISION</span>
+              {activeSession.imageAnalysis?.aiStatusMessage && (
+                <span className="text-amber-200/90 font-sans">({activeSession.imageAnalysis.aiStatusMessage})</span>
+              )}
+              <button
+                type="button"
+                onClick={() =>
+                  sharedExplorationStore.processAndSyncImage(
+                    activeSession.imageMetadata.url,
+                    activeSession.imageMetadata.fileName,
+                    activeSession.activeRegion,
+                    undefined,
+                    undefined,
+                    { ...activeSession.provenance, forceRefresh: true }
+                  )
+                }
+                className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 font-bold cursor-pointer"
+              >
+                Retry AI Analysis
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons Control Panel */}

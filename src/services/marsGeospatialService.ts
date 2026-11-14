@@ -62,6 +62,7 @@ export interface UsgsGeologicUnitInfo {
   sourceUrl: string;
   areaKm2?: number | null;
   perimeterKm?: number | null;
+  featureId?: number | string | null;
   polygonVertexCount?: number;
   confidence: 'Published USGS Map Unit';
 }
@@ -116,6 +117,12 @@ export interface UsgsGeologyResponse {
     bbox: number[];
     source: string;
   }>;
+  spatialQuery?: {
+    crs: string;
+    spatialRel: string;
+    pointFeatureId: number | string | null;
+    envelopeFeatureCount: number;
+  };
   provenance: {
     primaryMap: string;
     usgsCenter: string;
@@ -125,8 +132,9 @@ export interface UsgsGeologyResponse {
     pubsEndpoint?: string;
     retrievedAt: string;
   };
-  sourceStatus: 'live' | 'cached' | 'catalog-fallback';
+  sourceStatus: 'live' | 'cached' | 'unavailable';
   note?: string;
+  error?: { code?: string; message?: string };
 }
 
 export interface TrekElevationSample {
@@ -679,8 +687,12 @@ export async function fetchUsgsGeologyContext(
   const qs = new URLSearchParams({ lat: String(lat), lon: String(lon) });
   if (regionId) qs.set('regionId', regionId);
   const resp = await fetch(`/api/usgs/geology?${qs.toString()}`);
-  if (!resp.ok) throw new Error(`USGS geology HTTP ${resp.status}`);
-  return resp.json();
+  const payload = await resp.json().catch(() => null);
+  if (!resp.ok) {
+    const msg = payload?.error?.message || payload?.note || `USGS geology HTTP ${resp.status}`;
+    throw new Error(msg);
+  }
+  return payload;
 }
 
 export async function fetchWorldviewAnalogSites(): Promise<{

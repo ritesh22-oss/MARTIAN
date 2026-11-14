@@ -58,6 +58,28 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "userId", "role", "content", "timestamp"]
+    },
+    "GeologicalTargetObservation": {
+      "title": "GeologicalTargetObservation",
+      "description": "Operator-updated exploration status and field notes for a segmented geological target region",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "imageKey": { "type": "string", "maxLength": 160 },
+        "imageName": { "type": "string", "maxLength": 240 },
+        "targetId": { "type": "string", "maxLength": 128 },
+        "regionId": { "type": "string", "maxLength": 64 },
+        "targetName": { "type": "string", "maxLength": 200 },
+        "status": {
+          "type": "string",
+          "enum": ["DETECTED", "Not Investigated", "Planned", "In Progress", "Sample Collected", "Completed", "Rejected"]
+        },
+        "notes": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "updatedAt": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "imageKey", "regionId", "status", "notes", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -72,6 +94,10 @@
     "/users/{userId}/chatMessages/{messageId}": {
       "schema": { "$ref": "#/entities/ChatMessage" },
       "description": "Saved Gemini chat conversation messages by user"
+    },
+    "/users/{userId}/geologicalTargets/{targetKey}": {
+      "schema": { "$ref": "#/entities/GeologicalTargetObservation" },
+      "description": "Persisted exploration status and notes for image-segmented geological targets"
     }
   }
 }

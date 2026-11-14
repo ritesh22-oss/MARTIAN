@@ -43,10 +43,10 @@ export interface IntelligenceGeologicalTarget {
   supportingImage: string;
   dataSource: string;
   instrument: string;
-  confidencePct: number; // Calculated dynamically from pixel contrast & calibration
+  confidencePct: number | null;
   relevance: string;
   recommendedMethod: string;
-  status: 'Not Investigated' | 'Planned' | 'In Progress' | 'Sample Collected' | 'Completed' | 'Rejected';
+  status: 'DETECTED' | 'Not Investigated' | 'Planned' | 'In Progress' | 'Sample Collected' | 'Completed' | 'Rejected';
   dataNature: DataNatureTag;
   notes: string[];
   photoUrls: string[];
@@ -390,17 +390,13 @@ export async function processTerrainIntelligence(
     };
   }
 
-  // 3. Construct Geological Targets strictly from CV observations (no hardcoded Sedimentary Delta fallback)
+  // 3. Construct Geological Targets strictly from CV observations (neutral DETECTED status, no fabricated confidences/offsets)
   const geologicalTargets: IntelligenceGeologicalTarget[] = cvAnalysis.detectedObstacles.map((obs, idx) => {
-    const calculatedConfidence = Math.min(97, Math.max(58, Math.round(obs.confidence * 92)));
-    const latVal = isLocationVerified ? parseFloat((activeRecord.coordinates.lat + (obs.normY - 0.5) * 0.002).toFixed(5)) : null;
-    const lonVal = isLocationVerified ? parseFloat((activeRecord.coordinates.lon + (obs.normX - 0.5) * 0.002).toFixed(5)) : null;
-
     return {
       id: `tgt_${activeRecord.id}_${idx + 1}`,
       name: `${obs.label} (${activeRecord.regionName})`,
-      lat: latVal,
-      lon: lonVal,
+      lat: null,
+      lon: null,
       classification: obs.classification === 'bedrock_ridge'
         ? 'Stratified Lithic Escarpment (Visual)'
         : obs.classification === 'rock_cluster'
@@ -409,12 +405,12 @@ export async function processTerrainIntelligence(
       supportingImage: activeRecord.thumbnailUrl || activeRecord.assetUrl,
       dataSource: activeRecord.sourceCredit,
       instrument: activeRecord.instrument,
-      confidencePct: calculatedConfidence,
+      confidencePct: null,
       relevance: obs.traversalRelevance || obs.dimensionsNote,
       recommendedMethod: obs.classification === 'bedrock_ridge'
         ? 'Optical Multi-Angle Inspection & Spectrometer Follow-up'
         : 'Stand-off Optical Target Documentation',
-      status: idx === 0 ? 'In Progress' : 'Planned',
+      status: 'DETECTED',
       dataNature: 'Derived',
       notes: [
         `Observation source: ${activeRecord.sourcePageUrl}`,
@@ -526,7 +522,7 @@ export async function processTerrainIntelligence(
       totalCount: geologicalTargets.length,
       verifiedCount: geologicalTargets.filter(t => t.dataNature === 'Observed').length,
       investigatedCount: geologicalTargets.filter(t => t.status === 'Completed' || t.status === 'Sample Collected').length,
-      pendingCount: geologicalTargets.filter(t => t.status === 'Planned' || t.status === 'Not Investigated').length,
+      pendingCount: geologicalTargets.filter(t => t.status === 'DETECTED' || t.status === 'Planned' || t.status === 'Not Investigated').length,
       userCreatedCount: isCustomUpload ? geologicalTargets.length : 0,
       uncertainCount: cvAnalysis.detectedObstacles.filter(o => o.confidence < 0.75).length,
       targets: geologicalTargets

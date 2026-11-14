@@ -1099,12 +1099,14 @@ export default function ScenarioTestingLab() {
                 >
                   {/* Card Header & Thumbnail Image Container */}
                   <div className="relative aspect-[16/9] w-full overflow-hidden bg-black/80">
-                    <img
-                      src={proxyImageUrl}
-                      alt={reg.name}
-                      loading="lazy"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
-                    />
+                    {proxyImageUrl && (
+                      <img
+                        src={proxyImageUrl}
+                        alt={reg.name}
+                        loading="lazy"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+                      />
+                    )}
 
                     {/* Image Gradient Scrim overlay */}
                     <div className="absolute inset-0 bg-gradient-to-t from-[#050915] via-black/20 to-black/60 pointer-events-none" />

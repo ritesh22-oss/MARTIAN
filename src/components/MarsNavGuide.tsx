@@ -983,7 +983,7 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
       summary: 'Conversational mission assistant powered by Google Gemini, answering complex questions on rover kinematics, Jezero mineralogy, and path safety.',
       whatIsIt: 'ORBIT is the intelligent mission assistant of MARSNAV. Connected to Google Gemini with autonomous fallback knowledge, it assists operators with expert engineering advice.',
       whyImportant: 'Having an instant expert capable of synthesizing rover telemetry with published planetary science literature speeds up tactical decision-making.',
-      coreCapabilities: ['Conversational AI interface powered by Gemini 2.5 Flash', 'Planetary science and rover kinematics knowledge base', 'Autonomous fallback engine when offline'],
+      coreCapabilities: ['Conversational AI interface powered by Gemini 4 Hydrogen (Interactions API)', 'Planetary science and rover kinematics knowledge base', 'Autonomous fallback engine when offline'],
       howToUse: ['Type natural language questions in the chat terminal', 'Ask about slope slip limits, CRISM mineral signatures, or A* algorithm details', 'Receive instant, structured engineering recommendations'],
       toolsAndControls: ['Chat Input Bar', 'Conversation History Log', 'Model Selector', 'Clear Memory Button'],
       expectedOutput: 'Actionable, scientifically grounded engineering recommendations.',

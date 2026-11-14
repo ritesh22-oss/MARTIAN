@@ -22,7 +22,6 @@ import {
   ExternalLink,
   FileText,
   Rocket,
-  MapPin,
   Calendar,
   Layers3,
   HardDrive
@@ -58,8 +57,8 @@ export default function OverviewWorkspace() {
     status: 'Standby',
     roverProfile: 'Rover Profile Syncing...',
     createdAt: new Date().toISOString(),
-    startPoint: { x: 0, y: 0 },
-    destinationPoint: { x: 0, y: 0 },
+    startPoint: null,
+    destinationPoint: null,
     checkpoints: [],
     traversalLog: [],
     segmentedHazards: [],
@@ -130,8 +129,8 @@ export default function OverviewWorkspace() {
       description: "Applies heuristic A* pathfinding across digital elevation models to compute energy-efficient, collision-free rover traversal vectors.",
       specs: [
         { label: "Algorithm", val: "Weighted A* Graph Search" },
-        { label: "Start Coordinate", val: `(${currentMission.startPoint?.x || 35}, ${currentMission.startPoint?.y || 220})` },
-        { label: "Dest Coordinate", val: `(${currentMission.destinationPoint?.x || 220}, ${currentMission.destinationPoint?.y || 45})` }
+        { label: "Traversal Status", val: currentMission.routeMetrics?.pathfindingStatus || "Weighted A* Heuristic" },
+        { label: "Cost Heuristic", val: `Slope ${settings.slopeWeight}x · Slip ${settings.slipWeight}x` }
       ]
     }
   ];
@@ -208,16 +207,6 @@ export default function OverviewWorkspace() {
 
             {/* Quick telemetry summary bar */}
             <div className="flex flex-wrap items-center gap-4 text-xs font-mono pt-1 text-slate-400">
-              <span className="flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-orange-400" />
-                <span>Start: ({currentMission.startPoint?.x || 35}, {currentMission.startPoint?.y || 220})</span>
-              </span>
-              <span>&rarr;</span>
-              <span className="flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Dest: ({currentMission.destinationPoint?.x || 220}, {currentMission.destinationPoint?.y || 45})</span>
-              </span>
-              <span>·</span>
               <span className="text-slate-300">
                 Created: {new Date(currentMission.createdAt || Date.now()).toLocaleDateString()}
               </span>

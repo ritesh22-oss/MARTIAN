@@ -66,7 +66,8 @@ import {
   Loader2,
   Search,
   ArrowLeftRight,
-  Hand
+  Hand,
+  Rocket
 } from 'lucide-react';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { sharedExplorationStore } from '../../services/sharedExplorationStore';
@@ -884,7 +885,7 @@ export default function MarsNavV4Workspace() {
         setSegmentationMetrics({
           status: 'success',
           classDistribution: cached.pixelComposition,
-          modelArchitecture: cached.aiAvailable ? 'Gemini Complete-Frame Vision + CV' : 'Deterministic Sobel/Variance CV'
+          modelArchitecture: cached.aiAvailable ? 'Gemini 4 Hydrogen (Interactions API) + Pixel CV' : 'FALLBACK: PIXEL-BASED COMPUTER VISION'
         });
         setInferenceTimeMs(cached.processingTimeMs);
         setHasAnalyzed(true);
@@ -919,13 +920,13 @@ export default function MarsNavV4Workspace() {
       setSegmentationMetrics({
         status: 'success',
         classDistribution: report.pixelComposition,
-        modelArchitecture: report.aiAvailable ? 'Gemini Complete-Frame Vision + CV' : 'Deterministic Sobel/Variance CV'
+        modelArchitecture: report.aiAvailable ? 'Gemini 4 Hydrogen (Interactions API) + Pixel CV' : 'FALLBACK: PIXEL-BASED COMPUTER VISION'
       });
       setHasAnalyzed(true);
       addTimelineEvent(
         'analysis',
         'Terrain Region Identification Complete',
-        `Identified ${report.regions.length} terrain region(s) across full frame in ${report.processingTimeMs} ms (${report.aiAvailable ? 'AI Vision + CV' : 'Deterministic CV'}).`
+        `Identified ${report.regions.length} terrain region(s) across full frame in ${report.processingTimeMs} ms (${report.aiAvailable ? 'Gemini 4 Hydrogen + Pixel CV' : 'FALLBACK: PIXEL-BASED COMPUTER VISION'}).`
       );
     } catch (e: any) {
       if (intelSeqRef.current !== seq) return;
@@ -1752,7 +1753,7 @@ export default function MarsNavV4Workspace() {
       imageStats: imageStats || { width: naturalDimensions.width, height: naturalDimensions.height, format: 'JPEG' },
       segmentationMetrics: segmentationMetrics || {
         classDistribution: liveDist,
-        modelArchitecture: terrainIntelligence?.aiAvailable ? 'Gemini Vision + Deterministic CV' : 'Deterministic Sobel/Variance CV'
+        modelArchitecture: terrainIntelligence?.aiAvailable ? 'Gemini 4 Hydrogen (Interactions API) + Pixel CV' : 'FALLBACK: PIXEL-BASED COMPUTER VISION'
       },
       terrainIntelligence,
       parameters: {
@@ -2133,345 +2134,93 @@ export default function MarsNavV4Workspace() {
         </div>
       )}
 
-      {/* 2. INTERACTIVE TOOLBAR & DISPLAY-MODE BAR (SECTIONS 1, 2, 8) */}
-      <div className="bg-[#090D1A] border border-slate-800/80 px-4 py-2 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs font-mono shadow-md">
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Navigation Points & Route Controls Group */}
-          <div className="flex items-center gap-1 bg-black/60 p-1 rounded-lg border border-slate-800">
-            {/* Start Point Tool */}
-            <button
-              onClick={() => setActiveTool(activeTool === 'start' ? 'select' : 'start')}
-              disabled={imageStatus !== 'loaded'}
-              className={`px-2.5 py-1 rounded-md transition font-bold flex items-center gap-1.5 cursor-pointer text-[11px] ${
-                activeTool === 'start'
-                  ? 'bg-emerald-500 text-white ring-2 ring-emerald-400 shadow-md animate-pulse'
-                  : startPoint
-                  ? 'bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/60'
-                  : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/30'
-              }`}
-              title="Select & Place Start Base on Terrain (Click image)"
-            >
-              <MapPin className="w-3.5 h-3.5 text-emerald-400" />
-              <span>START</span>
-              <span className="text-[9px] font-mono opacity-80 bg-black/40 px-1 rounded">
-                {startPoint ? `${startPoint.x},${startPoint.y}` : 'Unset'}
-              </span>
-            </button>
+      {/* 2. MAIN WORKSPACE TWO-COLUMN LAYOUT: LEFT TERRAIN WORKSPACE + RIGHT PERSISTENT MISSION CONTROL TOOLBAR */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start flex-1 min-h-[560px]">
+        
+        {/* LEFT COLUMN: TERRAIN WORKSPACE & DISPLAY MODES (lg:col-span-9 ~75%) */}
+        <div className="lg:col-span-9 space-y-3 flex flex-col min-h-[560px]">
+          {/* Display-Mode Switcher Bar & Viewport Actions */}
+          <div className="bg-[#090D1A] border border-slate-800/80 px-4 py-2 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs font-mono shadow-md">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-1 bg-black/50 p-1 rounded-xl border border-slate-800">
+                <span className="text-slate-500 text-[10px] px-1 font-sans uppercase font-bold">Display Mode:</span>
+                {(['original', 'route', 'annotations', 'analysis', 'split_comparison'] as const).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setDisplayMode(m)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold capitalize transition-all cursor-pointer ${
+                      displayMode === m
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-sm'
+                        : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
+                    }`}
+                  >
+                    {m === 'split_comparison' ? 'Split View' : m}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-            {/* Clear Start */}
-            <button
-              onClick={handleClearStart}
-              disabled={!startPoint}
-              className="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-white/10 disabled:opacity-20 cursor-pointer transition"
-              title="Clear Start Point"
-            >
-              <X className="w-3 h-3" />
-            </button>
-
-            {/* Destination Point Tool */}
-            <button
-              onClick={() => setActiveTool(activeTool === 'destination' ? 'select' : 'destination')}
-              disabled={imageStatus !== 'loaded'}
-              className={`px-2.5 py-1 rounded-md transition font-bold flex items-center gap-1.5 cursor-pointer text-[11px] ${
-                activeTool === 'destination'
-                  ? 'bg-rose-500 text-white ring-2 ring-rose-400 shadow-md animate-pulse'
-                  : destinationPoint
-                  ? 'bg-rose-950/60 border border-rose-500/50 text-rose-300 hover:bg-rose-900/60'
-                  : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25 border border-rose-500/30'
-              }`}
-              title="Select & Place Destination Target on Terrain (Click image)"
-            >
-              <Flag className="w-3.5 h-3.5 text-rose-400" />
-              <span>DEST</span>
-              <span className="text-[9px] font-mono opacity-80 bg-black/40 px-1 rounded">
-                {destinationPoint ? `${destinationPoint.x},${destinationPoint.y}` : 'Unset'}
-              </span>
-            </button>
-
-            {/* Clear Destination */}
-            <button
-              onClick={handleClearDestination}
-              disabled={!destinationPoint}
-              className="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-white/10 disabled:opacity-20 cursor-pointer transition"
-              title="Clear Destination Point"
-            >
-              <X className="w-3 h-3" />
-            </button>
-
-            {/* Swap Start & Destination */}
-            <button
-              onClick={handleSwapPoints}
-              disabled={!startPoint && !destinationPoint}
-              className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 disabled:opacity-30 cursor-pointer font-bold flex items-center gap-1 text-[10px] transition"
-              title="Swap Start Base and Destination Target"
-            >
-              <ArrowLeftRight className="w-3 h-3 text-cyan-400" />
-              <span>SWAP</span>
-            </button>
-          </div>
-
-          {/* Route Generation & Actions Group */}
-          <div className="flex items-center gap-1 bg-black/60 p-1 rounded-lg border border-slate-800">
-            <button
-              onClick={handleGenerateRoute}
-              disabled={imageStatus !== 'loaded'}
-              className={`px-2.5 py-1 rounded-md font-bold flex items-center gap-1.5 cursor-pointer text-[11px] transition shadow-md ${
-                startPoint && destinationPoint
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white'
-                  : 'bg-slate-800/80 text-slate-400 hover:text-white border border-slate-700'
-              }`}
-              title="Generate / Plan Navigation Route between Start and Destination"
-            >
-              <Route className="w-3.5 h-3.5 text-cyan-200" />
-              <span>PLAN ROUTE</span>
-            </button>
-
-            <button
-              onClick={handleRecalculateRoute}
-              disabled={imageStatus !== 'loaded'}
-              className="p-1.5 rounded hover:bg-white/10 text-cyan-300 hover:text-white disabled:opacity-30 cursor-pointer transition"
-              title="Recalculate Route with latest parameters"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={handleClearRoute}
-              disabled={activePath.length <= 1}
-              className="p-1.5 rounded hover:bg-red-500/20 text-slate-400 hover:text-red-300 disabled:opacity-20 cursor-pointer transition"
-              title="Clear Route Line from Viewport"
-            >
-              <EyeOff className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Core Interactive Tool Selector */}
-          <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-slate-800">
-            <button
-              onClick={() => setActiveTool('select')}
-              className={`p-1.5 rounded-md transition cursor-pointer ${
-                activeTool === 'select' ? 'bg-cyan-500 text-white ring-1 ring-cyan-400' : 'text-slate-400 hover:bg-white/10'
-              }`}
-              title="Select / Pointer Tool (Drag waypoints or pan on drag)"
-            >
-              <MousePointer className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={() => setActiveTool('pan')}
-              className={`p-1.5 rounded-md transition cursor-pointer ${
-                activeTool === 'pan' ? 'bg-cyan-500 text-white ring-1 ring-cyan-400' : 'text-slate-400 hover:bg-white/10'
-              }`}
-              title="Pan Tool (Click and drag to pan terrain viewport)"
-            >
-              <Hand className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={() => setActiveTool('inspect')}
-              className={`px-2 py-1 rounded-md transition font-bold flex items-center gap-1 cursor-pointer ${
-                activeTool === 'inspect' ? 'bg-cyan-500 text-white ring-1 ring-cyan-400' : 'bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25'
-              }`}
-              title="Inspect Terrain (Hover or click to inspect elevation, slope, and hazard ratings)"
-            >
-              <Search className="w-3.5 h-3.5" />
-              <span>INSPECT</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTool('measure')}
-              disabled={imageStatus !== 'loaded'}
-              className={`px-2 py-1 rounded-md transition font-bold flex items-center gap-1 cursor-pointer ${
-                activeTool === 'measure' ? 'bg-teal-500 text-white ring-1 ring-teal-400' : 'bg-teal-500/15 text-teal-300 hover:bg-teal-500/25'
-              }`}
-              title="Ruler Distance Measurement (Click two points)"
-            >
-              <Ruler className="w-3.5 h-3.5" />
-              <span>MEASURE</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTool('checkpoint')}
-              disabled={imageStatus !== 'loaded'}
-              className={`px-2 py-1 rounded-md transition font-bold flex items-center gap-1 cursor-pointer ${
-                activeTool === 'checkpoint' ? 'bg-blue-500 text-white ring-1 ring-blue-400' : 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25'
-              }`}
-              title="Add Checkpoint Node"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>CHECKPOINT</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTool('science')}
-              disabled={imageStatus !== 'loaded'}
-              className={`px-2 py-1 rounded-md transition font-bold flex items-center gap-1 cursor-pointer ${
-                activeTool === 'science' ? 'bg-indigo-500 text-white ring-1 ring-indigo-400' : 'bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25'
-              }`}
-              title="Add Science Sampling Stop"
-            >
-              <Compass className="w-3.5 h-3.5" />
-              <span>SCIENCE POI</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTool('hazard')}
-              disabled={imageStatus !== 'loaded'}
-              className={`px-2 py-1 rounded-md transition font-bold flex items-center gap-1 cursor-pointer ${
-                activeTool === 'hazard' ? 'bg-amber-500 text-white ring-1 ring-amber-400' : 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
-              }`}
-              title="Draw Restricted Hazard Polygon Zone"
-            >
-              <ShieldAlert className="w-3.5 h-3.5" />
-              <span>RESTRICT ZONE</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTool('note')}
-              disabled={imageStatus !== 'loaded'}
-              className={`px-2 py-1 rounded-md transition font-bold flex items-center gap-1 cursor-pointer ${
-                activeTool === 'note' ? 'bg-purple-500 text-white ring-1 ring-purple-400' : 'bg-purple-500/15 text-purple-300 hover:bg-purple-500/25'
-              }`}
-              title="Add Text Note Pin"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>NOTE</span>
-            </button>
-          </div>
-
-          {/* Active Polygon Actions */}
-          {activeDrawingPolygon.length > 0 && (
-            <div className="flex items-center gap-1 bg-amber-950/60 p-1 rounded-lg border border-amber-500/50">
-              <span className="text-amber-300 text-[10px] px-1 font-bold">{activeDrawingPolygon.length} pts</span>
-              {activeDrawingPolygon.length >= 3 && (
-                <button
-                  onClick={finishActivePolygon}
-                  className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] cursor-pointer"
-                >
-                  Finish Polygon
-                </button>
-              )}
-              <button
-                onClick={() => setActiveDrawingPolygon([])}
-                className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] cursor-pointer"
-              >
-                Cancel
+            <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-slate-800">
+              <button onClick={() => handleZoomAction(1.25)} className="p-1 rounded hover:bg-white/10 text-slate-300 cursor-pointer" title="Zoom In">
+                <ZoomIn className="w-3.5 h-3.5" />
               </button>
+              <span className="text-[10px] text-cyan-300 px-1 font-mono font-bold">{Math.round(zoomLevel * 100)}%</span>
+              <button onClick={() => handleZoomAction(0.8)} className="p-1 rounded hover:bg-white/10 text-slate-300 cursor-pointer" title="Zoom Out">
+                <ZoomOut className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => handleFitToWorkspace()}
+                className="px-2.5 py-1 rounded-md bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 text-cyan-200 text-[11px] font-mono font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
+                title="Fit image to workspace"
+              >
+                <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Fit to Workspace</span>
+              </button>
+              <button onClick={() => { setZoomLevel(1.0); setPanOffset({ x: 0, y: 0 }); }} className="p-1.5 rounded hover:bg-white/10 text-slate-400 cursor-pointer" title="Reset 100%">
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* CONFIRM CLEAR ANNOTATIONS MODAL */}
+          {clearConfirmOpen && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+              <div className="bg-[#0a0e1c] border border-red-500/40 rounded-2xl p-5 max-w-sm w-full space-y-3 shadow-2xl">
+                <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
+                  <AlertTriangle className="w-5 h-5 shrink-0" />
+                  <span>Confirm Clear All Annotations</span>
+                </div>
+                <p className="text-slate-300 text-xs leading-relaxed">
+                  Are you sure you want to delete all custom checkpoints, science POIs, restricted hazard zones, distance rulers, and notes?
+                </p>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => setClearConfirmOpen(false)}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmClearAll}
+                    className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold cursor-pointer shadow"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Undo / Redo / Clear Group (Section 1) */}
-          <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-slate-800">
-            <button
-              onClick={handleUndo}
-              disabled={historyStack.length === 0}
-              className="p-1.5 rounded hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer transition"
-              title="Undo Edit"
-            >
-              <Undo2 className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={handleRedo}
-              disabled={redoStack.length === 0}
-              className="p-1.5 rounded hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer transition"
-              title="Redo Edit"
-            >
-              <Redo2 className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => setClearConfirmOpen(true)}
-              className="p-1.5 rounded hover:bg-red-500/20 text-slate-400 hover:text-red-300 cursor-pointer transition"
-              title="Clear All Custom Annotations"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Display-Mode Switcher Bar (Section 2 & 8 - Smooth transitions, distinct views) */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-1 bg-black/50 p-1 rounded-xl border border-slate-800">
-            <span className="text-slate-500 text-[10px] px-1 font-sans uppercase font-bold">Display Mode:</span>
-            {(['original', 'route', 'annotations', 'analysis', 'split_comparison'] as const).map(m => (
-              <button
-                key={m}
-                onClick={() => setDisplayMode(m)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold capitalize transition-all cursor-pointer ${
-                  displayMode === m
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
-                }`}
-              >
-                {m === 'split_comparison' ? 'Split View' : m}
-              </button>
-            ))}
-          </div>
-
-          {/* Viewport Actions */}
-          <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-slate-800">
-            <button onClick={() => handleZoomAction(1.25)} className="p-1 rounded hover:bg-white/10 text-slate-300 cursor-pointer" title="Zoom In">
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
-            <span className="text-[10px] text-cyan-300 px-1 font-mono font-bold">{Math.round(zoomLevel * 100)}%</span>
-            <button onClick={() => handleZoomAction(0.8)} className="p-1 rounded hover:bg-white/10 text-slate-300 cursor-pointer" title="Zoom Out">
-              <ZoomOut className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => handleFitToWorkspace()}
-              className="px-2.5 py-1 rounded-md bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 text-cyan-200 text-[11px] font-mono font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
-              title="Fit image to workspace"
-            >
-              <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Fit to Workspace</span>
-            </button>
-            <button onClick={() => { setZoomLevel(1.0); setPanOffset({ x: 0, y: 0 }); }} className="p-1.5 rounded hover:bg-white/10 text-slate-400 cursor-pointer" title="Reset 100%">
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* CONFIRM CLEAR ANNOTATIONS MODAL (SECTION 1) */}
-      {clearConfirmOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#0a0e1c] border border-red-500/40 rounded-2xl p-5 max-w-sm w-full space-y-3 shadow-2xl">
-            <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
-              <AlertTriangle className="w-5 h-5 shrink-0" />
-              <span>Confirm Clear All Annotations</span>
-            </div>
-            <p className="text-slate-300 text-xs leading-relaxed">
-              Are you sure you want to delete all custom checkpoints, science POIs, restricted hazard zones, distance rulers, and notes?
-            </p>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setClearConfirmOpen(false)}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmClearAll}
-                className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold cursor-pointer shadow"
-              >
-                Clear All
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 3. MAIN WORKSPACE ROW: CENTERPIECE TERRAIN VIEWER + RIGHT CONTEXTUAL ANALYSIS PANEL */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch flex-1 min-h-[560px]">
-        {/* CENTERPIECE TERRAIN VIEWER (SPAN 7 or 12) */}
-        <div
-          ref={viewerContainerRef}
-          onWheel={handleWheelZoom}
-          onDragOver={e => e.preventDefault()}
-          onDrop={handleDropUpload}
-          className={`${rightInspectorOpen ? 'lg:col-span-7' : 'lg:col-span-12'} bg-[#03050C] border border-slate-800/80 rounded-2xl p-3 flex flex-col justify-between relative overflow-hidden shadow-2xl transition-all ${
-            isFullscreen ? 'fixed inset-4 z-50 bg-[#03050C] border-cyan-500/50' : 'min-h-[520px]'
-          }`}
-        >
+      {/* TERRAIN VIEWER CONTAINER */}
+      <div
+        ref={viewerContainerRef}
+        onWheel={handleWheelZoom}
+        onDragOver={e => e.preventDefault()}
+        onDrop={handleDropUpload}
+        className={`bg-[#03050C] border border-slate-800/80 rounded-2xl p-3 flex flex-col justify-between relative overflow-hidden shadow-2xl transition-all ${
+          isFullscreen ? 'fixed inset-4 z-50 bg-[#03050C] border-cyan-500/50' : 'min-h-[520px]'
+        }`}
+      >
           {/* Top Metadata Bar */}
           <div className="flex items-center justify-between pb-2 border-b border-slate-800/80 z-20 text-[11px] font-mono">
             <div className="flex items-center gap-2">
@@ -2916,7 +2665,9 @@ export default function MarsNavV4Workspace() {
                   <div className="w-full h-full grid grid-cols-2 gap-1 p-1 bg-black">
                     <div className="relative overflow-hidden flex items-center justify-center border-r border-slate-800">
                       <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-black/80 text-[9px] text-slate-300 font-mono">Original Unmodified Surface</span>
-                      <img src={getSafeImageUrl(terrainImage)} alt="Original" className="w-full h-full object-contain select-none" />
+                      {getSafeImageUrl(terrainImage) && (
+                        <img src={getSafeImageUrl(terrainImage)} alt="Original" className="w-full h-full object-contain select-none" />
+                      )}
                     </div>
                     <div className="relative overflow-hidden flex items-center justify-center bg-slate-950 p-2">
                       <span className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-[9px] text-cyan-300 font-mono">
@@ -2927,7 +2678,9 @@ export default function MarsNavV4Workspace() {
                           className="relative flex items-center justify-center"
                           style={{ aspectRatio: `${nw} / ${nh}`, maxHeight: '100%', maxWidth: '100%' }}
                         >
-                          <img src={getSafeImageUrl(terrainImage)} alt="Analysis Result" className="w-full h-full object-contain select-none" />
+                          {getSafeImageUrl(terrainImage) && (
+                            <img src={getSafeImageUrl(terrainImage)} alt="Analysis Result" className="w-full h-full object-contain select-none" />
+                          )}
                           <canvas
                             ref={splitMaskCanvasRef}
                             width={256}
@@ -3002,16 +2755,18 @@ export default function MarsNavV4Workspace() {
                       transformOrigin: 'center center'
                     }}
                   >
-                    <img
-                      ref={imageRef}
-                      src={getSafeImageUrl(terrainImage)}
-                      alt="Mars Terrain Surface"
-                      crossOrigin={terrainImage && terrainImage.startsWith('http') ? "anonymous" : undefined}
-                      onLoad={handleImageLoad}
-                      onError={handleImageError}
-                      className="absolute inset-0 w-full h-full block object-contain rounded-lg shadow-lg select-none pointer-events-none"
-                      draggable={false}
-                    />
+                    {getSafeImageUrl(terrainImage) && (
+                      <img
+                        ref={imageRef}
+                        src={getSafeImageUrl(terrainImage)}
+                        alt="Mars Terrain Surface"
+                        crossOrigin={terrainImage && terrainImage.startsWith('http') ? "anonymous" : undefined}
+                        onLoad={handleImageLoad}
+                        onError={handleImageError}
+                        className="absolute inset-0 w-full h-full block object-contain rounded-lg shadow-lg select-none pointer-events-none"
+                        draggable={false}
+                      />
+                    )}
 
                     {/* REAL PIXEL SEGMENTATION MASK OVERLAY (ONLY IN 'analysis' MODE) */}
                     {displayMode === 'analysis' && hasAnalyzed && (
@@ -3126,7 +2881,7 @@ export default function MarsNavV4Workspace() {
                                       fontFamily="monospace"
                                       fontWeight="bold"
                                     >
-                                      {reg.id}: {reg.classification} ({reg.confidence}%)
+                                      {reg.id}: {reg.classification} ({reg.areaPct ?? 0}% area)
                                     </text>
                                   </g>
                                 )}
@@ -3469,7 +3224,9 @@ export default function MarsNavV4Workspace() {
                   }}
                   className="absolute bottom-2 right-2 z-20 w-24 h-24 bg-black/90 border border-cyan-500/50 rounded-xl overflow-hidden shadow-2xl cursor-pointer"
                 >
-                  <img src={getSafeImageUrl(terrainImage)} alt="Minimap" className="w-full h-full object-cover opacity-60" />
+                  {getSafeImageUrl(terrainImage) && (
+                    <img src={getSafeImageUrl(terrainImage)} alt="Minimap" className="w-full h-full object-cover opacity-60" />
+                  )}
                   <div
                     className="absolute border-2 border-cyan-400 bg-cyan-500/20 pointer-events-none"
                     style={{
@@ -3512,87 +3269,351 @@ export default function MarsNavV4Workspace() {
             </div>
           )}
         </div>
+      </div>
 
-        {/* RIGHT PANEL: CONTEXTUAL ANALYSIS, MEASUREMENTS & FIELD NOTES */}
-        {rightInspectorOpen && (
-          <div className="lg:col-span-5 bg-[#090D1A] border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between space-y-3 shadow-lg animate-fadeIn">
-          <div className="flex-1 flex flex-col min-h-0">
-            {/* Tab Switcher Header */}
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-3 shrink-0">
+      {/* RIGHT COLUMN: PERSISTENT MISSION CONTROL TOOLBAR & INSPECTOR (lg:col-span-3 ~25%, sticky) */}
+      <div className="lg:col-span-3 sticky top-4 max-h-[calc(100vh-6rem)] overflow-y-auto space-y-4 bg-[#090D1A] border border-slate-800/80 rounded-2xl p-4 shadow-xl">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+            <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+              <Rocket className="w-4 h-4 text-cyan-400" />
+              <span>Mission Control</span>
+            </h3>
+            <span className="text-[10px] font-mono text-slate-400 bg-black/40 px-2 py-0.5 rounded border border-slate-800">
+              Toolbar &amp; Inspector
+            </span>
+          </div>
+
+          {/* VERTICAL MISSION CONTROL TOOLBAR */}
+          <div className="space-y-3 font-mono text-xs">
+            {/* 1. START & DESTINATION NAVIGATION POINTS */}
+            <div className="space-y-2 bg-black/50 p-3 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Navigation Points</span>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-1">
+                  <button
+                    onClick={() => setActiveTool(activeTool === 'start' ? 'select' : 'start')}
+                    disabled={imageStatus !== 'loaded'}
+                    className={`flex-1 px-2.5 py-1.5 rounded-lg transition font-bold flex items-center justify-between cursor-pointer text-[11px] ${
+                      activeTool === 'start'
+                        ? 'bg-emerald-500 text-white ring-2 ring-emerald-400 shadow-md animate-pulse'
+                        : startPoint
+                        ? 'bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/60'
+                        : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/30'
+                    }`}
+                    title="Select & Place Start Base on Terrain (Click image)"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>START</span>
+                    </div>
+                    <span className="text-[9px] font-mono opacity-80 bg-black/40 px-1.5 py-0.5 rounded">
+                      {startPoint ? `${startPoint.x},${startPoint.y}` : 'Unset'}
+                    </span>
+                  </button>
+                  <button
+                    onClick={handleClearStart}
+                    disabled={!startPoint}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-white/10 disabled:opacity-20 cursor-pointer transition border border-slate-800"
+                    title="Clear Start Point"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-1">
+                  <button
+                    onClick={() => setActiveTool(activeTool === 'destination' ? 'select' : 'destination')}
+                    disabled={imageStatus !== 'loaded'}
+                    className={`flex-1 px-2.5 py-1.5 rounded-lg transition font-bold flex items-center justify-between cursor-pointer text-[11px] ${
+                      activeTool === 'destination'
+                        ? 'bg-rose-500 text-white ring-2 ring-rose-400 shadow-md animate-pulse'
+                        : destinationPoint
+                        ? 'bg-rose-950/60 border border-rose-500/50 text-rose-300 hover:bg-rose-900/60'
+                        : 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25 border border-rose-500/30'
+                    }`}
+                    title="Select & Place Destination Target on Terrain (Click image)"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Flag className="w-3.5 h-3.5 text-rose-400" />
+                      <span>DEST</span>
+                    </div>
+                    <span className="text-[9px] font-mono opacity-80 bg-black/40 px-1.5 py-0.5 rounded">
+                      {destinationPoint ? `${destinationPoint.x},${destinationPoint.y}` : 'Unset'}
+                    </span>
+                  </button>
+                  <button
+                    onClick={handleClearDestination}
+                    disabled={!destinationPoint}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-white/10 disabled:opacity-20 cursor-pointer transition border border-slate-800"
+                    title="Clear Destination Point"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleSwapPoints}
+                  disabled={!startPoint && !destinationPoint}
+                  className="w-full py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 disabled:opacity-30 cursor-pointer font-bold flex items-center justify-center gap-1.5 text-[11px] transition shadow-sm"
+                  title="Swap Start Base and Destination Target"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>SWAP LOCATIONS</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 2. ROUTE PLANNING CONTROLS */}
+            <div className="space-y-2 bg-black/50 p-3 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Route Operations</span>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  onClick={handleGenerateRoute}
+                  disabled={imageStatus !== 'loaded'}
+                  className={`col-span-3 py-2 rounded-lg font-bold flex items-center justify-center gap-1.5 cursor-pointer text-xs transition shadow-md ${
+                    startPoint && destinationPoint
+                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white'
+                      : 'bg-slate-800/80 text-slate-400 hover:text-white border border-slate-700'
+                  }`}
+                  title="Generate / Plan Navigation Route between Start and Destination"
+                >
+                  <Route className="w-4 h-4 text-cyan-200" />
+                  <span>PLAN ROUTE</span>
+                </button>
+                <button
+                  onClick={handleRecalculateRoute}
+                  disabled={imageStatus !== 'loaded'}
+                  className="py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 hover:text-white disabled:opacity-30 cursor-pointer font-bold flex items-center justify-center gap-1 text-[11px]"
+                  title="Recalculate Route"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Recalc</span>
+                </button>
+                <button
+                  onClick={handleClearRoute}
+                  disabled={activePath.length <= 1}
+                  className="col-span-2 py-1.5 rounded-lg bg-slate-900 hover:bg-red-500/20 border border-slate-700 text-slate-400 hover:text-red-300 disabled:opacity-20 cursor-pointer font-bold flex items-center justify-center gap-1 text-[11px]"
+                  title="Clear Route Line from Viewport"
+                >
+                  <EyeOff className="w-3.5 h-3.5" />
+                  <span>Hide / Reset Route</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 3. INTERACTIVE ANNOTATION & INSPECTION TOOLS */}
+            <div className="space-y-2 bg-black/50 p-3 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Interactive Tools</span>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  onClick={() => setActiveTool('select')}
+                  className={`py-1.5 px-2 rounded-lg transition font-bold flex items-center gap-1.5 cursor-pointer text-[11px] ${
+                    activeTool === 'select' ? 'bg-cyan-500 text-white ring-1 ring-cyan-400' : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <MousePointer className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Select Tool</span>
+                </button>
+                <button
+                  onClick={() => setActiveTool('pan')}
+                  className={`py-1.5 px-2 rounded-lg transition font-bold flex items-center gap-1.5 cursor-pointer text-[11px] ${
+                    activeTool === 'pan' ? 'bg-cyan-500 text-white ring-1 ring-cyan-400' : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <Hand className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Pan Tool</span>
+                </button>
+                <button
+                  onClick={() => setActiveTool('inspect')}
+                  className={`py-1.5 px-2 rounded-lg transition font-bold flex items-center gap-1.5 cursor-pointer text-[11px] ${
+                    activeTool === 'inspect' ? 'bg-cyan-500 text-white ring-1 ring-cyan-400' : 'bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30'
+                  }`}
+                >
+                  <Search className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>INSPECT</span>
+                </button>
+                <button
+                  onClick={() => setActiveTool('measure')}
+                  disabled={imageStatus !== 'loaded'}
+                  className={`py-1.5 px-2 rounded-lg transition font-bold flex items-center gap-1.5 cursor-pointer text-[11px] ${
+                    activeTool === 'measure' ? 'bg-teal-500 text-white ring-1 ring-teal-400' : 'bg-teal-500/15 text-teal-300 hover:bg-teal-500/25 border border-teal-500/30'
+                  }`}
+                >
+                  <Ruler className="w-3.5 h-3.5 text-teal-400" />
+                  <span>MEASURE</span>
+                </button>
+                <button
+                  onClick={() => setActiveTool('checkpoint')}
+                  disabled={imageStatus !== 'loaded'}
+                  className={`py-1.5 px-2 rounded-lg transition font-bold flex items-center gap-1.5 cursor-pointer text-[11px] ${
+                    activeTool === 'checkpoint' ? 'bg-blue-500 text-white ring-1 ring-blue-400' : 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 border border-blue-500/30'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-400" />
+                  <span>CHECKPOINT</span>
+                </button>
+                <button
+                  onClick={() => setActiveTool('science')}
+                  disabled={imageStatus !== 'loaded'}
+                  className={`py-1.5 px-2 rounded-lg transition font-bold flex items-center gap-1.5 cursor-pointer text-[11px] ${
+                    activeTool === 'science' ? 'bg-indigo-500 text-white ring-1 ring-indigo-400' : 'bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 border border-indigo-500/30'
+                  }`}
+                >
+                  <Compass className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>SCIENCE POI</span>
+                </button>
+                <button
+                  onClick={() => setActiveTool('hazard')}
+                  disabled={imageStatus !== 'loaded'}
+                  className={`py-1.5 px-2 rounded-lg transition font-bold flex items-center gap-1.5 cursor-pointer text-[11px] ${
+                    activeTool === 'hazard' ? 'bg-amber-500 text-white ring-1 ring-amber-400' : 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30'
+                  }`}
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+                  <span>RESTRICT ZONE</span>
+                </button>
+                <button
+                  onClick={() => setActiveTool('note')}
+                  disabled={imageStatus !== 'loaded'}
+                  className={`py-1.5 px-2 rounded-lg transition font-bold flex items-center gap-1.5 cursor-pointer text-[11px] ${
+                    activeTool === 'note' ? 'bg-purple-500 text-white ring-1 ring-purple-400' : 'bg-purple-500/15 text-purple-300 hover:bg-purple-500/25 border border-purple-500/30'
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5 text-purple-400" />
+                  <span>NOTE</span>
+                </button>
+              </div>
+
+              {/* Active Polygon Actions */}
+              {activeDrawingPolygon.length > 0 && (
+                <div className="p-2 rounded-lg bg-amber-950/60 border border-amber-500/50 space-y-1.5">
+                  <div className="text-[10px] text-amber-300 font-bold">Polygon: {activeDrawingPolygon.length} pts</div>
+                  <div className="flex gap-1.5">
+                    {activeDrawingPolygon.length >= 3 && (
+                      <button
+                        onClick={finishActivePolygon}
+                        className="flex-1 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] cursor-pointer"
+                      >
+                        Finish Polygon
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setActiveDrawingPolygon([])}
+                      className="flex-1 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 4. HISTORY & EDIT ACTIONS */}
+            <div className="space-y-2 bg-black/50 p-3 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Edit History &amp; Actions</span>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  onClick={handleUndo}
+                  disabled={historyStack.length === 0}
+                  className="py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 disabled:opacity-30 cursor-pointer font-bold flex items-center justify-center gap-1 text-[11px]"
+                  title="Undo Edit"
+                >
+                  <Undo2 className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Undo</span>
+                </button>
+                <button
+                  onClick={handleRedo}
+                  disabled={redoStack.length === 0}
+                  className="py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 disabled:opacity-30 cursor-pointer font-bold flex items-center justify-center gap-1 text-[11px]"
+                  title="Redo Edit"
+                >
+                  <Redo2 className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Redo</span>
+                </button>
+                <button
+                  onClick={() => setClearConfirmOpen(true)}
+                  className="py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/50 border border-red-500/40 text-red-300 cursor-pointer font-bold flex items-center justify-center gap-1 text-[11px]"
+                  title="Clear All Custom Annotations"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                  <span>Delete</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* INSPECTOR TABS & CONTENT (MISSION TELEMETRY, RULERS, NOTES) */}
+          <div className="pt-2 border-t border-slate-800 space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 shrink-0">
               <div className="flex items-center gap-1 bg-black/50 p-1 rounded-xl border border-slate-800 flex-wrap">
                 <button
                   onClick={() => setRightPanelTab('context')}
-                  className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
                     rightPanelTab === 'context'
                       ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  <Sliders className="w-3.5 h-3.5" />
-                  <span>Mission Telemetry</span>
+                  <Sliders className="w-3 h-3" />
+                  <span>Telemetry</span>
                 </button>
                 <button
                   onClick={() => setRightPanelTab('measurements')}
-                  className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
                     rightPanelTab === 'measurements'
                       ? 'bg-teal-500/20 text-teal-300 border border-teal-500/40 shadow-sm'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  <Ruler className="w-3.5 h-3.5" />
+                  <Ruler className="w-3 h-3" />
                   <span>Rulers ({measurementsList.length})</span>
                 </button>
                 <button
                   onClick={() => setRightPanelTab('field_notes')}
-                  className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
                     rightPanelTab === 'field_notes'
                       ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  <FileText className="w-3.5 h-3.5" />
+                  <FileText className="w-3 h-3" />
                   <span>Notes ({notesList.length})</span>
                 </button>
               </div>
             </div>
 
             {/* TAB CONTENT PANELS */}
-            <div className="space-y-3 font-mono text-xs max-h-[500px] overflow-y-auto pr-1 flex-1 text-slate-300">
-              {/* TAB 1: CONTEXTUAL ANALYSIS */}
+            <div className="space-y-3 font-mono text-xs max-h-[360px] overflow-y-auto pr-1 text-slate-300">
               {rightPanelTab === 'context' && (
                 <>
-                  {/* REGIONAL BASE CAMP ASSESSMENT CARD */}
                   {selectedRegion && (
                     <div className="p-3 bg-[#080d1e]/90 border border-cyan-500/30 rounded-xl space-y-2">
                       <div className="flex items-center justify-between border-b border-cyan-500/20 pb-1.5">
                         <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider flex items-center gap-1">
-                          <Compass className="w-3.5 h-3.5" />
-                          Regional Base Camp Intelligence
+                          <Compass className="w-3 h-3" />
+                          Regional Base Camp
                         </span>
-                        <span className="text-[10px] font-mono text-cyan-300 font-bold truncate max-w-[120px]">{selectedRegion.name}</span>
+                        <span className="text-[10px] font-mono text-cyan-300 font-bold truncate max-w-[100px]">{selectedRegion.name}</span>
                       </div>
-
-                      <div className="grid grid-cols-3 gap-1.5 text-center text-[10px] font-mono">
-                        <div className="p-1.5 bg-black/50 rounded-lg border border-slate-800">
-                          <span className="text-slate-400 block text-[9px]">WATER ICE</span>
-                          <strong className="text-cyan-300 font-bold">{selectedRegion.waterIceScore}%</strong>
+                      <div className="grid grid-cols-3 gap-1 text-center text-[10px] font-mono">
+                        <div className="p-1 bg-black/50 rounded border border-slate-800">
+                          <span className="text-slate-400 text-[8px] block">WATER</span>
+                          <strong className="text-cyan-300">{selectedRegion.waterIceScore}%</strong>
                         </div>
-                        <div className="p-1.5 bg-black/50 rounded-lg border border-slate-800">
-                          <span className="text-slate-400 block text-[9px]">FLATNESS</span>
-                          <strong className="text-emerald-300 font-bold">{selectedRegion.flatnessScore}%</strong>
+                        <div className="p-1 bg-black/50 rounded border border-slate-800">
+                          <span className="text-slate-400 text-[8px] block">FLAT</span>
+                          <strong className="text-emerald-300">{selectedRegion.flatnessScore}%</strong>
                         </div>
-                        <div className="p-1.5 bg-black/50 rounded-lg border border-slate-800">
-                          <span className="text-slate-400 block text-[9px]">SOLAR PWR</span>
-                          <strong className="text-amber-300 font-bold">{selectedRegion.solarPowerScore}%</strong>
+                        <div className="p-1 bg-black/50 rounded border border-slate-800">
+                          <span className="text-slate-400 text-[8px] block">SOLAR</span>
+                          <strong className="text-amber-300">{selectedRegion.solarPowerScore}%</strong>
                         </div>
                       </div>
-
-                      <div className="space-y-1.5 text-[10px] font-sans text-slate-300">
+                      <div className="space-y-1.5 text-[10px] font-sans text-slate-300 pt-2 border-t border-slate-800">
                         <div className="bg-cyan-950/30 border border-cyan-500/20 p-2 rounded-lg">
                           <strong className="text-cyan-300 block mb-0.5 font-mono">Scientific Priority:</strong>
                           <p className="leading-snug text-slate-300">{selectedRegion.scientificReasoning}</p>
                         </div>
-
                         <div className="bg-amber-950/30 border border-amber-500/20 p-2 rounded-lg">
                           <strong className="text-amber-300 block mb-0.5 font-mono">Primary Operational Risk:</strong>
                           <p className="leading-snug text-slate-300">{selectedRegion.primaryRisk}</p>
@@ -3846,8 +3867,8 @@ export default function MarsNavV4Workspace() {
                           <div className="space-y-2">
                             <div className="flex justify-between text-[11px]">
                               <span className="text-slate-400">Pipeline:</span>
-                              <strong className={terrainIntelligence?.aiAvailable ? 'text-emerald-400' : 'text-cyan-300'}>
-                                {terrainIntelligence?.aiAvailable ? 'Gemini Vision + Deterministic CV' : 'Deterministic Sobel/Variance CV'}
+                              <strong className={terrainIntelligence?.aiAvailable ? 'text-emerald-400' : 'text-amber-300'}>
+                                {terrainIntelligence?.aiAvailable ? 'Gemini 4 Hydrogen + Pixel CV' : 'FALLBACK: PIXEL-BASED CV'}
                               </strong>
                             </div>
                             <div className="flex justify-between text-[11px]">
@@ -3860,8 +3881,23 @@ export default function MarsNavV4Workspace() {
                             </div>
 
                             {terrainIntelligence && !terrainIntelligence.aiAvailable && (
-                              <div className="p-2 rounded-lg bg-amber-950/30 border border-amber-500/30 text-[10px] text-amber-200 font-sans">
-                                {terrainIntelligence.aiStatusMessage || 'Gemini Vision unavailable; displaying real deterministic CV surface metrics only.'}
+                              <div className="p-2.5 rounded-lg bg-amber-950/35 border border-amber-500/40 text-[10px] font-mono text-amber-200 space-y-1.5">
+                                <div className="space-y-0.5">
+                                  <div className="font-bold text-amber-300">AI ANALYSIS UNAVAILABLE</div>
+                                  <div className="font-bold text-cyan-300">FALLBACK: PIXEL-BASED COMPUTER VISION</div>
+                                  {terrainIntelligence.aiStatusMessage && (
+                                    <div className="font-sans text-amber-200/90 pt-0.5">{terrainIntelligence.aiStatusMessage}</div>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => runTerrainIntelligenceAnalysis(true)}
+                                  disabled={isAnalyzingImage}
+                                  className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-100 font-bold text-[10px] flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                >
+                                  <RefreshCw className={`w-3 h-3 ${isAnalyzingImage ? 'animate-spin' : ''}`} />
+                                  <span>{isAnalyzingImage ? 'Retrying AI Analysis...' : 'Retry AI Analysis'}</span>
+                                </button>
                               </div>
                             )}
 
@@ -4145,7 +4181,6 @@ export default function MarsNavV4Workspace() {
             </div>
           </div>
         </div>
-        )}
       </div>
 
       {/* WORKSPACE FIELD NOTE EDITOR MODAL */}
@@ -4283,7 +4318,9 @@ export default function MarsNavV4Workspace() {
                       : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40'
                   }`}
                 >
-                  {terrainIntelligence.aiAvailable ? 'Gemini Vision + CV' : 'Deterministic CV Only'}
+                  {terrainIntelligence.aiAvailable
+                    ? 'Gemini 4 Hydrogen (Interactions API) + CV'
+                    : 'FALLBACK: PIXEL-BASED COMPUTER VISION'}
                 </span>
               )}
               <button
@@ -4328,10 +4365,30 @@ export default function MarsNavV4Workspace() {
             </div>
           ) : terrainIntelligence ? (
             <div className="space-y-4">
-              {!terrainIntelligence.aiAvailable && terrainIntelligence.aiStatusMessage && (
-                <div className="px-3 py-2 rounded-xl bg-amber-950/30 border border-amber-500/30 text-[11px] text-amber-200 flex items-center gap-2">
-                  <Info className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>{terrainIntelligence.aiStatusMessage}</span>
+              {!terrainIntelligence.aiAvailable && (
+                <div className="px-3.5 py-2.5 rounded-xl bg-amber-950/35 border border-amber-500/40 text-[11px] font-mono text-amber-200 flex items-start justify-between gap-3 flex-wrap">
+                  <div className="flex items-start gap-2.5">
+                    <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <div className="font-bold text-amber-300">AI ANALYSIS UNAVAILABLE</div>
+                      <div className="font-bold text-cyan-300">FALLBACK: PIXEL-BASED COMPUTER VISION</div>
+                      {terrainIntelligence.aiStatusMessage && (
+                        <div className="font-sans text-[10px] text-amber-200/90 pt-0.5">{terrainIntelligence.aiStatusMessage}</div>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDisplayMode('analysis');
+                      runTerrainIntelligenceAnalysis(true);
+                    }}
+                    disabled={isAnalyzingImage}
+                    className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-100 font-bold text-[10px] flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isAnalyzingImage ? 'animate-spin' : ''}`} />
+                    <span>{isAnalyzingImage ? 'Retrying AI...' : 'Retry AI Analysis'}</span>
+                  </button>
                 </div>
               )}
 
@@ -4398,7 +4455,7 @@ export default function MarsNavV4Workspace() {
                                 <span className={`px-1.5 py-0.5 rounded border uppercase font-bold ${hazardBadge}`}>
                                   {region.hazardLevel}
                                 </span>
-                                <span className="text-slate-400">{region.confidence}% conf</span>
+                                <span className="text-slate-400">{region.areaPct ?? 0}% area</span>
                               </div>
                             </div>
 

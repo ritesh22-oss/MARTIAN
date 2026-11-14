@@ -676,18 +676,21 @@ export default function NASAImageFeed({ onSelectImage, onClose }: NASAImageFeedP
                   <div>
                     {/* Image Viewport */}
                     <div className="aspect-video bg-black relative overflow-hidden flex items-center justify-center">
-                      <img
-                        src={getSafeImageUrl(img.thumbnailUrl || img.fullResUrl)}
-                        alt={img.title}
-                        onError={e => {
-                          const target = e.currentTarget;
-                          if (target.src.includes('/api/nasa/proxy-image')) {
-                            target.src = img.thumbnailUrl || img.fullResUrl;
-                          }
-                        }}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        loading="lazy"
-                      />
+                      {getSafeImageUrl(img.thumbnailUrl || img.fullResUrl) ? (
+                        <img
+                          src={getSafeImageUrl(img.thumbnailUrl || img.fullResUrl)}
+                          alt={img.title}
+                          onError={e => {
+                            const target = e.currentTarget;
+                            const fallback = img.thumbnailUrl || img.fullResUrl;
+                            if (fallback && target.src.includes('/api/nasa/proxy-image')) {
+                              target.src = fallback;
+                            }
+                          }}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          loading="lazy"
+                        />
+                      ) : null}
 
                       {/* Badges */}
                       <div className="absolute top-2 left-2 flex items-center gap-1.5">

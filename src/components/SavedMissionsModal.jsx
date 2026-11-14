@@ -248,14 +248,19 @@ export default function SavedMissionsModal({ isOpen, onClose }) {
           {filteredMissions.length === 0 ? (
             <div className="text-center py-12 space-y-3">
               <Rocket className="w-10 h-10 mx-auto text-slate-600" />
-              <p className="text-slate-400 text-sm">No {showArchived ? 'archived' : 'active'} missions found.</p>
-              {!showArchived && (
-                <button
-                  onClick={() => setIsCreating(true)}
-                  className="px-4 py-2 rounded-xl bg-cyan-600 text-white text-xs font-semibold hover:bg-cyan-500 transition-colors"
-                >
-                  Create First Mission
-                </button>
+              {showArchived ? (
+                <p className="text-slate-400 text-sm">No archived missions yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-white text-sm font-bold">No missions created yet.</p>
+                  <p className="text-slate-400 text-xs">Create your first Mars exploration mission to get started.</p>
+                  <button
+                    onClick={() => setIsCreating(true)}
+                    className="mt-2 px-4 py-2 rounded-xl bg-cyan-600 text-white text-xs font-semibold hover:bg-cyan-500 transition-colors cursor-pointer"
+                  >
+                    Create New Mission
+                  </button>
+                </div>
               )}
             </div>
           ) : (
@@ -389,17 +394,10 @@ export default function SavedMissionsModal({ isOpen, onClose }) {
                   )}
 
                   {/* Metrics & Checkpoint Progress Row */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/5 text-xs font-mono">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-white/5 text-xs font-mono">
                     <div className="bg-black/40 p-2.5 rounded-xl border border-white/5">
                       <span className="text-slate-500 block text-[9px] uppercase font-bold">Checkpoints</span>
                       <span className="text-cyan-300 font-bold">{completedCount} / {checkpointsList.length} Passed</span>
-                    </div>
-
-                    <div className="bg-black/40 p-2.5 rounded-xl border border-white/5">
-                      <span className="text-slate-500 block text-[9px] uppercase font-bold">Start &rarr; Dest</span>
-                      <span className="text-slate-300 font-medium">
-                        ({m.startPoint?.x || 35}, {m.startPoint?.y || 220}) &rarr; ({m.destinationPoint?.x || 220}, {m.destinationPoint?.y || 45})
-                      </span>
                     </div>
 
                     <div className="bg-black/40 p-2.5 rounded-xl border border-white/5">

@@ -1852,11 +1852,13 @@ export default function TerrainAnalysis() {
                 ) : selectedBenchmarkSample === 0 ? (
                   <div className="relative w-full h-[380px] rounded-xl overflow-hidden bg-black/90 flex items-center justify-center">
                     {/* Active Uploaded Image Display */}
-                    <img
-                      src={uploadedImage || analysis.imageUrl}
-                      alt="Active Terrain Image"
-                      className="w-full h-full object-cover rounded-xl"
-                    />
+                    {(uploadedImage || analysis.imageUrl) && (
+                      <img
+                        src={uploadedImage || analysis.imageUrl}
+                        alt="Active Terrain Image"
+                        className="w-full h-full object-cover rounded-xl"
+                      />
+                    )}
 
                     {/* Mask Overlay for Active Image if generated */}
                     {inferenceResult?.overlayDataUrl && (
@@ -1880,13 +1882,13 @@ export default function TerrainAnalysis() {
                     alt="Official 4-Panel Visualization"
                     className="w-full h-auto object-contain rounded-xl"
                   />
-                ) : (
+                ) : benchmarksData?.testSamples?.[selectedBenchmarkSample - 1]?.url ? (
                   <img
-                    src={benchmarksData?.testSamples?.[selectedBenchmarkSample - 1]?.url}
+                    src={benchmarksData.testSamples[selectedBenchmarkSample - 1].url}
                     alt="Test Sample Triad"
                     className="w-full h-auto object-contain rounded-xl"
                   />
-                )}
+                ) : null}
               </div>
 
               <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">

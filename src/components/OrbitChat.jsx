@@ -521,7 +521,7 @@ export default function OrbitChat({ onOpenGuide }) {
                       ? 'bg-gradient-to-r from-orange-600 to-orange-700 text-white rounded-tr-none shadow-lg shadow-orange-900/20'
                       : 'bg-[#10172A] text-slate-200 border border-white/10 rounded-tl-none shadow-xl'
                   }`}>
-                    {msg.image && (
+                    {msg.image?.data && (
                       <div className="mb-3 rounded-lg overflow-hidden border border-white/10 max-w-[200px]">
                         <img src={msg.image.data} alt="Attached screenshot" className="w-full h-auto" />
                       </div>
@@ -555,7 +555,7 @@ export default function OrbitChat({ onOpenGuide }) {
           </div>
 
           {/* Attached Image Preview */}
-          {attachedImage && (
+          {attachedImage?.data && (
             <div className="px-4 py-2 bg-[#0A0E1A] border-t border-white/10 flex items-center space-x-3">
               <div className="relative w-12 h-12 rounded border border-cyan-500/50 overflow-hidden bg-black">
                 <img src={attachedImage.data} alt="Preview" className="w-full h-full object-cover" />

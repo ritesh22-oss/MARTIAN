@@ -53,7 +53,7 @@ export const SurfaceMissionDashboard: React.FC = () => {
   const suitDetails = getSuitConfigDetails();
   const currentRoute = routes[selectedRouteId];
 
-  const pendingTargets = geologicalTargets.filter(t => t.status === 'Planned' || t.status === 'Not Investigated').length;
+  const pendingTargets = geologicalTargets.filter(t => t.status === 'DETECTED' || t.status === 'Planned' || t.status === 'Not Investigated').length;
   const completedTargets = geologicalTargets.filter(t => t.status === 'Completed' || t.status === 'Sample Collected').length;
 
   const isProcessing = activeSession.analysisStatus !== 'completed' && activeSession.analysisStatus !== 'waiting' && activeSession.analysisStatus !== 'failed';
@@ -232,12 +232,14 @@ export const SurfaceMissionDashboard: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
           {/* Active Image Canvas Frame */}
           <div className="lg:col-span-5 relative h-56 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 group">
-            {imageError ? (
+            {imageError || !activeSession.imageMetadata.url ? (
               <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-slate-900/90 text-center space-y-2">
                 <AlertCircle className="w-8 h-8 text-rose-400" />
-                <span className="text-xs font-mono text-rose-300 font-bold uppercase">Image Decode Error</span>
+                <span className="text-xs font-mono text-rose-300 font-bold uppercase">
+                  {imageError ? 'Image Decode Error' : 'No Active Terrain Image'}
+                </span>
                 <span className="text-[10px] text-slate-400 font-mono truncate max-w-full px-2">
-                  {activeSession.imageMetadata.fileName}
+                  {activeSession.imageMetadata.fileName || 'Select or upload a terrain image'}
                 </span>
                 <span className="text-[9px] text-slate-500 font-mono">
                   No fallback displayed. Preserved active image binding.
@@ -246,7 +248,7 @@ export const SurfaceMissionDashboard: React.FC = () => {
             ) : (
               <img
                 src={activeSession.imageMetadata.url}
-                alt={activeSession.imageMetadata.fileName}
+                alt={activeSession.imageMetadata.fileName || 'Active terrain image'}
                 className="w-full h-full object-contain bg-black"
                 onError={() => setImageError(true)}
               />
@@ -359,7 +361,7 @@ export const SurfaceMissionDashboard: React.FC = () => {
           <div className="text-xs font-mono text-slate-400">
             Pending Queue:{' '}
             <strong className="text-cyan-300">
-              {activeSession.geologicalTargets.filter(t => t.status === 'Planned' || t.status === 'Not Investigated').length} targets
+              {activeSession.geologicalTargets.filter(t => t.status === 'DETECTED' || t.status === 'Planned' || t.status === 'Not Investigated').length} targets
             </strong>
           </div>
         </div>

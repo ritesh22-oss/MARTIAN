@@ -2,8 +2,9 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { generateAutonomousAnswer } from '../src/utils/orbitKnowledgeEngine';
 import { NASADataEngine } from '../nasaEngine';
 import { getStacCollections, searchStacItems, processDtmRaster } from '../src/services/stacProcessor';
@@ -383,22 +384,27 @@ app.get(['/api/diagnostics/production', '/api/production/diagnostics'], async (_
   });
 });
 
-// ─── GEMINI AI VISION & ORBIT CHAT ───────────────────────────────────────────────
+// ─── GEMINI AI VISION & ORBIT CHAT (INTERACTIONS API · gemini-4-hydrogen) ──────
 
-const apiKey = process.env.GEMINI_API_KEY;
-const ai = new GoogleGenAI({
-  apiKey: apiKey && apiKey.trim() !== '' ? apiKey : undefined
-});
+const GEMINI_VISION_MODEL = 'gemini-4-hydrogen';
+const FALLBACK_BANNER = 'AI ANALYSIS UNAVAILABLE\nFALLBACK: PIXEL-BASED COMPUTER VISION';
+
+function getGeminiClient(): GoogleGenAI | null {
+  const key = process.env.GEMINI_API_KEY?.trim();
+  if (!key || key === 'MY_GEMINI_API_KEY') return null;
+  return new GoogleGenAI({ apiKey: key });
+}
 
 let geminiCooldownUntil = 0;
 const analysisCache = new Map<string, any>();
 
-async function callGeminiWithTimeout<T>(promise: Promise<T>, timeoutMs: number = 7500): Promise<T> {
+async function callGeminiWithTimeout<T>(promise: Promise<T>, timeoutMs: number = 45000): Promise<T> {
   let timer: NodeJS.Timeout;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      const err: any = new Error(`Gemini API call timed out after ${timeoutMs}ms.`);
+      const err: any = new Error(`Gemini Interactions API call timed out after ${timeoutMs}ms.`);
       err.code = 'ETIMEDOUT';
+      err.status = 503;
       reject(err);
     }, timeoutMs);
   });
@@ -409,55 +415,265 @@ async function callGeminiWithTimeout<T>(promise: Promise<T>, timeoutMs: number =
   }
 }
 
-function isGeminiRateLimitError(error: unknown): boolean {
-  const msg = getErrorMessage(error).toLowerCase();
-  return msg.includes('429') || msg.includes('resource_exhausted') || msg.includes('quota');
+interface GeminiClassifiedError {
+  httpStatus: 401 | 403 | 404 | 429 | 500 | 503;
+  aiStatus: string;
+  errorCode: string;
+  message: string;
 }
 
-function recordGeminiCooldown(error: unknown): void {
-  if (isGeminiRateLimitError(error)) {
-    geminiCooldownUntil = Date.now() + 60000;
+function classifyGeminiError(error: unknown): GeminiClassifiedError {
+  const obj = (error && typeof error === 'object' ? error : {}) as any;
+  const rawMsg = getErrorMessage(error);
+  const lower = rawMsg.toLowerCase();
+  const rawStatus =
+    Number(obj.status) ||
+    Number(obj.statusCode) ||
+    Number(obj.error?.code) ||
+    Number(obj.response?.status) ||
+    0;
+
+  if (
+    rawStatus === 401 ||
+    lower.includes('unauthenticated') ||
+    lower.includes('api_key_invalid') ||
+    lower.includes('invalid api key') ||
+    lower.includes('api key not valid') ||
+    lower.includes('401')
+  ) {
+    return {
+      httpStatus: 401,
+      aiStatus: 'auth_error',
+      errorCode: 'GEMINI_401_AUTH_ERROR',
+      message: `401 Authentication error: Gemini API key missing, invalid, or expired (${rawMsg}).`
+    };
   }
+
+  if (
+    rawStatus === 403 ||
+    lower.includes('permission_denied') ||
+    lower.includes('permission denied') ||
+    lower.includes('403')
+  ) {
+    return {
+      httpStatus: 403,
+      aiStatus: 'permission_error',
+      errorCode: 'GEMINI_403_PERMISSION_DENIED',
+      message: `403 Permission or API access error: API key lacks permission for Interactions API / ${GEMINI_VISION_MODEL} (${rawMsg}).`
+    };
+  }
+
+  if (
+    rawStatus === 404 ||
+    lower.includes('not_found') ||
+    lower.includes('no longer available') ||
+    lower.includes('404')
+  ) {
+    return {
+      httpStatus: 404,
+      aiStatus: 'model_not_found',
+      errorCode: 'GEMINI_404_NOT_FOUND',
+      message: `404 Model or endpoint error: ${GEMINI_VISION_MODEL} / Interactions endpoint not found (${rawMsg}).`
+    };
+  }
+
+  if (
+    rawStatus === 429 ||
+    lower.includes('resource_exhausted') ||
+    lower.includes('quota') ||
+    lower.includes('rate limit') ||
+    lower.includes('rate-limit') ||
+    lower.includes('429')
+  ) {
+    geminiCooldownUntil = Date.now() + 60000;
+    return {
+      httpStatus: 429,
+      aiStatus: 'rate_limit',
+      errorCode: 'GEMINI_429_RATE_LIMIT',
+      message: `429 Quota or rate-limit error: Gemini API quota/rate limit exceeded (${rawMsg}).`
+    };
+  }
+
+  if (
+    rawStatus === 503 ||
+    obj.code === 'ETIMEDOUT' ||
+    lower.includes('unavailable') ||
+    lower.includes('timed out') ||
+    lower.includes('503')
+  ) {
+    return {
+      httpStatus: 503,
+      aiStatus: 'service_unavailable',
+      errorCode: 'GEMINI_503_SERVICE_UNAVAILABLE',
+      message: `503 Temporary service failure: Gemini Interactions API unavailable or timed out (${rawMsg}).`
+    };
+  }
+
+  return {
+    httpStatus: 500,
+    aiStatus: 'service_failure',
+    errorCode: 'GEMINI_500_INTERNAL_ERROR',
+    message: `500 Temporary service failure: ${rawMsg}`
+  };
+}
+
+function extractInteractionText(interaction: any): string {
+  if (!interaction) return '';
+  if (typeof interaction.output_text === 'string' && interaction.output_text.trim()) {
+    return interaction.output_text.trim();
+  }
+  if (Array.isArray(interaction.steps)) {
+    const chunks: string[] = [];
+    for (const step of interaction.steps) {
+      if (step?.type === 'model_output' && Array.isArray(step.content)) {
+        for (const part of step.content) {
+          if (part?.type === 'text' && typeof part.text === 'string') {
+            chunks.push(part.text);
+          }
+        }
+      }
+    }
+    const joined = chunks.join('').trim();
+    if (joined) return joined;
+  }
+  if (Array.isArray(interaction.outputs)) {
+    const chunks = interaction.outputs
+      .filter((o: any) => o?.type === 'text' && typeof o.text === 'string')
+      .map((o: any) => o.text);
+    const joined = chunks.join('').trim();
+    if (joined) return joined;
+  }
+  return '';
+}
+
+function parseInteractionJson(rawText: string): any {
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    throw new Error('Empty response text from Gemini Interactions API.');
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fenced && fenced[1]) {
+      return JSON.parse(fenced[1].trim());
+    }
+    const objMatch = trimmed.match(/\{[\s\S]*\}/);
+    if (objMatch) {
+      return JSON.parse(objMatch[0]);
+    }
+    throw new Error('Gemini Interactions API returned non-JSON content.');
+  }
+}
+
+function normalizeImageMimeType(rawMime?: string): string {
+  const base = String(rawMime || 'image/jpeg').split(';')[0].trim().toLowerCase();
+  if (
+    base === 'image/png' ||
+    base === 'image/jpeg' ||
+    base === 'image/webp' ||
+    base === 'image/gif' ||
+    base === 'image/bmp' ||
+    base === 'image/tiff' ||
+    base === 'image/heic' ||
+    base === 'image/heif'
+  ) {
+    return base;
+  }
+  if (base === 'image/jpg') return 'image/jpeg';
+  return 'image/jpeg';
 }
 
 app.post(['/api/chat', '/api/orbit/chat'], async (req, res) => {
   try {
-    const { message, history, context } = req.body;
-    if (!message) {
-      return res.status(400).json({ error: 'Message is required' });
+    const { message, messages, history, context, appContext, mode } = req.body || {};
+    const msgArray: Array<{ role?: string; content?: string; image?: { data?: string; mimeType?: string } }> = Array.isArray(messages)
+      ? messages
+      : Array.isArray(history)
+        ? [...history, ...(message ? [{ role: 'user', content: message }] : [])]
+        : message
+          ? [{ role: 'user', content: String(message) }]
+          : [];
+
+    const latestUserText =
+      typeof message === 'string' && message.trim()
+        ? message.trim()
+        : [...msgArray].reverse().find(m => m.role === 'user')?.content?.trim() || '';
+
+    if (!latestUserText && !msgArray.some(m => m.image?.data)) {
+      return res.status(400).json({ error: 'message or non-empty messages array is required' });
     }
 
-    if (!process.env.GEMINI_API_KEY || Date.now() < geminiCooldownUntil) {
-      const response = await generateAutonomousAnswer(message);
+    const aiClient = getGeminiClient();
+    if (!aiClient || Date.now() < geminiCooldownUntil) {
+      const response = await generateAutonomousAnswer(latestUserText);
       return res.json({
         reply: response,
         model: 'marsnav-autonomous-kb',
-        status: 'ok',
+        status: !aiClient ? 'autonomous_no_key' : 'autonomous_cooldown',
         provenance: 'Internal Planetary Science Engine'
       });
     }
 
     try {
-      const systemInstruction = `You are ORBIT, the MarsNav mission analysis AI assistant. Context: ${JSON.stringify(context || {})}`;
-      const chat = ai.chats.create({
-        model: 'gemini-2.5-flash',
-        config: { systemInstruction }
-      });
+      const mergedContext = appContext || context || {};
+      const systemInstruction = `You are ORBIT, the MarsNav mission analysis AI assistant (mode: ${mode || 'general'}). Answer strictly from verified planetary engineering principles and context without inventing unavailable telemetry. Context: ${JSON.stringify(mergedContext)}`;
 
-      const result = await callGeminiWithTimeout(chat.sendMessage({ message }), 8000);
+      const transcript = msgArray
+        .slice(-10)
+        .map(m => `${m.role === 'assistant' || m.role === 'model' ? 'ORBIT' : 'OPERATOR'}: ${m.content || ''}`)
+        .join('\n');
+
+      const latestWithImage = [...msgArray].reverse().find(m => m.image?.data);
+      const inputItems: any[] = [{ type: 'text', text: transcript || latestUserText }];
+
+      if (latestWithImage?.image?.data) {
+        const rawData = String(latestWithImage.image.data);
+        const commaIdx = rawData.indexOf(',');
+        const b64 = commaIdx !== -1 ? rawData.slice(commaIdx + 1) : rawData;
+        const dataMimeMatch = rawData.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/);
+        const mime = normalizeImageMimeType(latestWithImage.image.mimeType || dataMimeMatch?.[1] || 'image/jpeg');
+        inputItems.push({ type: 'image', data: b64, mime_type: mime });
+      }
+
+      const interaction = await callGeminiWithTimeout(
+        aiClient.interactions.create(
+          {
+            model: GEMINI_VISION_MODEL,
+            system_instruction: systemInstruction,
+            input: inputItems,
+            response_modalities: ['text'],
+            generation_config: {
+              thinking_level: 'low'
+            },
+            store: false
+          },
+          { timeout_ms: 30000, retries: { strategy: 'none' } } as any
+        ),
+        30000
+      );
+
+      const replyText = extractInteractionText(interaction);
+      if (!replyText) {
+        throw new Error('Gemini Interactions API returned an empty chat output.');
+      }
+
       res.json({
-        reply: result.text,
-        model: 'gemini-2.5-flash',
-        status: 'ok'
+        reply: replyText,
+        model: GEMINI_VISION_MODEL,
+        api: 'interactions',
+        interactionId: interaction.id,
+        status: 'connected'
       });
     } catch (apiErr: any) {
-      recordGeminiCooldown(apiErr);
-      const fallback = await generateAutonomousAnswer(message);
+      const classified = classifyGeminiError(apiErr);
+      const fallback = await generateAutonomousAnswer(latestUserText);
       res.json({
         reply: fallback,
         model: 'marsnav-autonomous-kb',
         status: 'fallback',
-        provenance: 'Internal Planetary Science Engine (Gemini fallback)'
+        geminiError: classified,
+        provenance: `Internal Planetary Science Engine (Gemini ${classified.httpStatus} fallback)`
       });
     }
   } catch (error) {
@@ -472,19 +688,47 @@ app.post(['/api/gemini/analyze-terrain', '/api/terrain/analyze-regions'], async 
       imageUrl,
       mimeType = 'image/jpeg',
       fileName,
+      imageId,
+      imageWidth,
+      imageHeight,
       missionContext,
       cameraContext,
-      solContext
-    } = req.body;
+      solContext,
+      measuredRegions
+    } = req.body || {};
 
-    if (!imageBase64 && imageUrl) {
+    let detectedWidth = typeof imageWidth === 'number' && imageWidth > 0 ? Math.round(imageWidth) : null;
+    let detectedHeight = typeof imageHeight === 'number' && imageHeight > 0 ? Math.round(imageHeight) : null;
+
+    if (typeof imageBase64 === 'string' && imageBase64.startsWith('data:')) {
+      const match = imageBase64.match(/^data:([^;]+);base64,(.*)$/);
+      if (match) {
+        mimeType = match[1];
+        imageBase64 = match[2];
+      }
+    }
+
+    // Resolve proxied URL (/api/nasa/proxy-image?url=...) to direct allowed HTTPS URL if needed
+    if (!imageBase64 && typeof imageUrl === 'string' && imageUrl.startsWith('/api/nasa/proxy-image?')) {
+      try {
+        const q = new URLSearchParams(imageUrl.split('?')[1] || '');
+        const inner = q.get('url');
+        if (inner && inner.startsWith('https://')) {
+          imageUrl = inner;
+        }
+      } catch {
+        // ignore malformed proxy url
+      }
+    }
+
+    if (!imageBase64 && typeof imageUrl === 'string' && imageUrl.trim()) {
       try {
         let rawBuffer: Buffer | null = null;
         if (imageUrl.startsWith('/assets/')) {
           const localPath = path.join(projectRoot, 'public', imageUrl);
           if (fs.existsSync(localPath)) {
             rawBuffer = await fs.promises.readFile(localPath);
-            mimeType = localPath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+            mimeType = localPath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
           }
         } else if (imageUrl.startsWith('https://')) {
           const parsedUrl = new URL(imageUrl);
@@ -499,201 +743,500 @@ app.post(['/api/gemini/analyze-terrain', '/api/terrain/analyze-regions'], async 
             }
           }
         }
+
         if (rawBuffer) {
-          const currentBuf: Buffer = rawBuffer;
           const sharp = await getSharp();
-          if (sharp && currentBuf.length > 3.5 * 1024 * 1024) {
+          if (sharp) {
             try {
-              const compressed = await sharp(currentBuf)
-                .resize({ width: 1536, height: 1536, fit: 'inside', withoutEnlargement: true })
-                .jpeg({ quality: 88 })
+              const meta = await sharp(rawBuffer).metadata();
+              if (meta.width && meta.height) {
+                detectedWidth = meta.width;
+                detectedHeight = meta.height;
+              }
+            } catch {
+              // ignore metadata inspect errors
+            }
+          }
+          const needsResize =
+            rawBuffer.length > 450 * 1024 ||
+            (detectedWidth && detectedWidth > 1024) ||
+            (detectedHeight && detectedHeight > 1024);
+          if (sharp && needsResize) {
+            try {
+              const compressed = await sharp(rawBuffer)
+                .resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true })
+                .jpeg({ quality: 82 })
                 .toBuffer();
               imageBase64 = compressed.toString('base64');
               mimeType = 'image/jpeg';
             } catch (sharpErr) {
               console.warn('[SHARP_RESIZE_WARN]', sharpErr);
-              imageBase64 = currentBuf.toString('base64');
+              imageBase64 = rawBuffer.toString('base64');
             }
           } else {
-            imageBase64 = currentBuf.toString('base64');
+            imageBase64 = rawBuffer.toString('base64');
           }
         }
       } catch (loadErr: any) {
         console.warn('[ANALYZE_IMAGE_LOAD_WARN]', getErrorMessage(loadErr));
       }
-    } else if (imageBase64 && imageBase64.length > 5 * 1024 * 1024) {
-      try {
-        const sharp = await getSharp();
-        if (sharp) {
+    } else if (typeof imageBase64 === 'string' && imageBase64.length > 0) {
+      const sharp = await getSharp();
+      if (sharp) {
+        try {
           const decoded = Buffer.from(imageBase64, 'base64');
-          const resized = await sharp(decoded)
-            .resize({ width: 1536, height: 1536, fit: 'inside', withoutEnlargement: true })
-            .jpeg({ quality: 86 })
-            .toBuffer();
-          imageBase64 = resized.toString('base64');
-          mimeType = 'image/jpeg';
+          if (!detectedWidth || !detectedHeight) {
+            const meta = await sharp(decoded).metadata();
+            if (meta.width && meta.height) {
+              detectedWidth = meta.width;
+              detectedHeight = meta.height;
+            }
+          }
+          const needsResize =
+            imageBase64.length > 600 * 1024 ||
+            (detectedWidth && detectedWidth > 1024) ||
+            (detectedHeight && detectedHeight > 1024);
+          if (needsResize) {
+            const resized = await sharp(decoded)
+              .resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true })
+              .jpeg({ quality: 82 })
+              .toBuffer();
+            imageBase64 = resized.toString('base64');
+            mimeType = 'image/jpeg';
+          }
+        } catch {
+          // keep original base64 if sharp fails
         }
-      } catch {
-        // keep original base64 if sharp fails
       }
     }
 
     if (!imageBase64) {
-      return res.json({
-        success: true,
+      return res.status(400).json({
+        success: false,
         aiAvailable: false,
         aiStatus: 'image_unavailable',
+        errorCode: 'IMAGE_PAYLOAD_UNAVAILABLE',
+        httpStatus: 400,
         source: 'deterministic-cv-only',
-        message: 'Image bytes could not be decoded for AI vision inspection; using deterministic CV pixel segmentation.',
+        modelVersion: null,
+        fallbackBanner: FALLBACK_BANNER,
+        message: 'Image bytes could not be decoded for Gemini Interactions API inspection; using pixel-based computer vision fallback.',
         analysis: null
       });
     }
 
-    const cacheKey = `regions_v2_${imageBase64.length}_${imageBase64.substring(0, 64)}_${imageBase64.slice(-32)}`;
+    const normalizedMimeType = normalizeImageMimeType(mimeType);
+    const resolvedImageId = String(imageId || fileName || 'mars_surface_frame');
+    const resolvedDims = {
+      width: detectedWidth || 0,
+      height: detectedHeight || 0,
+      unit: 'px',
+      note: detectedWidth && detectedHeight ? `${detectedWidth}x${detectedHeight} pixels` : 'Dimensions unavailable from payload'
+    };
+
+    const regionSignature = Array.isArray(measuredRegions) && measuredRegions.length > 0
+      ? JSON.stringify(measuredRegions.map((r: any) => ({
+          id: r.regionId,
+          areaPct: r.areaPct,
+          rgb: r.meanRgb,
+          edge: r.edgeDensityPct
+        })))
+      : 'no_regions';
+
+    const cacheKey = crypto
+      .createHash('sha256')
+      .update(GEMINI_VISION_MODEL)
+      .update('|')
+      .update(imageBase64)
+      .update('|')
+      .update(regionSignature)
+      .digest('hex');
 
     if (analysisCache.has(cacheKey)) {
       return res.json({
         success: true,
         aiAvailable: true,
         aiStatus: 'ok',
-        source: 'gemini-4-hydrogen-cached',
+        api: 'interactions',
+        source: `${GEMINI_VISION_MODEL}-cached`,
+        modelVersion: GEMINI_VISION_MODEL,
         analysis: analysisCache.get(cacheKey)
       });
     }
 
-    if (!process.env.GEMINI_API_KEY || Date.now() < geminiCooldownUntil) {
-      const statusReason = !process.env.GEMINI_API_KEY ? 'no_api_key' : 'quota_cooldown';
-      return res.json({
-        success: true,
+    const aiClient = getGeminiClient();
+    if (!aiClient) {
+      return res.status(401).json({
+        success: false,
         aiAvailable: false,
-        aiStatus: statusReason,
+        aiStatus: 'auth_error',
+        errorCode: 'GEMINI_401_AUTH_ERROR',
+        httpStatus: 401,
         source: 'deterministic-cv-only',
-        message: statusReason === 'quota_cooldown'
-          ? 'Gemini Vision API quota cooldown active; displaying real deterministic computer-vision regions.'
-          : 'Gemini API key unavailable; displaying real deterministic computer-vision regions.',
+        modelVersion: null,
+        fallbackBanner: FALLBACK_BANNER,
+        message: '401 Authentication error: GEMINI_API_KEY is missing or unset on the server.',
+        analysis: null
+      });
+    }
+
+    if (Date.now() < geminiCooldownUntil) {
+      return res.status(429).json({
+        success: false,
+        aiAvailable: false,
+        aiStatus: 'rate_limit',
+        errorCode: 'GEMINI_429_RATE_LIMIT',
+        httpStatus: 429,
+        source: 'deterministic-cv-only',
+        modelVersion: null,
+        fallbackBanner: FALLBACK_BANNER,
+        message: '429 Quota or rate-limit error: Gemini Interactions API cooldown active.',
         analysis: null
       });
     }
 
     const contextLines = [
-      fileName ? `Image identifier: ${fileName}` : null,
+      `Image ID: ${resolvedImageId}`,
+      detectedWidth && detectedHeight ? `Dimensions: ${detectedWidth}x${detectedHeight} px` : null,
       missionContext ? `Mission: ${missionContext}` : null,
       cameraContext ? `Instrument/Camera: ${cameraContext}` : null,
       solContext !== undefined && solContext !== null ? `Sol: ${solContext}` : null
     ].filter(Boolean).join(' | ');
 
-    const promptText = `Inspect the COMPLETE Martian surface image (${contextLines || 'Surface observation'}).
-Identify ONLY terrain regions and features actually visible in this exact image. Do NOT assume all terrain types appear, do NOT fabricate specific USGS map unit names or coordinates, and do NOT report absolute elevations or slope angles from a single 2D image.
+    const regionPromptBlock = Array.isArray(measuredRegions) && measuredRegions.length > 0
+      ? `\n\nPre-segmented pixel regions extracted deterministically from this exact image:\n${measuredRegions.slice(0, 8).map((r: any) =>
+          `- ${r.regionId}: zone=${r.spatialZone}, area=${r.areaPct}%, meanRGB=(${r.meanRgb?.[0]},${r.meanRgb?.[1]},${r.meanRgb?.[2]}), R/B=${r.redBlueRatio}, edgeDensity=${r.edgeDensityPct}%, roughness=${r.roughnessIndex}, bbox=[x=${r.normX}, y=${r.normY}, w=${r.normWidth}, h=${r.normHeight}]`
+        ).join('\n')}`
+      : '';
 
-For each distinct visible terrain region, return accurate normalized bounding box coordinates [normX, normY, normWidth, normHeight] in [0..1].
-Allowed classifications:
-"Bedrock Exposure", "Regolith & Loose Soil", "Rocky Outcrop", "Layered Sedimentary Formation", "Fractured Rock Surface", "Sand Deposit / Dune", "Erosion Feature", "Boulder Field", "Geological Boundary", "Other Formation".
+    const systemInstruction = `You are a planetary photogeology and rover hazard vision analyst operating via the Gemini Interactions API (${GEMINI_VISION_MODEL}). Examine ONLY the submitted image and strictly follow scientific evidence rules: never fabricate object counts, normalized coordinates, metric dimensions, calibrated confidence percentages, coordinates, or chemical/mineralogical formulas.`;
 
-Also detect prominent discrete rocks, boulders, and rock clusters in "boulders" ONLY where visibly present in the frame, using tight normalized bounding boxes [normX, normY, normWidth, normHeight] in [0..1].`;
+    const promptText = `Analyze the COMPLETE submitted Mars surface image (${contextLines}).${regionPromptBlock}
+
+Strict Scientific Rules:
+1. Base EVERY field strictly on what is visually visible in this exact uploaded image. Never invent object counts, bounding boxes, physical dimensions (use null for uncalibrated 2D images), numeric confidence scores (set numeric confidence to null), or geological/mineralogical claims.
+2. Do NOT fabricate USGS SIM 3292 map unit symbols (e.g., HNt, mNhm, AHi, eHv) or planetocentric lat/lon coordinates.
+3. Explicitly note in "limitations" that RGB optical imagery alone cannot verify mineralogy without spectroscopy (CRISM/SuperCam/PIXL/SHERLOC) and lacks absolute metric scale without stereo/DEM calibration.
+4. For every regionId listed above, provide a corresponding entry in "regionInterpretations" describing only visual evidence in that region. Set "provisionalClass" to "UNCLASSIFIED" or "UNKNOWN" and "isAmbiguous": true whenever shadowed, blurry, clipped, or featureless.
+5. For "detected_rocks", "detected_boulders", "visible_obstacles", and "bounding_boxes", include ONLY discrete features genuinely visible in the image with tight normalized coordinates [0..1]. If none are clearly separable, return an empty array [].`;
 
     const responseSchema = {
-      type: Type.OBJECT,
+      type: 'object',
       properties: {
-        terrainSummary: { type: Type.STRING },
-        regions: {
-          type: Type.ARRAY,
+        image_id: { type: 'string' },
+        image_dimensions: {
+          type: 'object',
+          properties: {
+            width: { type: 'number' },
+            height: { type: 'number' },
+            unit: { type: 'string' },
+            note: { type: 'string' }
+          },
+          required: ['width', 'height', 'unit', 'note']
+        },
+        visible_geological_features: { type: 'array', items: { type: 'string' } },
+        detected_rocks: {
+          type: 'array',
           items: {
-            type: Type.OBJECT,
+            type: 'object',
             properties: {
-              name: { type: Type.STRING },
-              classification: { type: Type.STRING },
-              confidence: { type: Type.NUMBER },
-              box: {
-                type: Type.OBJECT,
-                properties: {
-                  normX: { type: Type.NUMBER },
-                  normY: { type: Type.NUMBER },
-                  normWidth: { type: Type.NUMBER },
-                  normHeight: { type: Type.NUMBER }
-                },
-                required: ['normX', 'normY', 'normWidth', 'normHeight']
-              },
-              traversabilityRating: { type: Type.STRING },
-              color: { type: Type.STRING }
+              label: { type: 'string' },
+              visual_description: { type: 'string' },
+              norm_x: { type: 'number' },
+              norm_y: { type: 'number' },
+              norm_width: { type: 'number' },
+              norm_height: { type: 'number' },
+              size_category: { type: 'string' },
+              physical_dimensions: { type: ['string', 'null'] }
             },
-            required: ['name', 'classification', 'confidence', 'box', 'traversabilityRating']
+            required: ['label', 'visual_description', 'norm_x', 'norm_y', 'norm_width', 'norm_height', 'size_category']
           }
         },
-        boulders: {
-          type: Type.ARRAY,
+        detected_boulders: {
+          type: 'array',
           items: {
-            type: Type.OBJECT,
+            type: 'object',
             properties: {
-              box: {
-                type: Type.OBJECT,
-                properties: {
-                  normX: { type: Type.NUMBER },
-                  normY: { type: Type.NUMBER },
-                  normWidth: { type: Type.NUMBER },
-                  normHeight: { type: Type.NUMBER }
-                },
-                required: ['normX', 'normY', 'normWidth', 'normHeight']
-              },
-              sizeCategory: { type: Type.STRING },
-              hazardStatus: { type: Type.STRING },
-              traversalRelevance: { type: Type.STRING }
+              label: { type: 'string' },
+              classification: { type: 'string' },
+              normX: { type: 'number' },
+              normY: { type: 'number' },
+              normWidth: { type: 'number' },
+              normHeight: { type: 'number' },
+              sizeCategory: { type: 'string' },
+              hazardStatus: { type: 'string' },
+              traversalRelevance: { type: 'string' },
+              physicalDimensions: { type: ['string', 'null'] }
             },
-            required: ['box', 'sizeCategory', 'hazardStatus', 'traversalRelevance']
+            required: ['label', 'classification', 'normX', 'normY', 'normWidth', 'normHeight', 'sizeCategory', 'hazardStatus', 'traversalRelevance']
+          }
+        },
+        visible_bedrock: {
+          type: 'object',
+          properties: {
+            present: { type: 'boolean' },
+            description: { type: 'string' },
+            locations: { type: 'array', items: { type: 'string' } }
+          },
+          required: ['present', 'description', 'locations']
+        },
+        regolith_and_sand: {
+          type: 'object',
+          properties: {
+            present: { type: 'boolean' },
+            description: { type: 'string' },
+            locations: { type: 'array', items: { type: 'string' } }
+          },
+          required: ['present', 'description', 'locations']
+        },
+        visible_obstacles: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string' },
+              classification: { type: 'string' },
+              hazard_status: { type: 'string' },
+              traversal_relevance: { type: 'string' },
+              norm_x: { type: 'number' },
+              norm_y: { type: 'number' },
+              norm_width: { type: 'number' },
+              norm_height: { type: 'number' }
+            },
+            required: ['label', 'classification', 'hazard_status', 'traversal_relevance', 'norm_x', 'norm_y', 'norm_width', 'norm_height']
+          }
+        },
+        bounding_boxes: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string' },
+              category: { type: 'string' },
+              normX: { type: 'number' },
+              normY: { type: 'number' },
+              normWidth: { type: 'number' },
+              normHeight: { type: 'number' }
+            },
+            required: ['label', 'category', 'normX', 'normY', 'normWidth', 'normHeight']
+          }
+        },
+        confidence_scores: {
+          type: 'object',
+          properties: {
+            calibration_status: { type: 'string' },
+            note: { type: 'string' },
+            per_feature: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  label: { type: 'string' },
+                  confidence: { type: ['number', 'null'] },
+                  basis: { type: 'string' }
+                },
+                required: ['label', 'confidence', 'basis']
+              }
+            }
+          },
+          required: ['calibration_status', 'note', 'per_feature']
+        },
+        image_quality: { type: 'string' },
+        limitations: { type: 'array', items: { type: 'string' } },
+        analysis_method: { type: 'string' },
+
+        terrainSummary: { type: 'string' },
+        dominantFeature: { type: 'string' },
+        overallComposition: { type: 'string' },
+        geologicalFeaturesSummary: { type: 'string' },
+        provisionalGeologicalInference: { type: 'string' },
+        rockAndSoilCharacteristics: { type: 'string' },
+        surfaceTexture: { type: 'string' },
+        geologicalRelevance: { type: 'string' },
+        recommendedInvestigationMethod: { type: 'string' },
+        rockFormations: { type: 'array', items: { type: 'string' } },
+        visibleFractures: { type: 'array', items: { type: 'string' } },
+        sedimentaryStructures: { type: 'array', items: { type: 'string' } },
+        samplingOpportunities: { type: 'array', items: { type: 'string' } },
+        regionInterpretations: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              regionId: { type: 'string' },
+              visualDescription: { type: 'string' },
+              provisionalClass: { type: 'string' },
+              classificationJustification: { type: 'string' },
+              surfaceEvidence: { type: 'string' },
+              scientificRelevance: { type: 'string' },
+              traversalConcerns: { type: 'string' },
+              recommendedMethod: { type: 'string' },
+              hazardLevel: { type: 'string' },
+              isAmbiguous: { type: 'boolean' }
+            },
+            required: [
+              'regionId',
+              'visualDescription',
+              'provisionalClass',
+              'classificationJustification',
+              'surfaceEvidence',
+              'scientificRelevance',
+              'traversalConcerns',
+              'recommendedMethod',
+              'hazardLevel',
+              'isAmbiguous'
+            ]
           }
         }
       },
-      required: ['terrainSummary', 'regions', 'boulders']
+      required: [
+        'image_id',
+        'image_dimensions',
+        'visible_geological_features',
+        'detected_rocks',
+        'detected_boulders',
+        'visible_bedrock',
+        'regolith_and_sand',
+        'visible_obstacles',
+        'bounding_boxes',
+        'confidence_scores',
+        'image_quality',
+        'limitations',
+        'analysis_method',
+        'terrainSummary',
+        'dominantFeature',
+        'overallComposition',
+        'geologicalFeaturesSummary',
+        'provisionalGeologicalInference',
+        'rockAndSoilCharacteristics',
+        'surfaceTexture',
+        'regionInterpretations'
+      ]
     };
 
     try {
-      const response = await callGeminiWithTimeout(
-        ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                { text: promptText },
-                {
-                  inlineData: {
-                    mimeType,
-                    data: imageBase64
-                  }
-                }
-              ]
-            }
-          ],
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema
-          }
-        }),
-        10000
+      const interaction = await callGeminiWithTimeout(
+        aiClient.interactions.create(
+          {
+            model: GEMINI_VISION_MODEL,
+            system_instruction: systemInstruction,
+            input: [
+              { type: 'text', text: promptText },
+              {
+                type: 'image',
+                data: imageBase64,
+                mime_type: normalizedMimeType
+              }
+            ],
+            response_modalities: ['text'],
+            response_format: {
+              type: 'text',
+              mime_type: 'application/json',
+              schema: responseSchema
+            },
+            generation_config: {
+              seed: 42,
+              thinking_level: 'low'
+            },
+            store: false
+          },
+          { timeout_ms: 45000, retries: { strategy: 'none' } } as any
+        ),
+        45000
       );
 
-      const parsedAnalysis = JSON.parse(response.text || '{}');
-      analysisCache.set(cacheKey, parsedAnalysis);
+      const rawText = extractInteractionText(interaction);
+      const parsed = parseInteractionJson(rawText);
+
+      // Server-authoritative grounding of factual metadata & bidirectional compatibility mapping
+      const normalizedBoulders = Array.isArray(parsed.detected_boulders)
+        ? parsed.detected_boulders
+        : Array.isArray(parsed.visible_obstacles)
+          ? parsed.visible_obstacles.map((o: any) => ({
+              label: o.label,
+              classification: o.classification || 'obstacle',
+              normX: o.norm_x,
+              normY: o.norm_y,
+              normWidth: o.norm_width,
+              normHeight: o.norm_height,
+              sizeCategory: 'medium_rock',
+              hazardStatus: o.hazard_status || 'Detected visual obstacle',
+              traversalRelevance: o.traversal_relevance || 'Obstacle detected in optical frame.'
+            }))
+          : [];
+
+      const canonicalAnalysis = {
+        ...parsed,
+        image_id: resolvedImageId,
+        image_dimensions: resolvedDims,
+        analysis_method: `Google Gemini Interactions API (${GEMINI_VISION_MODEL})`,
+        interaction_id: interaction.id,
+        visible_geological_features: Array.isArray(parsed.visible_geological_features) ? parsed.visible_geological_features : [],
+        detected_rocks: Array.isArray(parsed.detected_rocks) ? parsed.detected_rocks : [],
+        detected_boulders: normalizedBoulders,
+        visible_obstacles: Array.isArray(parsed.visible_obstacles) ? parsed.visible_obstacles : [],
+        bounding_boxes: Array.isArray(parsed.bounding_boxes) ? parsed.bounding_boxes : [],
+        limitations: Array.isArray(parsed.limitations) ? parsed.limitations : [],
+        // MarsNav downstream fields synchronized to the exact same grounded JSON
+        visibleFeatures: Array.isArray(parsed.visible_geological_features) ? parsed.visible_geological_features : [],
+        boulders: normalizedBoulders,
+        sandAndRegolith: typeof parsed.regolith_and_sand === 'string'
+          ? parsed.regolith_and_sand
+          : (parsed.regolith_and_sand?.description || ''),
+        terrainObstacles: Array.isArray(parsed.visible_obstacles)
+          ? parsed.visible_obstacles.map((o: any) => {
+              if (typeof o === 'string') return o;
+              const detail = o.traversal_relevance || o.hazard_status || o.description;
+              return detail ? `${o.label || 'Obstacle'}: ${detail}` : (o.label || 'Detected obstacle');
+            })
+          : [],
+        imageQuality: typeof parsed.image_quality === 'string'
+          ? parsed.image_quality
+          : (parsed.image_quality?.notes || parsed.image_quality?.clarity || ''),
+        dataLimitations: Array.isArray(parsed.limitations) ? parsed.limitations : []
+      };
+
+      analysisCache.set(cacheKey, canonicalAnalysis);
 
       res.json({
         success: true,
         aiAvailable: true,
         aiStatus: 'ok',
-        source: 'gemini-2.5-flash',
-        analysis: parsedAnalysis
+        api: 'interactions',
+        interactionId: interaction.id,
+        source: GEMINI_VISION_MODEL,
+        modelVersion: GEMINI_VISION_MODEL,
+        analysis: canonicalAnalysis
       });
     } catch (genErr: any) {
-      recordGeminiCooldown(genErr);
-      res.json({
-        success: true,
+      const classified = classifyGeminiError(genErr);
+      console.error(`[GEMINI_INTERACTIONS_ERROR] ${classified.errorCode}:`, classified.message);
+      return res.status(classified.httpStatus).json({
+        success: false,
         aiAvailable: false,
-        aiStatus: 'api_error',
+        aiStatus: classified.aiStatus,
+        errorCode: classified.errorCode,
+        httpStatus: classified.httpStatus,
         source: 'deterministic-cv-only',
-        message: `Gemini Vision error (${getErrorMessage(genErr)}); displaying real deterministic computer-vision regions.`,
+        modelVersion: null,
+        fallbackBanner: FALLBACK_BANNER,
+        message: classified.message,
         analysis: null
       });
     }
   } catch (error) {
-    res.status(500).json({ success: false, error: { message: getErrorMessage(error) } });
+    res.status(500).json({
+      success: false,
+      aiAvailable: false,
+      aiStatus: 'service_failure',
+      errorCode: 'GEMINI_500_INTERNAL_ERROR',
+      httpStatus: 500,
+      source: 'deterministic-cv-only',
+      modelVersion: null,
+      fallbackBanner: FALLBACK_BANNER,
+      message: getErrorMessage(error),
+      analysis: null
+    });
   }
 });
 
@@ -2030,11 +2573,12 @@ app.get('/api/orbit/models', (_req, res) => {
   res.json({
     models: [
       {
-        id: 'gemini-2.5-flash',
-        name: 'Gemini 2.5 Flash (Mission Operations & Reasoning)',
+        id: 'gemini-4-hydrogen',
+        name: 'Gemini 4 Hydrogen (Interactions API · Vision & Reasoning)',
         provider: 'Google DeepMind',
+        api: 'interactions',
         multimodal: true,
-        recommendedFor: 'Tactical science planning, geologic reasoning, and telemetry summarization'
+        recommendedFor: 'Tactical science planning, multimodal geological analysis, and telemetry summarization'
       },
       {
         id: 'marsnav-autonomous-kb',
@@ -2842,188 +3386,176 @@ app.get('/api/usgs/geology', async (req, res) => {
     const minLat = Math.max(-90, normLat - 2.5);
     const maxLat = Math.min(90, normLat + 2.5);
 
+    // 1. Query live USGS-NASA JPL Trek ArcGIS MapServer (SIM3292 Global Geology, WKID 104905 Mars 2000)
+    const mapServerBase = 'https://trek.nasa.gov/mars/trekarcgis/rest/services/SIM3292_Global_Geology/MapServer/0/query';
+    const pointQueryUrl = `${mapServerBase}?geometry=${normLon},${normLat}&geometryType=esriGeometryPoint&inSR=104905&outSR=104905&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=false&f=json`;
+    const envQueryUrl = `${mapServerBase}?geometry=${minLon},${minLat},${maxLon},${maxLat}&geometryType=esriGeometryEnvelope&inSR=104905&outSR=104905&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=false&f=json`;
+
     let pointFeature: any = null;
     let envelopeFeatures: any[] = [];
-    let isLiveQuery = false;
-
-    // 1. Query live USGS-NASA JPL Trek ArcGIS MapServer (SIM3292 Global Geology)
-    const mapServerBase = 'https://trek.nasa.gov/mars/trekarcgis/rest/services/SIM3292_Global_Geology/MapServer/0/query';
-    const pointQueryUrl = `${mapServerBase}?geometry=${normLon},${normLat}&geometryType=esriGeometryPoint&spatialRel=esriSpatialRelIntersects&outFields=*&f=json`;
-    const envQueryUrl = `${mapServerBase}?geometry=${minLon},${minLat},${maxLon},${maxLat}&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=false&f=json`;
+    let pointQueryOk = false;
+    let upstreamErrorMsg: string | null = null;
 
     try {
-      const [pointResp, envResp] = await Promise.all([
-        fetch(pointQueryUrl, { signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch(envQueryUrl, { signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : null).catch(() => null)
+      const [pointRes, envRes] = await Promise.all([
+        fetch(pointQueryUrl, { signal: AbortSignal.timeout(8000) }),
+        fetch(envQueryUrl, { signal: AbortSignal.timeout(8000) })
       ]);
 
-      if (pointResp?.features?.length) {
-        pointFeature = pointResp.features[0];
-        isLiveQuery = true;
-      }
-      if (envResp?.features?.length) {
-        envelopeFeatures = envResp.features;
-        isLiveQuery = true;
-      }
-    } catch (queryErr) {
-      console.warn('[USGS_GEOLOGY_LIVE_QUERY_WARN]', getErrorMessage(queryErr));
-    }
-
-    // 2. Fallback catalog matching if live MapServer was unavailable or point fell into unmapped gap
-    let primarySymbol = pointFeature?.attributes?.Unit || '';
-    let primaryDesc = pointFeature?.attributes?.UnitDesc || '';
-    let primarySphArea = pointFeature?.attributes?.SphArea_km || null;
-
-    if (!primarySymbol) {
-      // Authoritative USGS SIM 3292 unit coordinates for major exploration regions
-      if (normLat >= 17.5 && normLat <= 19.5 && normLon >= 76.0 && normLon <= 78.5) {
-        primarySymbol = 'HNt';
-        primaryDesc = 'Hesperian and Noachian transition unit (Jezero Crater Basin Floor & Delta)';
-      } else if (normLat >= -5.5 && normLat <= -3.5 && normLon >= 136.5 && normLon <= 138.5) {
-        primarySymbol = 'AHi';
-        primaryDesc = 'Amazonian and Hesperian impact unit (Gale Crater Floor & Ejecta)';
-      } else if (normLat >= -15.5 && normLat <= -13.5 && normLon >= 174.5 && normLon <= 176.5) {
-        primarySymbol = 'AHi';
-        primaryDesc = 'Amazonian and Hesperian impact unit (Gusev Crater Floor)';
-      } else if (normLat >= -3.0 && normLat <= -1.0 && normLon >= -7.0 && normLon <= -4.0) {
-        primarySymbol = 'lHl';
-        primaryDesc = 'Late Hesperian lowland unit (Meridiani Planum Sedimentary Plain)';
-      } else if (normLat >= 17.0 && normLat <= 19.0 && normLon >= -25.5 && normLon <= -23.5) {
-        primarySymbol = 'eNh';
-        primaryDesc = 'Early Noachian highland unit (Oxia Palus Clay-Bearing Plains)';
-      } else if (normLat >= 30.0 && normLat <= 45.0) {
-        primarySymbol = 'mAl';
-        primaryDesc = 'Middle Amazonian lowland unit (Northern Plains Ice-Rich Mantle)';
-      } else if (normLat < -40.0) {
-        primarySymbol = 'mNh';
-        primaryDesc = 'Middle Noachian highland unit (Southern Ancient Cratered Crust)';
+      if (!pointRes.ok) {
+        upstreamErrorMsg = `USGS Trek MapServer returned HTTP ${pointRes.status}`;
       } else {
-        primarySymbol = 'HNt';
-        primaryDesc = 'Hesperian and Noachian transition unit';
-      }
-    }
-
-    // Build Primary Unit
-    const primaryUnit: any = {
-      unitSymbol: primarySymbol,
-      unitName: primaryDesc || (SIM3292_UNIT_GLOSSARY as Record<string, any>)[primarySymbol]?.lithology?.split('.')[0] || primarySymbol,
-      epoch: getSim3292Epoch(primarySymbol),
-      lithology: getSim3292Lithology(primarySymbol, primaryDesc),
-      boundaryContext: getSim3292BoundaryContext(primarySymbol),
-      quadrangle: quad.label,
-      mapSource: 'USGS Scientific Investigations Map 3292 (Tanaka et al., 2014)',
-      citation: 'Tanaka, K.L., et al. (2014) Geologic Map of Mars, USGS SIM 3292, Pamphlet 43 p.',
-      sourceUrl: 'https://pubs.usgs.gov/sim/3292/',
-      areaKm2: primarySphArea,
-      perimeterKm: pointFeature?.attributes?.Shape_Leng ? Math.round(pointFeature.attributes.Shape_Leng / 1000) : null,
-      confidence: 'Published USGS Map Unit'
-    };
-
-    // Build Nearby Units
-    const nearbyUnitMap = new Map<string, any>();
-    if (envelopeFeatures.length > 0) {
-      for (const feat of envelopeFeatures) {
-        const u = feat.attributes?.Unit;
-        if (!u || u === primarySymbol) continue;
-        if (!nearbyUnitMap.has(u)) {
-          const desc = feat.attributes?.UnitDesc;
-          nearbyUnitMap.set(u, {
-            unitSymbol: u,
-            unitName: desc || (SIM3292_UNIT_GLOSSARY as Record<string, any>)[u]?.lithology?.split('.')[0] || u,
-            epoch: getSim3292Epoch(u),
-            lithology: getSim3292Lithology(u, desc),
-            boundaryContext: getSim3292BoundaryContext(u),
-            quadrangle: quad.label,
-            mapSource: 'USGS Scientific Investigations Map 3292 (Tanaka et al., 2014)',
-            citation: 'Tanaka, K.L., et al. (2014) Geologic Map of Mars, USGS SIM 3292',
-            sourceUrl: 'https://pubs.usgs.gov/sim/3292/',
-            areaKm2: feat.attributes?.SphArea_km || null,
-            perimeterKm: feat.attributes?.Shape_Leng ? Math.round(feat.attributes.Shape_Leng / 1000) : null,
-            confidence: 'Published USGS Map Unit'
-          });
+        const pointJson = await pointRes.json();
+        if (pointJson?.error) {
+          upstreamErrorMsg = `USGS Trek MapServer error: ${pointJson.error.message || JSON.stringify(pointJson.error)}`;
+        } else {
+          pointQueryOk = true;
+          if (Array.isArray(pointJson?.features) && pointJson.features.length > 0) {
+            pointFeature = pointJson.features[0];
+          }
         }
       }
+
+      if (envRes.ok) {
+        const envJson = await envRes.json();
+        if (!envJson?.error && Array.isArray(envJson?.features)) {
+          envelopeFeatures = envJson.features;
+        }
+      }
+    } catch (queryErr: any) {
+      upstreamErrorMsg = `USGS Trek MapServer request failed: ${getErrorMessage(queryErr)}`;
+      console.warn('[USGS_GEOLOGY_LIVE_QUERY_ERROR]', upstreamErrorMsg);
     }
 
-    // If envelope query returned none, populate nearby units based on regional geological context
-    if (nearbyUnitMap.size === 0) {
-      const fallbackNearby: string[] =
-        primarySymbol === 'HNt' ? ['mNhm', 'AHi', 'eHv', 'mNh', 'lHt'] :
-        primarySymbol === 'AHi' ? ['Htu', 'HNt', 'eHt', 'mNh'] :
-        ['mNh', 'lNh', 'AHi', 'eHv'];
+    if (!pointQueryOk) {
+      return res.status(502).json({
+        success: false,
+        matched: false,
+        lat: normLat,
+        lon: normLon,
+        regionId,
+        quadrangle: quad.label,
+        units: [],
+        nearbyUnits: [],
+        boundariesSummary: 'USGS SIM 3292 spatial query failed upstream; no fallback map unit assigned.',
+        stacDtms: [],
+        sourceStatus: 'unavailable',
+        note: upstreamErrorMsg || 'USGS SIM 3292 upstream service unavailable.',
+        error: {
+          code: 'USGS_SIM3292_UPSTREAM_UNAVAILABLE',
+          message: upstreamErrorMsg || 'USGS SIM 3292 upstream service unavailable.'
+        },
+        provenance: {
+          primaryMap: 'USGS Scientific Investigations Map 3292 (Tanaka et al., 2014)',
+          usgsCenter: 'USGS Astrogeology Science Center, Flagstaff, AZ',
+          wmsEndpoint: 'https://planetarymaps.usgs.gov/cgi-bin/mapserv?map=/maps/mars/mars_simp_cyl.map',
+          stacEndpoint: 'https://stac.astrogeology.usgs.gov/api',
+          geojsonEndpoint: mapServerBase,
+          pubsEndpoint: 'https://pubs.usgs.gov/sim/3292/',
+          crs: 'IAU2000:49900 (WKID 104905)',
+          retrievedAt: new Date().toISOString()
+        }
+      });
+    }
 
-      for (const code of fallbackNearby) {
-        if (code === primarySymbol) continue;
-        nearbyUnitMap.set(code, {
-          unitSymbol: code,
-          unitName: (SIM3292_UNIT_GLOSSARY as Record<string, any>)[code]?.lithology?.split('.')[0] || `Unit ${code}`,
-          epoch: getSim3292Epoch(code),
-          lithology: getSim3292Lithology(code),
-          boundaryContext: getSim3292BoundaryContext(code),
+    const attrs = pointFeature?.attributes || null;
+    const primarySymbol = attrs?.Unit ? String(attrs.Unit).trim() : '';
+    const primaryDesc = attrs?.UnitDesc ? String(attrs.UnitDesc).trim() : '';
+    const primaryGlossary = primarySymbol ? (SIM3292_UNIT_GLOSSARY as Record<string, any>)[primarySymbol] : null;
+
+    const primaryUnit = primarySymbol
+      ? {
+          unitSymbol: primarySymbol,
+          unitName: primaryDesc || primaryGlossary?.lithology?.split('.')[0] || `Unit ${primarySymbol}`,
+          epoch: getSim3292Epoch(primarySymbol),
+          lithology: primaryGlossary?.lithology || primaryDesc || `Mapped USGS SIM 3292 unit ${primarySymbol}.`,
+          boundaryContext: primaryGlossary?.boundaryContext || `SIM 3292 spatial polygon FID ${attrs?.FID ?? attrs?.OBJECTID ?? 'N/A'}`,
+          quadrangle: quad.label,
+          mapSource: 'USGS Scientific Investigations Map 3292 (Tanaka et al., 2014)',
+          citation: 'Tanaka, K.L., et al. (2014) Geologic Map of Mars, USGS SIM 3292, Pamphlet 43 p.',
+          sourceUrl: 'https://pubs.usgs.gov/sim/3292/',
+          featureId: attrs?.FID ?? attrs?.OBJECTID ?? null,
+          areaKm2: typeof attrs?.SphArea_km === 'number' ? Number(attrs.SphArea_km.toFixed(2)) : null,
+          perimeterKm: typeof attrs?.Shape_Leng === 'number' ? Math.round(attrs.Shape_Leng / 1000) : null,
+          confidence: 'Published USGS Map Unit' as const
+        }
+      : null;
+
+    // Build genuine intersecting Nearby Units strictly from live ArcGIS envelope features
+    const nearbyUnitMap = new Map<string, any>();
+    for (const feat of envelopeFeatures) {
+      const fAttrs = feat?.attributes;
+      const u = fAttrs?.Unit ? String(fAttrs.Unit).trim() : '';
+      if (!u || u === primarySymbol) continue;
+      if (!nearbyUnitMap.has(u)) {
+        const desc = fAttrs?.UnitDesc ? String(fAttrs.UnitDesc).trim() : '';
+        const glossary = (SIM3292_UNIT_GLOSSARY as Record<string, any>)[u];
+        nearbyUnitMap.set(u, {
+          unitSymbol: u,
+          unitName: desc || glossary?.lithology?.split('.')[0] || `Unit ${u}`,
+          epoch: getSim3292Epoch(u),
+          lithology: glossary?.lithology || desc || `Mapped USGS SIM 3292 unit ${u}.`,
+          boundaryContext: glossary?.boundaryContext || `SIM 3292 spatial polygon FID ${fAttrs?.FID ?? fAttrs?.OBJECTID ?? 'N/A'}`,
           quadrangle: quad.label,
           mapSource: 'USGS Scientific Investigations Map 3292 (Tanaka et al., 2014)',
           citation: 'Tanaka, K.L., et al. (2014) Geologic Map of Mars, USGS SIM 3292',
           sourceUrl: 'https://pubs.usgs.gov/sim/3292/',
-          confidence: 'Published USGS Map Unit'
+          featureId: fAttrs?.FID ?? fAttrs?.OBJECTID ?? null,
+          areaKm2: typeof fAttrs?.SphArea_km === 'number' ? Number(fAttrs.SphArea_km.toFixed(2)) : null,
+          perimeterKm: typeof fAttrs?.Shape_Leng === 'number' ? Math.round(fAttrs.Shape_Leng / 1000) : null,
+          confidence: 'Published USGS Map Unit' as const
         });
       }
     }
 
     const nearbyUnitsList = Array.from(nearbyUnitMap.values());
 
-    // 3. Query USGS STAC Controlled HiRISE DTMs for the region
+    // Query live USGS STAC API only (no curated fallback list)
     let stacDtms: any[] = [];
     try {
       const stacUrl = `https://stac.astrogeology.usgs.gov/api/search?bbox=${minLon},${minLat},${maxLon},${maxLat}&limit=6`;
-      const stacResp = await fetch(stacUrl, { signal: AbortSignal.timeout(4000) }).then(r => r.ok ? r.json() : null).catch(() => null);
-      if (stacResp?.features?.length) {
+      const stacResp = await fetch(stacUrl, { signal: AbortSignal.timeout(5000) }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+      if (Array.isArray(stacResp?.features) && stacResp.features.length > 0) {
         stacDtms = stacResp.features.map((item: any) => ({
           id: item.id,
           title: item.properties?.title || item.id,
           collection: item.collection || 'hirise',
           resolutionMeters: item.properties?.gsd || 1.0,
           dtmUrl: item.assets?.data?.href || item.assets?.download?.href || item.links?.find((l: any) => l.rel === 'alternate')?.href || '',
-          previewUrl: item.assets?.thumbnail?.href || `/api/nasa/proxy-image?url=${encodeURIComponent(item.assets?.thumbnail?.href || '')}`,
+          previewUrl: item.assets?.thumbnail?.href
+            ? `/api/nasa/proxy-image?url=${encodeURIComponent(item.assets.thumbnail.href)}`
+            : '',
           bbox: item.bbox || [minLon, minLat, maxLon, maxLat],
           source: 'USGS Astrogeology Planetary STAC API'
         }));
       }
     } catch {
-      // fallback
+      // leave stacDtms empty cleanly
     }
 
-    if (stacDtms.length === 0) {
-      // Curated USGS Controlled DTM for Jezero / Gale
-      if (normLat >= 15 && normLat <= 22 && normLon >= 74 && normLon <= 80) {
-        stacDtms = [
-          {
-            id: 'PSP_001414_1780_JEZERO',
-            title: 'Jezero Crater Delta Fan Controlled DTM (MRO HiRISE)',
-            collection: 'mro_hirise_controlled',
-            resolutionMeters: 1.0,
-            dtmUrl: 'https://astrogeo-ard.s3-us-west-2.amazonaws.com/mars/mro/hirise/controlled/jezero/PSP_001414_1780_DTM.tif',
-            previewUrl: '/assets/aistudio/vis_0_f6a9756b.png',
-            bbox: [77.2, 18.2, 77.6, 18.6],
-            source: 'USGS Astrogeology Controlled Planetary Archive'
-          }
-        ];
-      }
-    }
-
-    const boundariesSummary = `${primaryUnit.unitSymbol} (${primaryUnit.unitName}) intersects coordinates (${normLat.toFixed(3)}°N, ${normLon.toFixed(3)}°E). Adjacent regional contact units within ±2.5°: ${nearbyUnitsList.map(u => u.unitSymbol).join(', ')}.`;
+    const matched = Boolean(primaryUnit);
+    const boundariesSummary = matched
+      ? `Point-in-polygon intersect in WKID 104905 (IAU2000:49900) matched ${primaryUnit!.unitSymbol} (${primaryUnit!.unitName}) at (${normLat.toFixed(3)}°N, ${normLon.toFixed(3)}°E).${nearbyUnitsList.length > 0 ? ` Adjacent ±2.5° units: ${nearbyUnitsList.map(u => u.unitSymbol).join(', ')}.` : ''}`
+      : `No USGS SIM 3292 map polygon intersected (${normLat.toFixed(3)}°N, ${normLon.toFixed(3)}°E) in WKID 104905.${nearbyUnitsList.length > 0 ? ` Units within ±2.5° envelope: ${nearbyUnitsList.map(u => u.unitSymbol).join(', ')}.` : ''}`;
 
     const responsePayload = {
       success: true,
-      matched: true,
+      matched,
       lat: normLat,
       lon: normLon,
       regionId,
       quadrangle: quad.label,
-      units: [primaryUnit],
+      units: primaryUnit ? [primaryUnit] : [],
       nearbyUnits: nearbyUnitsList,
       boundariesSummary,
       sim3292Release: SIM3292_DATASET_RELEASE,
       stacDtms,
+      spatialQuery: {
+        crs: 'IAU2000:49900 (WKID 104905)',
+        spatialRel: 'esriSpatialRelIntersects',
+        pointFeatureId: primaryUnit?.featureId ?? null,
+        envelopeFeatureCount: envelopeFeatures.length
+      },
       provenance: {
         primaryMap: 'USGS Scientific Investigations Map 3292 (Tanaka et al., 2014)',
         usgsCenter: 'USGS Astrogeology Science Center, Flagstaff, AZ',
@@ -3033,7 +3565,8 @@ app.get('/api/usgs/geology', async (req, res) => {
         pubsEndpoint: 'https://pubs.usgs.gov/sim/3292/',
         retrievedAt: new Date().toISOString()
       },
-      sourceStatus: isLiveQuery ? ('live' as const) : ('catalog-fallback' as const)
+      sourceStatus: 'live' as const,
+      note: matched ? undefined : 'No published USGS SIM 3292 polygon matched these exact coordinates.'
     };
 
     return res.json(responsePayload);
@@ -3041,6 +3574,8 @@ app.get('/api/usgs/geology', async (req, res) => {
     console.error('[API_USGS_GEOLOGY_ERROR]', err);
     return res.status(500).json({
       success: false,
+      matched: false,
+      sourceStatus: 'unavailable',
       error: {
         code: 'USGS_GEOLOGY_QUERY_ERROR',
         message: getErrorMessage(err),

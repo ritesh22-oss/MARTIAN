@@ -6,46 +6,57 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ─── Firebase (optional cache backend) ───────────────────────────────────────
-// Firebase is used for persistent caching. If it fails to initialize (e.g. on
-// Vercel serverless where the config file may not be present), we gracefully
-// fall back to an in-memory cache so the API keeps working.
+// Firebase is used for persistent caching in non-serverless environments.
+// In serverless (e.g. Vercel), we strictly use the fast in-memory cache to avoid
+// cold-start hangs and dynamic import overhead.
 
 let db: any = null;
 let getFirestoreDoc: ((key: string) => Promise<any>) | null = null;
 let setFirestoreDoc: ((key: string, data: any) => Promise<void>) | null = null;
+let firebaseInitialized = false;
 
-try {
-  const { initializeApp, getApp, getApps } = await import('firebase/app');
-  const { getFirestore, doc, getDoc, setDoc, Timestamp } = await import('firebase/firestore');
+async function ensureFirebase() {
+  if (firebaseInitialized) return;
+  firebaseInitialized = true;
 
-  // Load Firebase config from file (local) or fall back to env vars
-  let firebaseConfig: any = {};
-  const configPath = path.resolve(__dirname, 'firebase-applet-config.json');
-  if (fs.existsSync(configPath)) {
-    firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  // Never load Firebase in Vercel or AWS Lambda serverless
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return;
   }
 
-  if (firebaseConfig.projectId) {
-    const firebaseApp = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-    const firestore = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+  try {
+    const { initializeApp, getApp, getApps } = await import('firebase/app');
+    const { getFirestore, doc, getDoc, setDoc, Timestamp } = await import('firebase/firestore');
 
-    getFirestoreDoc = async (key: string) => {
-      const docRef = doc(firestore, 'nasa_cache', key);
-      const snap = await getDoc(docRef);
-      return snap.exists() ? snap.data() : null;
-    };
+    // Load Firebase config from file (local) or fall back to env vars
+    let firebaseConfig: any = {};
+    const configPath = path.resolve(__dirname, 'firebase-applet-config.json');
+    if (fs.existsSync(configPath)) {
+      firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
 
-    setFirestoreDoc = async (key: string, data: any) => {
-      const docRef = doc(firestore, 'nasa_cache', key);
-      await setDoc(docRef, { ...data, updatedAt: Timestamp.now() });
-    };
+    if (firebaseConfig.projectId) {
+      const firebaseApp = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+      const firestore = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 
-    console.log('[NASA_ENGINE] Firebase cache backend initialized.');
-  } else {
-    console.warn('[NASA_ENGINE] No Firebase projectId found — using in-memory cache.');
+      getFirestoreDoc = async (key: string) => {
+        const docRef = doc(firestore, 'nasa_cache', key);
+        const snap = await getDoc(docRef);
+        return snap.exists() ? snap.data() : null;
+      };
+
+      setFirestoreDoc = async (key: string, data: any) => {
+        const docRef = doc(firestore, 'nasa_cache', key);
+        await setDoc(docRef, { ...data, updatedAt: Timestamp.now() });
+      };
+
+      console.log('[NASA_ENGINE] Firebase cache backend initialized.');
+    } else {
+      console.warn('[NASA_ENGINE] No Firebase projectId found — using in-memory cache.');
+    }
+  } catch (err: any) {
+    console.warn('[NASA_ENGINE] Firebase init skipped/failed — using in-memory cache.', err?.message || err);
   }
-} catch (err: any) {
-  console.warn('[NASA_ENGINE] Firebase init failed — using in-memory cache.', err?.message || err);
 }
 
 // ─── In-memory fallback cache ─────────────────────────────────────────────────
@@ -276,20 +287,33 @@ export class NASADataEngine {
     return sanitized;
   }
 
-  /** Read from Firestore (if available) or fall back to in-memory cache. */
+  /** Read from Firestore (if available and not in serverless) or fall back to in-memory cache. */
   private static async readCache(key: string): Promise<any> {
-    if (getFirestoreDoc) {
-      return getFirestoreDoc(key);
+    // In serverless/Vercel environments, bypass remote Firestore client SDK to eliminate 15s cold-start connection hangs.
+    const isServerless = !!process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME !== undefined;
+    if (!isServerless) {
+      await ensureFirebase();
+      if (getFirestoreDoc) {
+        try {
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore read timeout')), 800));
+          return await Promise.race([getFirestoreDoc(key), timeoutPromise]);
+        } catch {
+          // Fall back to memory cache immediately on error or timeout
+        }
+      }
     }
     return memoryCache.get(key) ?? null;
   }
 
-  /** Write to Firestore (if available) or fall back to in-memory cache. */
+  /** Write to Firestore (if available and not in serverless) or fall back to in-memory cache. */
   private static async writeCache(key: string, data: any): Promise<void> {
-    if (setFirestoreDoc) {
-      await setFirestoreDoc(key, data);
-    } else {
-      memoryCache.set(key, data);
+    memoryCache.set(key, data);
+    const isServerless = !!process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME !== undefined;
+    if (!isServerless && setFirestoreDoc) {
+      try {
+        // Asynchronous non-blocking background persist
+        setFirestoreDoc(key, data).catch(() => {});
+      } catch {}
     }
   }
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Sun,
   Activity,
@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useAstronautExploration } from '../../context/AstronautExplorationContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { fetchMarsEnvironmentalData, MarsEnvironmentalDataPayload } from '../../services/nasaDataService';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -39,6 +40,22 @@ export const RadiationSpaceWeather: React.FC = () => {
 
   const [startDate, setStartDate] = useState<string>(spaceWeatherData?.dateRange?.startDate || '');
   const [endDate, setEndDate] = useState<string>(spaceWeatherData?.dateRange?.endDate || '');
+  const [envData, setEnvData] = useState<MarsEnvironmentalDataPayload | null>(null);
+  const [envLoading, setEnvLoading] = useState<boolean>(false);
+  const [envError, setEnvError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEnvLoading(true);
+    fetchMarsEnvironmentalData()
+      .then(d => {
+        setEnvData(d);
+        setEnvError(null);
+      })
+      .catch(err => {
+        setEnvError(err?.message || 'Unable to fetch Mars environmental archive');
+      })
+      .finally(() => setEnvLoading(false));
+  }, []);
 
   const handleRefresh = (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,6 +71,7 @@ export const RadiationSpaceWeather: React.FC = () => {
     ...(donkiBucket?.gsts?.items || [])
   ];
   const surfaceObs = spaceWeatherData?.marsSurfaceObservations;
+  const insightObs = envData?.datasets?.insight?.data;
 
   // Format timestamp for charts
   const formatTimeTag = (timeStr: string) => {
@@ -83,10 +101,10 @@ export const RadiationSpaceWeather: React.FC = () => {
     kp: pt.value
   }));
 
-  // Reference surface radiation baseline comparison data
+  // Reference surface radiation baseline comparison data (Hassler et al., Science 2014)
   const surfaceDoseComparison = [
-    { location: 'Gale Crater (MSL RAD)', dose: 0.65, unit: 'mGy/day' },
-    { location: 'Jezero Crater (Perseverance)', dose: 0.67, unit: 'mGy/day' },
+    { location: 'Gale Crater (MSL RAD)', dose: 0.21, unit: 'mGy/day' },
+    { location: 'Mars Surface Model Mean', dose: 0.25, unit: 'mGy/day' },
     { location: 'Mars Orbital Mean', dose: 1.25, unit: 'mGy/day' },
     { location: 'Earth Sea Level Background', dose: 0.008, unit: 'mGy/day' }
   ];
@@ -186,32 +204,60 @@ export const RadiationSpaceWeather: React.FC = () => {
           <div className="bg-[#0B1021] border border-slate-800 rounded-2xl p-4 space-y-1.5 shadow-lg">
             <span className="text-[10px] text-slate-400 uppercase block">Surface Radiation Dose (MSL RAD)</span>
             <div className="text-2xl font-bold text-yellow-300">
-              0.65 <span className="text-xs text-slate-400">mGy/day</span>
+              0.21 <span className="text-xs text-slate-400">± 0.04 mGy/day</span>
             </div>
-            <span className="text-[11px] text-emerald-400 block font-sans">GCR Background (Hassler et al., 2014)</span>
+            <span className="text-[11px] text-emerald-400 block font-sans">
+              GCR Baseline (Hassler et al., Science 2014) · No Realtime Feed
+            </span>
           </div>
 
           {/* Card 2: Equivalent Annual Dose */}
           <div className="bg-[#0B1021] border border-slate-800 rounded-2xl p-4 space-y-1.5 shadow-lg">
             <span className="text-[10px] text-slate-400 uppercase block">Equivalent Annual Surface Dose</span>
             <div className="text-2xl font-bold text-cyan-300">
-              237.5 <span className="text-xs text-slate-400">mSv/yr</span>
+              233.6 <span className="text-xs text-slate-400">mSv/yr (0.64 mSv/day)</span>
             </div>
-            <span className="text-[11px] text-slate-400 block font-sans">CO2 Shielding Attenuated Field</span>
+            <span className="text-[11px] text-slate-400 block font-sans">
+              CO2 Shielding Attenuated Field · MSL RAD
+            </span>
           </div>
 
           {/* Card 3: Atmospheric Temperature */}
           <div className="bg-[#0B1021] border border-slate-800 rounded-2xl p-4 space-y-1.5 shadow-lg">
-            <span className="text-[10px] text-slate-400 uppercase block">Surface Temperature (MEDA)</span>
-            <div className="text-2xl font-bold text-orange-400">-62.4 <span className="text-xs text-slate-400">°C</span></div>
-            <span className="text-[11px] text-slate-400 block font-sans">Diurnal Cycle: Min -84°C / Max -12°C</span>
+            <span className="text-[10px] text-slate-400 uppercase block">
+              {insightObs?.airTemperature ? `Atmospheric Temp (Sol ${insightObs.sol})` : 'Surface Temperature'}
+            </span>
+            <div className="text-2xl font-bold text-orange-400">
+              {insightObs?.airTemperature
+                ? `${insightObs.airTemperature.averageC.toFixed(1)} °C`
+                : envLoading
+                  ? 'Querying...'
+                  : 'DATA UNAVAILABLE'}
+            </div>
+            <span className="text-[11px] text-slate-400 block font-sans">
+              {insightObs?.airTemperature
+                ? `Min ${insightObs.airTemperature.minC.toFixed(1)}°C / Max ${insightObs.airTemperature.maxC.toFixed(1)}°C · InSight TWINS`
+                : 'MEDA/REMS live stream unavailable'}
+            </span>
           </div>
 
           {/* Card 4: Surface Atmospheric Pressure */}
           <div className="bg-[#0B1021] border border-slate-800 rounded-2xl p-4 space-y-1.5 shadow-lg">
-            <span className="text-[10px] text-slate-400 uppercase block">Atmospheric Pressure</span>
-            <div className="text-2xl font-bold text-emerald-400">7.18 <span className="text-xs text-slate-400">mbar</span></div>
-            <span className="text-[11px] text-emerald-400 block font-sans">Seasonal Dust Pressure Cycle</span>
+            <span className="text-[10px] text-slate-400 uppercase block">
+              {insightObs?.atmosphericPressure ? `Surface Pressure (Sol ${insightObs.sol})` : 'Atmospheric Pressure'}
+            </span>
+            <div className="text-2xl font-bold text-emerald-400">
+              {insightObs?.atmosphericPressure
+                ? `${(insightObs.atmosphericPressure.averagePa / 100).toFixed(2)} mbar`
+                : envLoading
+                  ? 'Querying...'
+                  : 'DATA UNAVAILABLE'}
+            </div>
+            <span className="text-[11px] text-emerald-400 block font-sans">
+              {insightObs?.atmosphericPressure
+                ? `${insightObs.atmosphericPressure.averagePa.toFixed(0)} Pa · InSight APSS Archive`
+                : 'Seasonal Dust Pressure Cycle'}
+            </span>
           </div>
         </div>
       </div>
@@ -223,31 +269,43 @@ export const RadiationSpaceWeather: React.FC = () => {
             <Sun className="w-4 h-4" />
             <span>Solar &amp; Interplanetary Space Weather (NOAA SWPC L1 / GOES / DONKI)</span>
           </h3>
-          <span className="text-[10px] font-mono text-slate-400">Updated: {earthSolar?.latestXrayTimestamp || 'Live Stream'}</span>
+          <span className="text-[10px] font-mono text-slate-400">Updated: {earthSolar?.latestXrayTimestamp || (spaceWeatherLoading ? 'Fetching...' : 'Realtime Stream')}</span>
         </div>
 
         {/* 4 Solar KPI Stream Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-mono">
           <div className="bg-[#0B1021] border border-slate-800 rounded-2xl p-4 space-y-1 shadow-lg">
             <span className="text-[10px] text-slate-400 uppercase block">GOES X-Ray Class (1 AU)</span>
-            <div className="text-2xl font-bold text-cyan-300">{earthSolar?.latestXrayClass || 'C1.2'}</div>
-            <span className="text-[11px] text-slate-400 block">Flux: {earthSolar?.latestXrayFluxWm2 ? `${earthSolar.latestXrayFluxWm2.toExponential(2)} W/m²` : 'Nominal'}</span>
+            <div className="text-2xl font-bold text-cyan-300">
+              {earthSolar?.latestXrayClass || (spaceWeatherLoading ? 'Streaming...' : 'DATA UNAVAILABLE')}
+            </div>
+            <span className="text-[11px] text-slate-400 block">
+              Flux: {earthSolar?.latestXrayFluxWm2 ? `${earthSolar.latestXrayFluxWm2.toExponential(2)} W/m²` : (spaceWeatherLoading ? 'Fetching...' : 'DATA UNAVAILABLE')}
+            </span>
           </div>
 
           <div className="bg-[#0B1021] border border-slate-800 rounded-2xl p-4 space-y-1 shadow-lg">
             <span className="text-[10px] text-slate-400 uppercase block">Proton Flux (&gt;10 MeV)</span>
             <div className="text-2xl font-bold text-amber-300">
-              {earthSolar?.latestProtonFluxPfu !== undefined && earthSolar?.latestProtonFluxPfu !== null ? earthSolar.latestProtonFluxPfu.toFixed(2) : '0.14'} <span className="text-xs text-slate-400">pfu</span>
+              {earthSolar?.latestProtonFluxPfu !== undefined && earthSolar?.latestProtonFluxPfu !== null
+                ? `${earthSolar.latestProtonFluxPfu.toFixed(2)} pfu`
+                : (spaceWeatherLoading ? 'Streaming...' : 'DATA UNAVAILABLE')}
             </div>
-            <span className="text-[11px] text-emerald-400 block">SPE Event: CLEAR</span>
+            <span className="text-[11px] text-emerald-400 block">
+              SPE Event: {earthSolar?.speAlertActive ? 'ACTIVE SPE WARNING' : 'CLEAR'}
+            </span>
           </div>
 
           <div className="bg-[#0B1021] border border-slate-800 rounded-2xl p-4 space-y-1 shadow-lg">
             <span className="text-[10px] text-slate-400 uppercase block">Planetary K-Index</span>
             <div className="text-2xl font-bold text-emerald-400">
-              {earthSolar?.latestKpIndex !== undefined && earthSolar?.latestKpIndex !== null ? earthSolar.latestKpIndex : '2.0'} <span className="text-xs text-slate-400">Kp</span>
+              {earthSolar?.latestKpIndex !== undefined && earthSolar?.latestKpIndex !== null
+                ? `${earthSolar.latestKpIndex} Kp`
+                : (spaceWeatherLoading ? 'Streaming...' : 'DATA UNAVAILABLE')}
             </div>
-            <span className="text-[11px] text-emerald-400 block">Geomagnetic Activity: Quiet</span>
+            <span className="text-[11px] text-emerald-400 block">
+              Geomagnetic Activity: {earthSolar?.latestKpIndex !== undefined && earthSolar?.latestKpIndex !== null ? (earthSolar.latestKpIndex >= 5 ? 'Storm / Active' : 'Quiet') : 'Pending Stream'}
+            </span>
           </div>
 
           <div className="bg-[#0B1021] border border-slate-800 rounded-2xl p-4 space-y-1 shadow-lg">

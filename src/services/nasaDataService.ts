@@ -1,9 +1,10 @@
 import { apiGet } from '../utils/apiClient';
 
 /**
- * NASA & PDS Data Service Layer
- * Authoritative data-access client for live Mars raw imagery, PDS HiRISE DTMs,
- * and data-source health monitoring with caching, cancellation, and error handling.
+ * NASA & Planetary Data Central Service Layer
+ * Authoritative central access for live Mars raw imagery, PDS HiRISE products,
+ * in-situ InSight/MEDA/REMS environmental observations, and system health.
+ * Features in-memory caching, request deduplication, and structured error handling.
  */
 
 export interface MarsRawImage {
@@ -103,7 +104,108 @@ export interface SyncLatestResult {
   source: string;
 }
 
-// In-memory client cache with 5-minute TTL
+export interface MarsEnvironmentalObservationRecord {
+  average: number | null;
+  min: number | null;
+  max: number | null;
+  sampleCount?: number;
+  unit: string;
+}
+
+export interface MarsEnvironmentalDataPayload {
+  success: boolean;
+  timestamp: string;
+  datasets: {
+    insight: {
+      available: boolean;
+      data: {
+        mission: string;
+        station: string;
+        sol: number;
+        solKeys: string[];
+        firstUtc: string | null;
+        lastUtc: string | null;
+        season: string | null;
+        airTemperature: {
+          averageC: number;
+          minC: number;
+          maxC: number;
+          sampleCount: number;
+          unit: string;
+        } | null;
+        atmosphericPressure: {
+          averagePa: number;
+          minPa: number;
+          maxPa: number;
+          sampleCount: number;
+          unit: string;
+        } | null;
+        horizontalWindSpeed: {
+          averageMs: number;
+          minMs: number;
+          maxMs: number;
+          sampleCount: number;
+          unit: string;
+        } | null;
+        windDirection: {
+          compassPoint: string;
+          compassDegrees: number;
+        } | null;
+        provenance: string;
+        status: string;
+        dataFreshness: string;
+      } | null;
+      error: string | null;
+    };
+    meda: {
+      mission: string;
+      instrument: string;
+      location: string;
+      liveStreamAvailable: boolean;
+      status: string;
+      citation: string;
+      notes: string;
+      publishedBaselines: {
+        airTempRangeC: { min: number; max: number; mean: number; unit: string };
+        groundTempRangeC: { min: number; max: number; mean: number; unit: string };
+        pressureRangePa: { min: number; max: number; mean: number; unit: string };
+        dustOpticalDepthTau: { typical: number; unit: string };
+      };
+    };
+    rems: {
+      mission: string;
+      instrument: string;
+      location: string;
+      liveStreamAvailable: boolean;
+      status: string;
+      citation: string;
+      notes: string;
+      publishedBaselines: {
+        airTempRangeC: { min: number; max: number; mean: number; unit: string };
+        groundTempRangeC: { min: number; max: number; mean: number; unit: string };
+        pressureRangePa: { min: number; max: number; mean: number; unit: string };
+      };
+    };
+    rad: {
+      mission: string;
+      instrument: string;
+      location: string;
+      liveStreamAvailable: boolean;
+      status: string;
+      citation: string;
+      notes: string;
+      publishedBaselines: {
+        surfaceAbsorbedDoseMgyDay: number;
+        uncertaintyMgyDay: number;
+        doseEquivalentMsvDay: number;
+        annualEquivalentMsvYr: number;
+        unit: string;
+      };
+    };
+  };
+}
+
+// In-memory client cache with TTL
 interface CacheItem<T> {
   data: T;
   timestamp: number;
@@ -125,19 +227,31 @@ function saveToCache<T>(key: string, data: T) {
   clientCache.set(key, { data, timestamp: Date.now() });
 }
 
+// Request deduplication map: prevents identical concurrent fetches
+const inFlightRequests = new Map<string, Promise<any>>();
+function deduplicate<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = inFlightRequests.get(key);
+  if (existing) return existing;
+  const promise = fn().finally(() => inFlightRequests.delete(key));
+  inFlightRequests.set(key, promise);
+  return promise;
+}
+
 /**
  * Check and synchronize latest NASA Mars rover observations
  */
 export async function syncLatestObservation(mission: 'mars2020' | 'msl' = 'mars2020'): Promise<SyncLatestResult> {
-  const { data, error, isHtml } = await apiGet<SyncLatestResult>(`/api/nasa/sync/latest?mission=${mission}`);
-  if (error || !data || isHtml) {
-    throw new Error(error || 'Failed to synchronize latest observations');
-  }
-  return data;
+  return deduplicate(`sync_${mission}`, async () => {
+    const { data, error, isHtml } = await apiGet<SyncLatestResult>(`/api/nasa/sync/latest?mission=${mission}`);
+    if (error || !data || isHtml) {
+      throw new Error(error || 'Failed to synchronize latest observations');
+    }
+    return data;
+  });
 }
 
 /**
- * Fetch raw rover images from NASA JPL Mars Raw Feed with sorting, full timeline & deduplication
+ * Fetch raw rover images from NASA JPL / NASA Image Library with deduplication and caching
  */
 export async function fetchMarsRawImages(params: FetchRawImagesParams = {}): Promise<{
   images: MarsRawImage[];
@@ -161,36 +275,56 @@ export async function fetchMarsRawImages(params: FetchRawImagesParams = {}): Pro
     signal
   } = params;
   const cacheKey = `raw_${mission}_${camera || 'all'}_${sol || 'latest'}_${order}_${limit}_${page}_${search || ''}`;
-  
+
   const cached = getFromCache<any>(cacheKey);
   if (cached) {
     return { ...cached, isStale: true };
   }
 
-  const queryParams = new URLSearchParams();
-  queryParams.set('mission', mission);
-  queryParams.set('num', String(limit));
-  queryParams.set('page', String(page));
-  queryParams.set('order', order);
-  if (camera && camera !== 'ALL' && camera !== 'all') queryParams.set('camera', camera);
-  if (sol !== undefined && sol !== 'latest' && String(sol).trim() !== '') queryParams.set('sol', String(sol));
-  if (search && search.trim() !== '') queryParams.set('search', search.trim());
+  return deduplicate(cacheKey, async () => {
+    const queryParams = new URLSearchParams();
+    queryParams.set('mission', mission);
+    queryParams.set('num', String(limit));
+    queryParams.set('page', String(page));
+    queryParams.set('order', order);
+    if (camera && camera !== 'ALL' && camera !== 'all') queryParams.set('camera', camera);
+    if (sol !== undefined && sol !== 'latest' && String(sol).trim() !== '') queryParams.set('sol', String(sol));
+    if (search && search.trim() !== '') queryParams.set('search', search.trim());
 
-  try {
-    const { data, error, isHtml } = await apiGet<any>(`/api/nasa/mars2020/raw?${queryParams.toString()}`, { signal });
+    try {
+      const { data, error, isHtml } = await apiGet<any>(`/api/nasa/mars2020/raw?${queryParams.toString()}`, { signal });
+      if (error || isHtml || !data) {
+        throw new Error(error || 'Failed to fetch Mars raw images');
+      }
+      saveToCache(cacheKey, data);
+      return data;
+    } catch (err: any) {
+      if (signal?.aborted) throw err;
+      const stale = clientCache.get(cacheKey)?.data;
+      if (stale) {
+        return { ...stale, isStale: true };
+      }
+      throw err;
+    }
+  });
+}
+
+/**
+ * Fetch real scientific environmental observations (InSight, MEDA, REMS, RAD)
+ */
+export async function fetchMarsEnvironmentalData(): Promise<MarsEnvironmentalDataPayload> {
+  const cacheKey = 'mars_environmental_data';
+  const cached = getFromCache<MarsEnvironmentalDataPayload>(cacheKey);
+  if (cached) return cached;
+
+  return deduplicate(cacheKey, async () => {
+    const { data, error, isHtml } = await apiGet<MarsEnvironmentalDataPayload>('/api/nasa/environmental');
     if (error || isHtml || !data) {
-      throw new Error(error || 'Failed to fetch Mars raw images');
+      throw new Error(error || 'Failed to load Mars environmental datasets');
     }
     saveToCache(cacheKey, data);
     return data;
-  } catch (err: any) {
-    if (signal?.aborted) throw err;
-    const stale = clientCache.get(cacheKey)?.data;
-    if (stale) {
-      return { ...stale, isStale: true };
-    }
-    throw err;
-  }
+  });
 }
 
 /**
@@ -204,11 +338,62 @@ export async function fetchHiRISEProducts(query?: string): Promise<{
   const cached = getFromCache<any>(cacheKey);
   if (cached) return cached;
 
-  const { data, error, isHtml } = await apiGet<any>(`/api/nasa/hirise/products${query ? `?q=${encodeURIComponent(query)}` : ''}`);
+  return deduplicate(cacheKey, async () => {
+    const { data, error, isHtml } = await apiGet<any>(`/api/nasa/hirise/products${query ? `?q=${encodeURIComponent(query)}` : ''}`);
+    if (error || isHtml || !data) {
+      throw new Error(error || 'Failed to fetch HiRISE products');
+    }
+    saveToCache(cacheKey, data);
+    return data;
+  });
+}
+
+/**
+ * Search NASA Image and Video Library
+ */
+export async function fetchNasaImagesLibrary(query: string, page = 1, pageSize = 24): Promise<any> {
+  const cacheKey = `images_lib_${query}_${page}_${pageSize}`;
+  const cached = getFromCache<any>(cacheKey);
+  if (cached) return cached;
+
+  return deduplicate(cacheKey, async () => {
+    const { data, error, isHtml } = await apiGet<any>(
+      `/api/nasa/images-library/search?q=${encodeURIComponent(query)}&page=${page}&page_size=${pageSize}`
+    );
+    if (error || isHtml || !data) {
+      throw new Error(error || 'Failed to search NASA image library');
+    }
+    saveToCache(cacheKey, data);
+    return data;
+  });
+}
+
+/**
+ * Fetch asset manifest for a NASA Image ID
+ */
+export async function fetchNasaAssetManifest(nasaId: string): Promise<any> {
+  const cacheKey = `asset_manifest_${nasaId}`;
+  const cached = getFromCache<any>(cacheKey);
+  if (cached) return cached;
+
+  return deduplicate(cacheKey, async () => {
+    const { data, error, isHtml } = await apiGet<any>(`/api/nasa/images-library/asset/${encodeURIComponent(nasaId)}`);
+    if (error || isHtml || !data) {
+      throw new Error(error || 'Failed to fetch NASA asset manifest');
+    }
+    saveToCache(cacheKey, data);
+    return data;
+  });
+}
+
+/**
+ * Fetch diagnostic telemetry from all integration endpoints
+ */
+export async function fetchNasaDiagnostics(): Promise<any> {
+  const { data, error, isHtml } = await apiGet<any>('/api/nasa/diagnostics');
   if (error || isHtml || !data) {
-    throw new Error(error || 'Failed to fetch HiRISE products');
+    throw new Error(error || 'Failed to retrieve NASA diagnostics');
   }
-  saveToCache(cacheKey, data);
   return data;
 }
 

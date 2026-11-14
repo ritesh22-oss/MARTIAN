@@ -15,13 +15,15 @@ import {
   ChevronRight,
   ChevronLeft,
   Play,
+  Pause,
+  RotateCcw,
+  SkipForward,
   ExternalLink,
   Sparkles,
   Layers,
   Terminal,
   BookMarked,
   Check,
-  RotateCcw,
   Zap,
   Info,
   LayoutDashboard,
@@ -39,10 +41,17 @@ import {
   Flame,
   Clock,
   Eye,
+  EyeOff,
   Filter,
   RefreshCw,
   GitCommit,
-  Workflow
+  Workflow,
+  Footprints,
+  Sun,
+  Target,
+  BoxSelect,
+  Grid,
+  Maximize2
 } from 'lucide-react';
 
 interface MarsNavGuideProps {
@@ -52,7 +61,7 @@ interface MarsNavGuideProps {
   onStartTour?: () => void;
 }
 
-// 12-Step Primary Mission Workflow Pipeline
+// 12-Step Primary Rover Mission Traversal Pipeline
 interface WorkflowStep {
   step: number;
   id: string;
@@ -64,7 +73,7 @@ interface WorkflowStep {
   iconName: string;
 }
 
-const WORKFLOW_STEPS: WorkflowStep[] = [
+export const ROVER_WORKFLOW_STEPS: WorkflowStep[] = [
   { step: 1, id: 'configuration', phase: 'INGESTION & SETUP', phaseColor: 'from-amber-500/20 to-orange-500/20 text-orange-400 border-orange-500/30', title: 'Mission Configuration', shortDesc: 'Rover profile, mass, battery capacity & max slope limits', status: 'ACTIVE', iconName: 'Sliders' },
   { step: 2, id: 'nasa-raw-feed', phase: 'INGESTION & SETUP', phaseColor: 'from-amber-500/20 to-orange-500/20 text-orange-400 border-orange-500/30', title: 'NASA Raw Image Feed', shortDesc: 'Downlink Martian Navcam & Hazcam imagery from JPL', status: 'READY', iconName: 'Radio' },
   { step: 3, id: 'dataset-catalogue', phase: 'INGESTION & SETUP', phaseColor: 'from-amber-500/20 to-orange-500/20 text-orange-400 border-orange-500/30', title: 'Dataset Catalogue', shortDesc: 'Calibrate PDS HiRISE orthophotos & MOLA elevation DTMs', status: 'VERIFIED', iconName: 'Database' },
@@ -79,9 +88,26 @@ const WORKFLOW_STEPS: WorkflowStep[] = [
   { step: 12, id: 'audit', phase: 'VERIFICATION & AUDIT', phaseColor: 'from-emerald-500/20 to-teal-500/20 text-emerald-400 border-emerald-500/30', title: 'Mission Audit', shortDesc: 'Compile complete operational dossier & export one-click PDF', status: 'VERIFIED', iconName: 'FileSpreadsheet' }
 ];
 
+// 12-Step Astronaut Surface Exploration Workflow
+export const ASTRONAUT_WORKFLOW_STEPS: WorkflowStep[] = [
+  { step: 1, id: 'surface-dashboard', phase: 'OPERATIONS & TELEMETRY', phaseColor: 'from-orange-500/20 to-amber-500/20 text-orange-400 border-orange-500/30', title: 'Mission Initialization & Telemetry Sync', shortDesc: 'EVA clock, suit vitals, life support reserves & DSN telemetry link', status: 'ACTIVE', iconName: 'LayoutDashboard' },
+  { step: 2, id: 'marsnav-v4', phase: 'INGESTION & FIELD OPS', phaseColor: 'from-orange-500/20 to-amber-500/20 text-orange-400 border-orange-500/30', title: 'Surface Observation & Image Downlink', shortDesc: 'Downlink high-res Mastcam/Navcam frames or field photography', status: 'ACTIVE', iconName: 'Radio' },
+  { step: 3, id: 'science-planner', phase: 'SCIENCE & OBJECTIVES', phaseColor: 'from-purple-500/20 to-indigo-500/20 text-purple-400 border-purple-500/30', title: 'Science Target Planning', shortDesc: 'Prioritize geological objectives, instrument allocations & EVA sequence', status: 'VERIFIED', iconName: 'Target' },
+  { step: 4, id: 'surface-explorer', phase: 'TERRAIN EXPLORATION', phaseColor: 'from-cyan-500/20 to-blue-500/20 text-cyan-400 border-cyan-500/30', title: 'Terrain Surface Exploration', shortDesc: '3D/2D orbital inspection of Jezero Delta, scarps & crater landing basin', status: 'READY', iconName: 'Compass' },
+  { step: 5, id: 'geological-targets', phase: 'GEOLOGICAL INVESTIGATION', phaseColor: 'from-purple-500/20 to-pink-500/20 text-pink-400 border-pink-500/30', title: 'Geological Target Identification', shortDesc: 'Astrobiology mineral classification (clays, carbonates, sulfates)', status: 'ACTIVE', iconName: 'Activity' },
+  { step: 6, id: 'multilayer-map', phase: 'MULTISPECTRAL FUSION', phaseColor: 'from-cyan-500/20 to-teal-500/20 text-cyan-300 border-cyan-500/30', title: 'Multilayer Orbital & Geological Data Fusion', shortDesc: 'Correlate surface detections with MRO CTX, THEMIS & USGS SIM 3292', status: 'OPTIMIZED', iconName: 'Layers' },
+  { step: 7, id: 'safety-monitoring', phase: 'HAZARD & ENVIRONMENT', phaseColor: 'from-red-500/20 to-amber-500/20 text-amber-400 border-amber-500/30', title: 'Environmental Safety Assessment', shortDesc: 'Monitor dust optical depth (Tau), thermal stress & storm proximity', status: 'VERIFIED', iconName: 'ShieldAlert' },
+  { step: 8, id: 'radiation-monitor', phase: 'SPACE WEATHER', phaseColor: 'from-amber-500/20 to-yellow-500/20 text-yellow-400 border-yellow-500/30', title: 'Radiation & Space Weather Monitoring', shortDesc: 'NOAA SWPC solar proton flux, GOES X-ray flares & ALARA cumulative dose', status: 'OPTIMIZED', iconName: 'Sun' },
+  { step: 9, id: 'suit-mobility', phase: 'ASTRONAUT MOBILITY', phaseColor: 'from-emerald-500/20 to-teal-500/20 text-emerald-400 border-emerald-500/30', title: 'Suit Mobility & Terrain Penalty Evaluation', shortDesc: 'Model xEMU joint mobility, metabolic expenditure & slope fatigue penalties', status: 'READY', iconName: 'Footprints' },
+  { step: 10, id: 'astronaut-route-planner', phase: 'TRAVERSAL PLANNING', phaseColor: 'from-orange-500/20 to-red-500/20 text-orange-400 border-orange-500/30', title: 'Astronaut Route & Traversal Planning', shortDesc: 'Generate obstacle-aware walking paths with turn radius & scarp buffers', status: 'ACTIVE', iconName: 'Navigation' },
+  { step: 11, id: 'field-notebook', phase: 'FIELD SAMPLE LOGGING', phaseColor: 'from-cyan-500/20 to-blue-500/20 text-cyan-400 border-cyan-500/30', title: 'MarsWalk Field Operations & Sample Logging', shortDesc: 'Log sample tubes, drill cores & geological waypoints with image coordinates', status: 'VERIFIED', iconName: 'FileText' },
+  { step: 12, id: 'audit', phase: 'MISSION REVIEW & ARCHIVE', phaseColor: 'from-emerald-500/20 to-teal-500/20 text-emerald-400 border-emerald-500/30', title: 'Mission Data Review & PDS Ingestion', shortDesc: 'Validate telemetry completeness, audit trail & NASA PDS compliant archiving', status: 'VERIFIED', iconName: 'FileSpreadsheet' }
+];
+
 export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onStartTour }: MarsNavGuideProps) {
   // Navigation & View States
-  const [currentView, setCurrentView] = useState<'flowchart' | 'detail' | 'index' | 'map' | 'quickref'>('flowchart');
+  const [currentView, setCurrentView] = useState<'flowchart' | 'index' | 'map' | 'quickref'>('flowchart');
+  const [activeWorkflowPipeline, setActiveWorkflowPipeline] = useState<'rover' | 'astronaut'>('rover');
   const [selectedSectionId, setSelectedSectionId] = useState<string>('route-lab');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('ALL');
@@ -96,7 +122,6 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
 
   // 2. Hazard Analysis Buffer Radar
   const [safetyBufferPx, setSafetyBufferPx] = useState<number>(14);
-  const [hazardDetectionCount, setHazardDetectionCount] = useState<number>(12);
 
   // 3. Mission Configuration Rover Parameters
   const [roverMaxSlope, setRoverMaxSlope] = useState<number>(14);
@@ -109,6 +134,60 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
   const [diagnosticRunning, setDiagnosticRunning] = useState(false);
   const [diagnosticDone, setDiagnosticDone] = useState(true);
 
+  // --- ASTRONAUT EXPLORATION DEMO STATES ---
+  // A. Surface Mission Dashboard Demo
+  const [evaDurationSec, setEvaDurationSec] = useState<number>(4320); // 1h 12m
+  const [evaIsRunning, setEvaIsRunning] = useState<boolean>(true);
+  const [astronautHeartRate, setAstronautHeartRate] = useState<number>(76);
+  const [astronautSuitO2, setAstronautSuitO2] = useState<number>(94);
+
+  // B. Mission Science Planner Demo
+  const [selectedScienceTarget, setSelectedScienceTarget] = useState<'delta_fan' | 'crater_rim' | 'sulfate_margin'>('delta_fan');
+  const [sciencePriority, setSciencePriority] = useState<'PRIMARY' | 'SECONDARY'>('PRIMARY');
+  const [scienceInstrument, setScienceInstrument] = useState<'SuperCam' | 'SHERLOC' | 'PIXL'>('SuperCam');
+  const [sciencePlanGenerated, setSciencePlanGenerated] = useState<boolean>(false);
+
+  // C. Mars Surface Explorer Demo
+  const [surfaceZoom, setSurfaceZoom] = useState<number>(1.0);
+  const [selectedPoiName, setSelectedPoiName] = useState<string>('Kodiak Butte');
+
+  // D. Multilayer Orbital & Geological Data Fusion Demo
+  const [demoLayerTrek, setDemoLayerTrek] = useState<boolean>(true);
+  const [demoLayerHillshade, setDemoLayerHillshade] = useState<boolean>(true);
+  const [demoLayerThemis, setDemoLayerThemis] = useState<boolean>(false);
+  const [demoLayerGeology, setDemoLayerGeology] = useState<boolean>(true);
+  const [demoLayerDetections, setDemoLayerDetections] = useState<boolean>(true);
+  const [demoFusionOpacity, setDemoFusionOpacity] = useState<number>(0.65);
+
+  // E. Safety & Environment Demo
+  const [demoDustTau, setDemoDustTau] = useState<number>(0.42);
+  const [demoAtmosTemp, setDemoAtmosTemp] = useState<number>(-55);
+
+  // F. Geological Targets Demo
+  const [selectedMineralTarget, setSelectedMineralTarget] = useState<'smectite_clay' | 'magnesite_carb' | 'hydrated_sulfate'>('smectite_clay');
+  const [targetInvestigationStatus, setTargetInvestigationStatus] = useState<'Identified' | 'In Progress' | 'Sample Cached'>('Identified');
+
+  // G. Suit Mobility Demo
+  const [suitSlopeDeg, setSuitSlopeDeg] = useState<number>(8);
+  const [astronautPaceKmH, setAstronautPaceKmH] = useState<number>(3.2);
+
+  // H. Astronaut Route Planner Demo
+  const [astronautWaypoints, setAstronautWaypoints] = useState<Array<{ x: number; y: number }>>([
+    { x: 10, y: 80 },
+    { x: 30, y: 65 },
+    { x: 55, y: 40 },
+    { x: 80, y: 20 }
+  ]);
+  const [avoidanceBufferM, setAvoidanceBufferM] = useState<number>(4.0);
+
+  // I. Radiation & Space Weather Demo
+  const [speAlertActive, setSpeAlertActive] = useState<boolean>(false);
+  const [solarFlareClass, setSolarFlareClass] = useState<'C1.2' | 'M2.4' | 'X1.1'>('C1.2');
+
+  // J. MarsWalk Ops Field Demo
+  const [marsWalkStep, setMarsWalkStep] = useState<number>(1);
+  const [marsWalkPlaying, setMarsWalkPlaying] = useState<boolean>(false);
+
   // Sol clock tick simulation
   useEffect(() => {
     const timer = setInterval(() => {
@@ -118,12 +197,452 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
     return () => clearInterval(timer);
   }, []);
 
-  // Comprehensive manual entries for all 22 sidebar modules
+  // EVA timer simulation for Surface Mission Dashboard Demo
+  useEffect(() => {
+    if (!evaIsRunning) return;
+    const interval = setInterval(() => {
+      setEvaDurationSec(prev => prev + 1);
+      // Subtle vital drift simulation
+      setAstronautHeartRate(prev => 74 + Math.floor(Math.sin(Date.now() / 3000) * 4));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [evaIsRunning]);
+
+  // MarsWalk Ops step forward animation
+  useEffect(() => {
+    if (!marsWalkPlaying) return;
+    const timer = setInterval(() => {
+      setMarsWalkStep(prev => (prev >= 4 ? 1 : prev + 1));
+    }, 2200);
+    return () => clearInterval(timer);
+  }, [marsWalkPlaying]);
+
+  // Active workflow steps based on selected pipeline
+  const currentWorkflowSteps = activeWorkflowPipeline === 'rover' ? ROVER_WORKFLOW_STEPS : ASTRONAUT_WORKFLOW_STEPS;
+
+  // Comprehensive manual entries covering all 32 modules
   const manualSections = useMemo(() => [
-    // --- MISSION ---
+    // =========================================================================
+    // CATEGORY 1: ASTRONAUT SURFACE OPERATIONS
+    // =========================================================================
+    {
+      id: 'astronaut-exploration',
+      category: 'ASTRONAUT SURFACE OPERATIONS',
+      workflowStep: 1,
+      title: 'Astronaut Surface Operations',
+      subtitle: 'Integrated Human Planetary Exploration Hub',
+      icon: <Footprints className="w-5 h-5 text-orange-400" />,
+      badge: 'HUMAN EXPLORATION',
+      summary: 'The primary command suite for human extravehicular activity (EVA) on Mars, coordinating navigation, environmental safety, suit biomechanics, and field science.',
+      whatIsIt: 'Astronaut Surface Operations is MARSNAV\'s dedicated workstation for human planetary explorers. While robotic rovers traverse autonomously, astronauts require real-time suit biotelemetry, life support tracking, walking stability analysis, and high-tempo field sample triage.',
+      whyImportant: 'Surface EVAs involve severe environmental hazards including vacuum-equivalent atmospheric pressure, unshielded galactic cosmic rays, subzero temperatures, and rough terrain. This module centralizes human-critical safeguards.',
+      coreCapabilities: [
+        'Centralized switching across 10 specialized astronaut exploration submodules.',
+        'Real-time biotelemetry and life support consumable tracking.',
+        'Seamless handoff between field photography (MarsWalk Ops) and scientific data fusion.',
+        'Emergency abort and retreat trajectory generation toward the Base Habitat.'
+      ],
+      howToUse: [
+        'Open Astronaut Exploration from the main workspace navigation ribbon.',
+        'Review active EVA duration, oxygen consumption rate, and DSN signal link on the top status ribbon.',
+        'Select desired submodule tab (e.g. Surface Dashboard, Multilayer Map, Suit Mobility).',
+        'Inspect synchronized terrain and scientific records generated by active field observations.'
+      ],
+      toolsAndControls: [
+        'Submodule Ribbon: 10 one-click launchers covering the full astronaut exploration spectrum.',
+        'EVA Telemetry Bar: Live display of Sol clock, metabolic energy expenditure, and consumable reserves.',
+        'DSN Link Status: Displays signal latency (approx. 14 min round-trip) and uplink bandwidth.',
+        'Emergency Retreat Trigger: Generates the fastest safe walking path back to the landing base.'
+      ],
+      expectedOutput: 'Synchronized human mission status, verified safety thresholds, and active science traversal logs.',
+      realWorkflow: 'Before egressing the airlock on Sol 412, Commander Vance verifies suit pressure and space weather radiation margins in this hub before initiating traverse toward Delta Scarp.',
+      relatedModules: ['Surface Mission Dashboard', 'Suit Mobility Analysis', 'Radiation & Space Weather', 'MarsWalk Ops']
+    },
+    {
+      id: 'surface-dashboard',
+      category: 'ASTRONAUT SURFACE OPERATIONS',
+      workflowStep: 1,
+      title: 'Surface Mission Dashboard',
+      subtitle: 'Astronaut EVA Status & Life Support Telemetry',
+      icon: <LayoutDashboard className="w-5 h-5 text-orange-400" />,
+      badge: 'BIOTELEMETRY',
+      summary: 'Operational telemetry dashboard tracking astronaut suit pressure, metabolic rate, oxygen reserve levels, mission duration, and immediate terrain hazards.',
+      whatIsIt: 'The Surface Mission Dashboard provides a high-tempo tactical overview tailored for the astronaut in the field and the Mission Operations Director. It visualizes consumable burn rates, walk velocity, battery SoC, and environmental stress.',
+      whyImportant: 'Human life support systems have rigid margins. If metabolic rates spike on steep inclines or oxygen reserves fall below safety thresholds (typically 20%), the mission must order an immediate walk abort.',
+      coreCapabilities: [
+        'Live metabolic load calculation (kcal/hr) based on slope and suit mass.',
+        'Real-time oxygen (O2) and battery reserve exhaustion countdown.',
+        'Continuous environmental risk indexing incorporating atmospheric pressure and temperature.',
+        'Audible and visual alerts for high-radiation or dust-storm encroachment.'
+      ],
+      howToUse: [
+        'Open Surface Mission Dashboard upon beginning an EVA traversal.',
+        'Monitor the Primary Suit Status card for pressure integrity (nominal 29.6 kPa pure O2).',
+        'Observe the Consumable Reserves card to ensure walking radius does not exceed return margins.',
+        'Verify that all 4 mission hazard indicators (Thermal, Radiation, Dust, Terrain) remain NOMINAL.'
+      ],
+      toolsAndControls: [
+        'EVA Mission Timer: Tracks elapsed walk time against maximum 6.5-hour suit limits.',
+        'Metabolic Expenditure Gauge: Real-time readout of astronaut exertion in kcal/hr.',
+        'Consumable Reserves Gauges: Graphical rings for O2, Battery, and Cooling Water.',
+        'Hazard State Badges: Color-coded indicators (Green = Nominal, Amber = Caution, Red = Abort).'
+      ],
+      expectedOutput: 'Instantaneous confirmation of astronaut safety, consumable duration, and mission pacing.',
+      realWorkflow: 'During a traverse across boulder field BF-04, the astronaut observes a metabolic spike to 480 kcal/hr on a 14° scarp. The dashboard recommends a 3-minute breather to restore respiration margins.',
+      relatedModules: ['Astronaut Surface Operations', 'Safety & Environment', 'Suit Mobility Analysis']
+    },
+    {
+      id: 'science-planner',
+      category: 'ASTRONAUT SURFACE OPERATIONS',
+      workflowStep: 3,
+      title: 'Mission Science Planner',
+      subtitle: 'Strategic Science Activity & Timeline Sequencer',
+      icon: <Target className="w-5 h-5 text-purple-400" />,
+      badge: 'SCIENCE PLANNING',
+      summary: 'Science sequencing tool for prioritizing geological waypoints, scheduling spectrometer observations, allocating sample collection tubes, and optimizing field time.',
+      whatIsIt: 'Mission Science Planner translates broad planetary science questions (e.g. "Did lacustrine clays in Jezero preserve biosignatures?") into concrete, timed operational actions for astronauts during a surface sortie.',
+      whyImportant: 'Astronaut EVA time is strictly limited by consumable reserves. Every minute spent inspecting an unpromising basalt block is a minute lost examining layered delta mudstones.',
+      coreCapabilities: [
+        'Target prioritization scoring based on astrobiology and geological potential.',
+        'Instrument allocation tool (SuperCam LIBS, SHERLOC Raman, PIXL XRF, Coring Drill).',
+        'Activity timeline generation with realistic setup and analysis durations.',
+        'Sample cache container tracking (43 hermetic titanium sample tubes).'
+      ],
+      howToUse: [
+        'Select a candidate outcrop or boulder from the geological target list.',
+        'Assign scientific priority (Primary Research Goal vs. Secondary Target of Opportunity).',
+        'Select intended analytical instruments and specify whether core sampling is required.',
+        'Click "Generate Science Timeline" to produce the optimized sequence within EVA time limits.'
+      ],
+      toolsAndControls: [
+        'Target Selector: Interactive list of candidate formations identified by orbital imaging.',
+        'Instrument Checklist: Toggle SuperCam, PIXL, SHERLOC, and Abrasion/Coring tools.',
+        'Duration Estimator: Dynamically calculates observation and core drilling time.',
+        'Sequence View: Visual Gantt timeline displaying planned activities across the Sol.'
+      ],
+      expectedOutput: 'A verified, conflict-free Science Activity Schedule ready for field execution.',
+      realWorkflow: 'Mission scientists schedule a 25-minute Raman spectroscopy scan at the Kodiak Delta Scarp, followed by a 40-minute sample core extraction into Sample Tube #14.',
+      relatedModules: ['Geological Targets', 'Multilayer Orbital & Geological Data Fusion', 'Spatial Field Notebook']
+    },
+
+    // =========================================================================
+    // CATEGORY 2: MARS ENVIRONMENT & SCIENCE
+    // =========================================================================
+    {
+      id: 'surface-explorer',
+      category: 'MARS ENVIRONMENT & SCIENCE',
+      workflowStep: 4,
+      title: 'Mars Surface Explorer',
+      subtitle: '2D/3D Planetary Surface GIS & Waypoint Inspector',
+      icon: <Compass className="w-5 h-5 text-cyan-400" />,
+      badge: 'PLANETARY GIS',
+      summary: 'Interactive geospatial surface viewer combining MRO HiRISE orthophotos, MGS MOLA elevation DTMs, and verified Jezero points of interest (POIs).',
+      whatIsIt: 'Mars Surface Explorer allows mission planners and astronauts to explore the planetary surface with authentic satellite basemaps. It provides smooth zoom, pan, coordinate readouts in Planetocentric East-positive coordinates, and POI inspector cards.',
+      whyImportant: 'Understanding regional topography (crater rims, delta channels, drop-offs) is essential for situational awareness before setting foot on the Martian regolith.',
+      coreCapabilities: [
+        'Interactive map canvas rendered in IAU2000:49900 Mars coordinate reference system.',
+        'Pre-calibrated science POIs across Jezero Crater (Delta Fan, Kodiak Butte, Belva Crater Rim).',
+        'MOLA absolute elevation interpolation at any cursor position.',
+        'Direct link to NASA PDS archive records and University of Arizona HiRISE products.'
+      ],
+      howToUse: [
+        'Use mouse wheel or zoom controls to inspect terrain from regional to meter-scale resolution.',
+        'Click on any marked POI icon to view historical formation context and elevation profile.',
+        'Click anywhere on the map to set candidate destination coordinates for route calculation.'
+      ],
+      toolsAndControls: [
+        'Zoom & Pan Controls: Seamless navigation across the Jezero study basin.',
+        'POI Inspector: Displays geological classification, elevation, and latitude/longitude.',
+        'Coordinate HUD: Real-time Planetocentric coordinates (East-positive convention).',
+        'MOLA Elevation Gauge: Displays absolute elevation relative to the Mars Areoid datum.'
+      ],
+      expectedOutput: 'Accurate spatial orientation and topographical context for surface missions.',
+      realWorkflow: 'Astronauts review the steep 28% grade along the Belva Crater rim before committing a traversal path, selecting an alternate gentle ingress route discovered in the Explorer.',
+      relatedModules: ['Multilayer Orbital & Geological Data Fusion', 'Astronaut Route Planner', '3D Terrain Explorer']
+    },
+    {
+      id: 'multilayer-map',
+      category: 'MARS ENVIRONMENT & SCIENCE',
+      workflowStep: 6,
+      title: 'Multilayer Orbital & Geological Data Fusion',
+      subtitle: 'Multispectral Orbital Overlays & Surface CV Localizer',
+      icon: <Layers className="w-5 h-5 text-cyan-300" />,
+      badge: 'DATA FUSION',
+      summary: 'Advanced multispectral GIS fusing MRO CTX optical imagery, THEMIS Day/Night thermal infrared, HRSC hillshades, USGS SIM 3292 geology, and active surface computer-vision detections.',
+      whatIsIt: 'This module is the core data fusion workstation of MARSNAV. It superimposes orbital remote sensing datasets with surface rover/astronaut photography, featuring computer-vision object detection, bounding boxes, category filtering, and clustering.',
+      whyImportant: 'Orbital imaging gives regional context, while surface photography gives centimeter-scale obstacle clarity. Fusing both without fabricating false coordinates provides the ultimate tactical decision tool.',
+      coreCapabilities: [
+        'Image-space object detection with bounding boxes and unique IDs (DET-001, DET-002, ...).',
+        'Clean legend with 9 distinct geological categories (Boulders, Bedrock, Regolith, Fractures).',
+        'Automatic object clustering when zoomed out to prevent overlapping label clutter.',
+        'NASA JPL Mars Trek WMTS and USGS WMS live tile integration with opacity and split-screen sliders.',
+        'Independent coordinate space handling for unreferenced surface photographs.'
+      ],
+      howToUse: [
+        'Switch between "Surface CV Map", "NASA Orbital Fusion", and "Dual Comparison" modes.',
+        'In Surface CV Map, zoom in to inspect individual detected rocks, boulders, and bedrock patches.',
+        'Click any detection box to inspect pixel dimensions, confidence score, and estimated physical bounds.',
+        'Use category pills to isolate specific features (e.g. Large Boulders or Exposed Bedrock).',
+        'Toggle "Annotations: ON/OFF" to inspect the raw Martian photograph.'
+      ],
+      toolsAndControls: [
+        'View Mode Toggle: Surface CV Map, NASA Orbital Fusion, and Dual Comparison.',
+        'Annotation Mode: Bounding Boxes, Density Heatmap, or Both.',
+        'Zoom & Pan Stage: Smooth 1x to 4x image-space scaling with zero coordinate drift.',
+        'Detection List Panel: Searchable catalogue of all localized features with confidence badges.',
+        'Orbital Layer Stack: Independent opacity sliders for CTX, HRSC Hillshade, THEMIS IR, and SIM 3292.'
+      ],
+      expectedOutput: 'An uncluttered, scientifically rigorous map displaying detected surface obstacles and verified orbital layers.',
+      realWorkflow: 'When Perseverance downlinks a Navcam frame of an unvisited ripple field, this module localizes 18 rocks, highlights a bedrock pavement pathway, and correlates it with USGS SIM 3292 unit mNhm.',
+      relatedModules: ['Mars Surface Explorer', 'Geological Targets', 'MarsWalk Ops']
+    },
+    {
+      id: 'safety-monitoring',
+      category: 'MARS ENVIRONMENT & SCIENCE',
+      workflowStep: 7,
+      title: 'Safety & Environment Monitoring',
+      subtitle: 'Martian Meteorology, Dust Storms & Hazard Indexing',
+      icon: <ShieldAlert className="w-5 h-5 text-amber-400" />,
+      badge: 'ENVIRONMENTAL SAFETY',
+      summary: 'Monitors real Martian surface atmospheric pressure, diurnal air temperature, wind velocity, and dust optical depth (Tau) derived from NASA InSight and PDS baselines.',
+      whatIsIt: 'Safety & Environment provides atmospheric and meteorological monitoring for human exploration. It combines real archived in-situ observations from the NASA InSight weather archive with peer-reviewed PDS baselines for Perseverance MEDA and Curiosity REMS.',
+      whyImportant: 'Mars experiences extreme diurnal temperature swings (-84°C to +8°C), ferocious dust storms that cut solar insolation and coat radiators, and low pressures (700-850 Pa) that dictate EVA suit cooling efficiency.',
+      coreCapabilities: [
+        'Real InSight lander atmospheric pressure, temperature, and wind records from NASA PDS.',
+        'Dust Optical Depth (Tau) tracking for solar array and visibility forecasting.',
+        'Thermal stress indexing for astronaut suit cooling and heater duty cycles.',
+        'Honest missing-data reporting with explicit DATA UNAVAILABLE markers for active Sols.'
+      ],
+      howToUse: [
+        'Review current InSight Sol observations in the Primary Meteorology card.',
+        'Check the Atmospheric Pressure readout to verify ambient gas density (nominal 740 Pa).',
+        'Inspect the Dust Opacity (Tau) meter to anticipate impending dust storm fronts.',
+        'Verify that all environmental safety scores remain above the 70/100 nominal threshold.'
+      ],
+      toolsAndControls: [
+        'TWINS Air Temp Gauge: Displays diurnal min, max, and mean air temperature in °C.',
+        'Pressure Sensor Readout: Displays surface barometric pressure in Pascals (Pa).',
+        'Wind Vector Monitor: Displays horizontal wind speed (m/s) and dominant direction.',
+        'Dust Tau Indicator: Opacity rating (Tau < 0.5 = Clear, Tau > 1.5 = Regional Dust Event).'
+      ],
+      expectedOutput: 'Reliable, unmanufactured environmental observations with clear data provenance.',
+      realWorkflow: 'Prior to a 5 km rover traverse, operators verify that dust Tau is 0.42 (clear sky) and atmospheric pressure is 742 Pa, confirming nominal cooling tower performance for the habitat.',
+      relatedModules: ['Surface Mission Dashboard', 'Radiation & Space Weather', 'Suit Mobility Analysis']
+    },
+    {
+      id: 'geological-targets',
+      category: 'MARS ENVIRONMENT & SCIENCE',
+      workflowStep: 5,
+      title: 'Geological Targets & Astrobiology',
+      subtitle: 'Rock Classification & Sample Prioritization',
+      icon: <Activity className="w-5 h-5 text-pink-400" />,
+      badge: 'ASTROBIOLOGY',
+      summary: 'Catalogues and scores candidate rock formations, sedimentary layers, and mineral outcrops for biosignature preservation potential and sample caching.',
+      whatIsIt: 'This module is the scientific sample curation center of MARSNAV. It classifies rocks into distinct mineralogical families (Fe/Mg phyllosilicates, hydrated carbonates, basaltic volcanics) and calculates sample prioritization scores.',
+      whyImportant: 'The primary goal of the Mars 2020 mission and future human explorers is astrobiology: finding ancient signs of microbial life. Prioritizing rocks with fine-grained mudstones or carbonate cements maximizes science return.',
+      coreCapabilities: [
+        'Mineralogical classification according to CRISM and SuperCam spectroscopy libraries.',
+        'Sample Prioritization Scoring Matrix (Astrobiology, Organic Preservation, Accessibility).',
+        'Tracking of investigation status: Identified -> In Progress -> Sample Cached.',
+        'Cross-referencing with USGS SIM 3292 geological units.'
+      ],
+      howToUse: [
+        'Browse the list of identified geological targets discovered in the Jezero crater basin.',
+        'Filter by mineralogy class (e.g. Clays, Carbonates, Sulfates, or Basalts).',
+        'Select a target to review its scientific justification and recommended investigation instruments.',
+        'Update target status when field observations or sample coring is completed.'
+      ],
+      toolsAndControls: [
+        'Target Matrix Cards: Displays mineral composition, location, and astrobiological score.',
+        'Spectroscopy Filter: Sort by clay, carbonate, sulfate, or basaltic signatures.',
+        'Investigation Status Toggles: Mark targets as Investigated, Sampled, or Skipped.',
+        'Sample Tube Linker: Binds sample core tube serial numbers to specific targets.'
+      ],
+      expectedOutput: 'A structured, peer-reviewed geological inventory driving field sampling decisions.',
+      realWorkflow: 'Astronauts identify an olivine-carbonate outcrop at the Delta scarp base, run SuperCam laser spectroscopy, score it at 96% priority, and extract Core Sample #09.',
+      relatedModules: ['Mission Science Planner', 'Multilayer Orbital & Geological Data Fusion', 'Spatial Field Notebook']
+    },
+    {
+      id: 'radiation-monitor',
+      category: 'MARS ENVIRONMENT & SCIENCE',
+      workflowStep: 8,
+      title: 'Radiation & Space Weather Monitoring',
+      subtitle: 'Solar Flares, Cosmic Rays & Astronaut ALARA Exposure',
+      icon: <Sun className="w-5 h-5 text-yellow-400" />,
+      badge: 'DOSIMETRY',
+      summary: 'Space weather monitoring hub incorporating live NOAA SWPC GOES X-ray flux, solar energetic protons (>=10 MeV), NASA DONKI coronal flare alerts, and MSL RAD baselines.',
+      whatIsIt: 'Radiation & Space Weather tracks ionizing radiation hazards for astronauts on Mars. Because Mars lacks a global magnetic field and has a thin atmosphere, it is exposed to continuous Galactic Cosmic Rays (GCR) and sporadic Solar Particle Events (SPE).',
+      whyImportant: 'An unshielded Solar Particle Event (SPE) can deliver lethal radiation doses (>1-2 Sv) in hours. Continuous monitoring and rapid shelter alerts keep astronaut exposure within NASA ALARA (As Low As Reasonably Achievable) standards.',
+      coreCapabilities: [
+        'Real-time ingestion of NOAA SWPC primary GOES X-ray fluxes (0.1–0.8 nm).',
+        'High-energy solar proton monitor (>=10 MeV and >=100 MeV flux).',
+        'NASA DONKI space weather alert feeds for coronal mass ejections and interplanetary shocks.',
+        'MSL RAD peer-reviewed Martian surface baseline (0.64 mGy/day GCR dose rate).',
+        'Astronaut cumulative 30-day and career dose tracking against NASA 250 mSv career limits.'
+      ],
+      howToUse: [
+        'Inspect the NOAA GOES Solar Flare Monitor for recent M-class or X-class flares.',
+        'Check the High Energy Proton Flux gauge; any reading >10 pfu triggers a radiation advisory.',
+        'Review the Astronaut Cumulative Dose gauge to ensure 30-day ALARA limits are respected.',
+        'If an SPE alert triggers, immediately execute the emergency storm shelter protocol.'
+      ],
+      toolsAndControls: [
+        'GOES X-Ray Flux Chart: Live 3-day satellite stream classifying A, B, C, M, and X flares.',
+        'Proton Flux Gauge: Monitors solar particle intensities capable of penetrating suit shielding.',
+        'MSL RAD Surface Dosimetry: Peer-reviewed baseline GCR dose rate (0.64 mGy/day).',
+        'ALARA Dose Gauge: Cumulative astronaut exposure tracking against 30-day limits.'
+      ],
+      expectedOutput: 'Continuous ionizing radiation situational awareness with verified satellite telemetry.',
+      realWorkflow: 'NOAA SWPC detects an X1.4 class flare on the Earth-Sun-Mars line. Space weather officers alert the EVA team 45 minutes prior to proton arrival, allowing astronauts to shelter inside the habitat regolith bunker.',
+      relatedModules: ['Safety & Environment', 'Surface Mission Dashboard', 'Mission Audit']
+    },
+
+    // =========================================================================
+    // CATEGORY 3: ASTRONAUT MOBILITY & NAVIGATION
+    // =========================================================================
+    {
+      id: 'suit-mobility',
+      category: 'ASTRONAUT MOBILITY & NAVIGATION',
+      workflowStep: 9,
+      title: 'Suit Mobility Analysis & Biomechanics',
+      subtitle: 'Extravehicular Pressure Suit Kinematics & Metabolic Load',
+      icon: <Footprints className="w-5 h-5 text-emerald-400" />,
+      badge: 'BIOMECHANICS',
+      summary: 'Biomechanical mobility analysis calculating astronaut walking speed, joint torque limits, metabolic heat generation, and slope fatigue in pressurized EVA suits.',
+      whatIsIt: 'Suit Mobility Analysis models the physical constraints of walking in a pressurized Extravehicular Mobility Unit (xEMU). It accounts for Martian gravity (0.38g), suit mass (~140 kg), joint bearing friction, and slope grade penalties.',
+      whyImportant: 'Unlike robotic wheels, human walking speed drops steeply on loose sand and upward slopes. Walking up a 15° slope in a pressurized suit triples metabolic rate, risking suit cooling exhaustion.',
+      coreCapabilities: [
+        'Terrain slope vs. walking velocity curves based on NASA Apollo/Desert RATS field data.',
+        'Metabolic energy consumption calculation (kcal/hr) as a function of pace and incline.',
+        'Suit joint mobility index and center-of-mass tipping margin estimation.',
+        'Fatigue recovery rest interval recommendations.'
+      ],
+      howToUse: [
+        'Select the active suit configuration (e.g. Standard Planetary xEMU vs. Lightweight Exosuit).',
+        'Adjust the terrain slope slider to observe the direct penalty on astronaut velocity.',
+        'Inspect the metabolic heat load readout to verify it remains within suit sublimation cooling limits (max 500 kcal/hr).',
+        'Use recommended walking speeds to constrain downstream route planning algorithms.'
+      ],
+      toolsAndControls: [
+        'Suit Profile Selector: Configures suit mass, pressure, and mobility characteristics.',
+        'Incline Grade Slider: Dynamically simulates slopes from 0° (flat) to 30° (critical scarp).',
+        'Locomotion Velocity Readout: Displays realistic walking pace (0.5 to 3.8 km/h).',
+        'Metabolic Workload Gauge: Real-time calculation of caloric expenditure per hour.'
+      ],
+      expectedOutput: 'Physically realistic walking speeds and metabolic constraints for safe route generation.',
+      realWorkflow: 'Route planners discover that traversing a 12° slope requires 420 kcal/hr, reducing astronaut speed to 1.8 km/h. They re-route around the slope base, increasing distance by 40m but cutting total transit time by 8 minutes.',
+      relatedModules: ['Astronaut Route Planner', 'Surface Mission Dashboard', 'Terrain Intelligence']
+    },
+    {
+      id: 'astronaut-route-planner',
+      category: 'ASTRONAUT MOBILITY & NAVIGATION',
+      workflowStep: 10,
+      title: 'Astronaut Route Planner',
+      subtitle: 'Human Traversal Pathfinding & Obstacle Bypass',
+      icon: <Navigation className="w-5 h-5 text-orange-400" />,
+      badge: 'PATH PLANNING',
+      summary: 'Terrain-aware walking path planner generating safe astronaut walking trajectories around large boulders, steep scarps, and loose sand dunes with turnaround buffers.',
+      whatIsIt: 'Astronaut Route Planner adapts MARSNAV\'s high-performance A* pathfinding engine specifically for suited human locomotion. It enforces human turn radii, walking clearance envelopes, slope limits, and emergency retreat waypoints.',
+      whyImportant: 'Robotic rovers can climb steep boulders with rock-bogie suspensions, but astronauts in bulky suits can trip or puncture suit fabric on sharp rocks. Safe, verified walking corridors are mandatory.',
+      coreCapabilities: [
+        'A* pathfinding with human turning radii and 4-meter rock buffer zones.',
+        'Slope penalty weighting: routes actively avoid grades exceeding 15°.',
+        'Turnaround radius enforcement: ensures astronauts never encounter dead-end box canyons.',
+        'Distance, walking duration, and metabolic calorie total calculations.'
+      ],
+      howToUse: [
+        'Set Start [A] at the rover location or airlock portal.',
+        'Set Destination [B] at the desired geological science waypoint.',
+        'Select Traversal Strategy: Route Gamma (Maximum Clearance) or Route Alpha (Fastest Direct).',
+        'Click "Compute Astronaut Path" to generate the footprint-verified walking corridor.'
+      ],
+      toolsAndControls: [
+        'Start / Destination Selectors: Set waypoints directly on the interactive map.',
+        'Strategy Switcher: Alpha (Direct), Beta (Low Energy), Gamma (Maximum Rock Clearance).',
+        'Obstacle Avoidance Radius: Set custom safety envelopes around detected boulders (2m to 8m).',
+        'Route Metrics Card: Total walking meters, estimated minutes, and safety clearance score.'
+      ],
+      expectedOutput: 'An optimized, collision-free walking trajectory with sequenced astronaut waypoints.',
+      realWorkflow: 'Astronauts plan a 320m traverse from the rover to a stratified clay outcrop. The planner bypasses a cluster of 1.2m boulders, guiding the crew along a smooth bedrock pavement.',
+      relatedModules: ['Suit Mobility Analysis', 'Multilayer Orbital & Geological Data Fusion', 'MarsWalk Ops']
+    },
+
+    // =========================================================================
+    // CATEGORY 4: MISSION DATA & FIELD OPERATIONS
+    // =========================================================================
+    {
+      id: 'marsnav-v4',
+      category: 'MISSION DATA & FIELD OPERATIONS',
+      workflowStep: 2,
+      title: 'MarsWalk Ops / EVA Field Console',
+      subtitle: 'Interactive Martian Surface Walk & Image Analysis Console',
+      icon: <Footprints className="w-5 h-5 text-orange-400" />,
+      badge: 'FIELD CONSOLE',
+      summary: 'The primary field operations console where Martian surface photographs are uploaded or fetched from NASA, segmented via computer vision, and turned into active exploration sessions.',
+      whatIsIt: 'MarsWalk Ops is the frontline interface between raw Martian imagery and downstream mission intelligence. When an astronaut or operator uploads a photo or downlinks a NASA JPL rover frame, this console processes pixels, extracts obstacles, and generates footprint corridors.',
+      whyImportant: 'Without actual surface observation frames, mission planning remains abstract. MarsWalk Ops provides the real ground-truth imagery driving terrain intelligence, obstacle classification, and spatial navigation.',
+      coreCapabilities: [
+        'Ingests local user uploads or live NASA JPL Mastcam/Navcam raw images.',
+        'Automated execution of the fused OpenCV + Gemini Vision segmentation pipeline.',
+        'Generates sequential astronaut footprint waypoints with alternating left/right strides.',
+        'Directly updates the authoritative shared exploration store across all MarsNav workspaces.'
+      ],
+      howToUse: [
+        'Upload an image from local storage or click "Load NASA Frame" to fetch a real JPL Mars observation.',
+        'Observe the computer vision localizer detect boulders, bedrock, and sand dunes in real time.',
+        'Click "Run MarsWalk Trajectory" to generate a step-by-step astronaut walking route.',
+        'Open Multilayer Map or Surface Explorer to inspect the newly analyzed scene across other modules.'
+      ],
+      toolsAndControls: [
+        'Image Ingestion Button: Supports PNG/JPG/WebP uploads and NASA API queries.',
+        'CV Feature Overlay Toggle: Displays green/yellow/red obstacle bounding boxes.',
+        'Footprint Generator: Computes 0.7m human walking strides along the planned route.',
+        'Sync Status Indicator: Confirms synchronization with the global exploration store.'
+      ],
+      expectedOutput: 'A fully segmented, obstacle-mapped surface scene published to all MarsNav modules.',
+      realWorkflow: 'Astronaut Vance takes a wide-angle surface photo of a fractured boulder field. Within 8 seconds, MarsWalk Ops classifies 14 obstacles and plots a safe 45-footprint corridor through the gap.',
+      relatedModules: ['Multilayer Orbital & Geological Data Fusion', 'Spatial Field Notebook', 'Astronaut Route Planner']
+    },
+    {
+      id: 'field-notebook',
+      category: 'MISSION DATA & FIELD OPERATIONS',
+      workflowStep: 11,
+      title: 'Spatial Field Notebook',
+      subtitle: 'Geological Sample Logging & Map Coordinates',
+      icon: <FileText className="w-5 h-5 text-cyan-400" />,
+      badge: 'SAMPLE LOGGING',
+      summary: 'Digital geological field notebook allowing astronauts to log rock samples, recorded observations, audio memos, and pin entries directly to image coordinates.',
+      whatIsIt: 'Spatial Field Notebook is the digital field log of human Mars exploration. It replaces traditional paper field notebooks with a map-linked database where every sample entry stores timestamp, mineralogy, photo coordinates, and geological notes.',
+      whyImportant: 'Sample return is meaningless if scientific context is lost. Pinning sample tubes to exact pixel and spatial coordinates preserves geological provenance for Earth laboratory analysis.',
+      coreCapabilities: [
+        'Log rock samples with unique serial numbers, photos, and mineral classifications.',
+        'Direct spatial binding: pins sample locations to specific pixel coordinates on active images.',
+        'Filterable notes timeline categorized by Sol, target name, and sample status.',
+        'Exportable scientific field dossier formatted for NASA PDS ingestion.'
+      ],
+      howToUse: [
+        'Click "Add Field Entry" when inspecting an interesting rock or collecting a core sample.',
+        'Click on the surface image to place a precise sample waypoint marker.',
+        'Enter mineralogical notes, sample tube ID (e.g. ST-2026-08), and astrobiological significance.',
+        'Review logged entries in the chronological Sol timeline.'
+      ],
+      toolsAndControls: [
+        'Pin Tool: Interactively drops numbered sample pins onto the active photograph.',
+        'Sample Registry: Table of cached tubes, sample weight, and collection Sol.',
+        'Category Tags: Tag entries as Lithology, Astrobiology, Atmospheric, or Hazard.',
+        'Export Log: Downloads a complete JSON/CSV field notebook dossier.'
+      ],
+      expectedOutput: 'A complete, geographically referenced record of all scientific field collections.',
+      realWorkflow: 'Commander Vance extracts a 5cm core from a phyllosilicate mudstone, registers it as Tube #04, and notes fine laminar bedding and silica nodules in the field log.',
+      relatedModules: ['MarsWalk Ops', 'Geological Targets', 'Mission Science Planner']
+    },
+
+    // =========================================================================
+    // CATEGORY 5: ROVER NAVIGATION & COMPUTATION
+    // =========================================================================
     {
       id: 'overview',
-      category: 'Mission',
+      category: 'ROVER NAVIGATION',
       workflowStep: null,
       title: 'Mission Overview',
       subtitle: 'Command Center Dashboard & Telemetry Hub',
@@ -132,582 +651,362 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
       summary: 'The primary command dashboard providing high-level operational telemetry, active mission status, battery reserves, and quick-launch shortcuts.',
       whatIsIt: 'Mission Overview serves as the top-level telemetry and status hub of MARSNAV. It aggregates real-time system health, active traversal progress, active rover profile, and recent activity logs into a unified mission control screen.',
       whyImportant: 'Operators need an immediate, bird-eye view of mission health, active target coordinates, and system readiness before executing surface maneuvers.',
-      howToUse: [
-        'Launch MARSNAV and review the Mission Overview dashboard upon boot.',
-        'Verify system backend connection status and battery state of charge (SoC).',
-        'Check active mission parameters, rover configuration, and traverse readiness indicators.',
-        'Use quick-action cards to jump directly to terrain analysis, route planning, or validation.'
-      ],
-      toolsAndControls: [
-        'Active Mission Card: Displays mission ID, creation timestamp, and status.',
-        'System Health Monitor: Verifies server connection and data cache integrity.',
-        'Quick Action Launchers: One-click navigation to Route Lab, Terrain Intelligence, and 3D Explorer.',
-        'Real-Time Telemetry Ticker: Continuously monitors Sol duration and distance traversed.'
-      ],
+      coreCapabilities: ['Real-time telemetry aggregation', 'Rover battery and motor health monitoring', 'Quick-action shortcuts to all tools'],
+      howToUse: ['Review status upon system boot', 'Verify backend connection and battery state', 'Use quick-action cards to jump directly to tools'],
+      toolsAndControls: ['Active Mission Card', 'System Health Monitor', 'Quick Action Launchers', 'Real-Time Telemetry Ticker'],
       expectedOutput: 'An instantaneous operational snapshot of mission readiness with zero latency.',
       realWorkflow: 'Mission planners begin every Sol by inspecting Overview telemetry to ensure battery reserves and traverse clearances are fully nominal.',
-      relatedModules: ['MARSWALK OPS / EVA', 'Mission Configuration', 'Spatial Field Notebook']
-    },
-    {
-      id: 'marsnav-v4',
-      category: 'Mission',
-      workflowStep: null,
-      title: 'MARSWALK OPS / EVA',
-      subtitle: 'Surface Walking & EVA Operations Simulator',
-      icon: <Navigation className="w-5 h-5 text-orange-400" />,
-      badge: 'EVA',
-      summary: 'Specialized surface operations interface for rover and astronaut EVA navigation, landmark tagging, and real-time heading alignment.',
-      whatIsIt: 'MARSWALK OPS provides a dedicated EVA and surface traversal workspace. It merges tactical mapping, sun-heading orientation, slope angle indicators, and field note logging for surface crews.',
-      whyImportant: 'Surface exploration requires rigorous heading control and immediate terrain hazard awareness during rover-escorted EVA missions.',
-      howToUse: [
-        'Select MARSWALK OPS from the Mission sidebar menu.',
-        'Inspect the tactical surface map and active rover/astronaut position coordinates.',
-        'Review heading angle, solar azimuth, and local slope inclines.',
-        'Log EVA observations or flag science waypoints in real-time.'
-      ],
-      toolsAndControls: [
-        'Tactical Heading Compass: Real-time azimuth and bearing indicator.',
-        'EVA Waypoint Dropper: Mark surface sampling sites and rock outcrops.',
-        'Slope Incline Gauge: Warns operators of steep grade hazards (>14°).',
-        'Audio/Visual Comm Link: Simulated voice loop and telemetry feed.'
-      ],
-      expectedOutput: 'Clear surface navigation telemetry and real-time EVA tracking overlays.',
-      realWorkflow: 'Field geologists use MARSWALK OPS to monitor rover proximity and sample collection progress during extravehicular sorties.',
-      relatedModules: ['Spatial Field Notebook', '3D Terrain Explorer', 'Route Laboratory']
-    },
-    {
-      id: 'field-notebook',
-      category: 'Mission',
-      workflowStep: null,
-      title: 'Spatial Field Notebook',
-      subtitle: 'Geological Notes & Observation Logging',
-      icon: <BookOpen className="w-5 h-5 text-orange-300" />,
-      badge: 'NOTES',
-      summary: 'Interactive digital field notebook for recording geological observations, tagging rock samples, and linking notes directly to map coordinates.',
-      whatIsIt: 'The Spatial Field Notebook allows mission scientists to document discoveries with categories (Geology, Ice/Water, Hazard, Biosignature, Sample Target), priority levels, spatial coordinates (X, Y), and image attachments.',
-      whyImportant: 'Documenting discoveries with precise spatial provenance ensures no high-value scientific sample is lost during multi-Sol traverses.',
-      howToUse: [
-        'Navigate to Spatial Field Notebook from the Mission menu.',
-        'Click "Create Note" to document a new geological observation or rock outcrop.',
-        'Assign category, priority, tags, and spatial coordinates.',
-        'Use "Restore on Map" to instantly locate the note on the terrain map.'
-      ],
-      toolsAndControls: [
-        'Category Filter (ALL, Geology, Ice/Water, Hazard, Biosignature, Sample Target).',
-        'Priority Badges (High, Medium, Low).',
-        'JSON Import/Export: Backup or share field notes with mission colleagues.',
-        'Map Teleport ("Restore on Map"): Instantly centers the map on the note coordinate.'
-      ],
-      expectedOutput: 'A well-organized searchable ledger of geological observations with map-link capabilities.',
-      realWorkflow: 'During terrain analysis, a scientist spots an unusual sulfur-rich outcrop, records it in the Field Notebook with priority High, and instantly jumps to its location on the map.',
-      relatedModules: ['Mission Overview', 'Route Laboratory', '3D Terrain Explorer']
-    },
-    {
-      id: 'live-mission-data',
-      category: 'Mission',
-      workflowStep: null,
-      title: 'Live NASA Stream',
-      subtitle: 'Real-Time Planetary Telemetry Feed',
-      icon: <Radio className="w-5 h-5 text-emerald-400" />,
-      badge: 'LIVE',
-      summary: 'Direct telemetry stream monitoring live Martian weather, atmospheric opacity, orbital position, and downlink transmission status.',
-      whatIsIt: 'Live NASA Stream provides simulated or live-connected downlinks of Jezero Crater environmental data, dust storm alerts, wind speeds, and orbital relay passes.',
-      whyImportant: 'Environmental conditions (dust opacity, solar power generation) directly impact rover driving safety and solar array efficiency.',
-      howToUse: [
-        'Open Live NASA Stream from the Mission menu.',
-        'Monitor atmospheric pressure, temperature (-65°C average), and solar irradiance.',
-        'Review incoming relay pass schedules and downlink buffer status.'
-      ],
-      toolsAndControls: [
-        'Atmospheric Opacity Tau Gauge.',
-        'Solar Irradiance Calculator (W/m²).',
-        'Relay Pass Countdown Timer.',
-        'Deep Space Network (DSN) Lock Indicator.'
-      ],
-      expectedOutput: 'Up-to-the-minute environmental and telemetry status feeds.',
-      realWorkflow: 'Before initiating a multi-kilometer traverse, operators check Live NASA Stream to verify zero active dust storm warnings.',
-      relatedModules: ['Mission Overview', 'Scenario Testing', 'System Settings']
+      relatedModules: ['MarsWalk Ops', 'Mission Configuration', 'Spatial Field Notebook']
     },
     {
       id: 'explorer-3d',
-      category: 'Mission',
+      category: 'ROVER NAVIGATION',
       workflowStep: null,
       title: '3D Terrain Explorer',
-      subtitle: 'Spatial Topography & Camera Orbit Visualization',
-      icon: <Compass className="w-5 h-5 text-orange-400" />,
-      badge: '3D',
-      summary: 'Immersive 3D terrain exploration tool rendering digital elevation models, contour relief, and camera orbit controls.',
-      whatIsIt: '3D Terrain Explorer uses WebGL / Three.js rendering techniques to display Jezero Crater topography in three dimensions, allowing operators to inspect slope steepness, crater rims, and elevation profiles.',
-      whyImportant: '2D top-down maps can obscure steep canyon walls and deep depressions that pose tipping hazards to the rover.',
-      howToUse: [
-        'Open 3D Terrain Explorer from the Mission menu.',
-        'Click and drag to orbit the camera around the terrain mesh.',
-        'Scroll to zoom in/out on specific elevation features.',
-        'Toggle terrain wireframe, elevation color gradient, and hazard overlays.'
-      ],
-      toolsAndControls: [
-        'Orbit Controls (Rotate, Pan, Zoom).',
-        'Elevation Color Map Toggle (Thermal/Topographic).',
-        'Wireframe & Lighting Controls.',
-        'Cross-Section Elevation Profiler.'
-      ],
-      expectedOutput: 'An interactive 3D topographical relief model of the mission sector.',
-      realWorkflow: 'Operators use 3D Explorer to evaluate approach angles before committing the rover to a steep crater rim descent.',
-      relatedModules: ['Mission Data & DEM', 'Route Laboratory', 'Hazard Analysis']
+      subtitle: 'Interactive Three.js Digital Elevation Mesh',
+      icon: <Maximize2 className="w-5 h-5 text-cyan-400" />,
+      badge: '3D TOPOGRAPHY',
+      summary: 'High-fidelity 3D topography visualizer rendering real MRO HiRISE 1m DTMs and MGS MOLA elevation meshes with orbital hypsometric tints.',
+      whatIsIt: '3D Terrain Explorer renders Martian surface relief in full interactive 3D using Three.js and WebGL. It provides realistic lighting, exaggerated hillshades, slope visualization, and rover scale models.',
+      whyImportant: '2D flat maps fail to convey true topographic slope, crater rims, and ravines. 3D visualization gives navigators true depth perception of traversal obstacles.',
+      coreCapabilities: ['3D digital elevation model rendering', 'Interactive orbit, pan, and zoom controls', 'Slope gradient hypsometric coloring'],
+      howToUse: ['Rotate canvas with left mouse click', 'Pan with right mouse click', 'Toggle elevation contours and slope color maps'],
+      toolsAndControls: ['Orbit Controls', 'Elevation Exaggeration Slider', 'Hypsometric Shading Toggle', 'Rover Scale Placer'],
+      expectedOutput: 'Interactive 3D elevation mesh displaying true Martian relief.',
+      realWorkflow: 'Navigators rotate the 3D mesh around a delta channel to identify low-slope ingress ramps with grades below 12°.',
+      relatedModules: ['Mars Surface Explorer', 'Multilayer Orbital & Geological Data Fusion']
+    },
+    {
+      id: 'live-mission-data',
+      category: 'ROVER NAVIGATION',
+      workflowStep: null,
+      title: 'Live NASA Stream',
+      subtitle: 'Atmospheric Opacity & Environmental Telemetry',
+      icon: <Radio className="w-5 h-5 text-emerald-400" />,
+      badge: 'NASA TELEMETRY',
+      summary: 'Continuous environmental telemetry feed displaying atmospheric pressure, temperature, and dust optical depth (Tau) from NASA planetary missions.',
+      whatIsIt: 'Live NASA Stream connects directly to NASA planetary weather feeds to stream real atmospheric observations into the MARSNAV navigation engine.',
+      whyImportant: 'Atmospheric opacity and temperature directly govern solar power generation and rover mechanical lubrication viscosity.',
+      coreCapabilities: ['NASA API stream ingestion', 'Diurnal temperature profiling', 'Dust opacity forecasting'],
+      howToUse: ['Review incoming Sol meteorological records', 'Verify dust opacity remains within solar array operating limits'],
+      toolsAndControls: ['Stream Status Pill', 'Atmospheric Sensor Readouts', 'Tau Gauge'],
+      expectedOutput: 'Live atmospheric observations refreshed continuously.',
+      realWorkflow: 'Engineers inspect dust optical depth prior to morning rover wake-up to calibrate daily solar energy budgets.',
+      relatedModules: ['Safety & Environment', 'Radiation & Space Weather']
     },
     {
       id: 'mission-data',
-      category: 'Mission',
+      category: 'ROVER NAVIGATION',
       workflowStep: null,
       title: 'Mission Data & DEM',
-      subtitle: 'Digital Elevation Models & Spatial Datasets',
-      icon: <Layers className="w-5 h-5 text-cyan-400" />,
-      badge: 'DEM',
-      summary: 'Management console for Digital Elevation Models (DEM), orthoimages, spatial resolution datums, and coordinate metadata.',
-      whatIsIt: 'Mission Data & DEM handles the cartographic foundation of MARSNAV, displaying resolution metadata (0.25 m/px), coordinate reference systems, and dataset provenance.',
-      whyImportant: 'Accurate elevation datums and spatial scales are required to convert pixel distances into real-world meters.',
-      howToUse: [
-        'Open Mission Data & DEM from the Mission menu.',
-        'Inspect loaded HiRISE DTM identifier, sol number, and camera acquisition timestamp.',
-        'Verify scale calibration and coordinate bounding boxes.'
-      ],
-      toolsAndControls: [
-        'DEM Metadata Inspector.',
-        'Scale Calibration Tool (meters-per-pixel).',
-        'Dataset Provenance Verifier.',
-        'Layer Transparency Sliders.'
-      ],
-      expectedOutput: 'Verified spatial dataset parameters and elevation coordinate tables.',
-      realWorkflow: 'Mission cartographers verify DEM resolution before authorizing high-speed autonomous rover navigation files.',
-      relatedModules: ['Dataset Catalogue', '3D Terrain Explorer', 'Route Laboratory']
+      subtitle: 'HiRISE DTM Scale & Elevation Datums',
+      icon: <Database className="w-5 h-5 text-indigo-400" />,
+      badge: 'PDS REPOSITORIES',
+      summary: 'Scientific repository interface detailing official NASA Planetary Data System (PDS) product labels, resolution checksums, and reference datums.',
+      whatIsIt: 'Mission Data & DEM provides rigorous documentation of all geospatial datasets ingested into MARSNAV, verifying coordinate reference systems and elevation datums against NASA PDS standards.',
+      whyImportant: 'Planetary science requires absolute data provenance. Navigators must verify whether elevation is relative to the MOLA Areoid or local rover datum.',
+      coreCapabilities: ['PDS3 and PDS4 label inspector', 'Elevation datum conversion', 'Dataset resolution checksum verification'],
+      howToUse: ['Inspect ingested raster products', 'Verify datum standards (Mars Aeroid MOLA datum)', 'Cross-check spatial resolution in meters per pixel'],
+      toolsAndControls: ['Dataset Metadata Table', 'PDS Header Viewer', 'Datum Selector'],
+      expectedOutput: 'Verified dataset provenance meeting NASA planetary science publication standards.',
+      realWorkflow: 'Mission archivists verify that imported HiRISE DTM PSP_001414_1780 matches the equirectangular projection centered on Jezero Crater.',
+      relatedModules: ['Dataset Catalogue', 'Multilayer Orbital & Geological Data Fusion']
     },
     {
       id: 'configuration',
-      category: 'Mission',
+      category: 'ROVER NAVIGATION',
       workflowStep: 1,
-      title: 'Mission Configuration',
-      subtitle: 'Rover Parameters & Operational Limits (Step 01)',
+      title: 'Step 01: Mission Configuration',
+      subtitle: 'Rover Profile, Battery Reserves & Max Slope Constraints',
       icon: <Sliders className="w-5 h-5 text-orange-400" />,
-      badge: 'STEP 01',
-      summary: 'Configures global mission parameters including maximum slope threshold, battery capacity, rover profile, and safety constraints.',
-      whatIsIt: 'Mission Configuration is Step 01 in the primary workflow. Here operators define rover physical constraints (mass, max slope limit, battery Watt-hours) that govern all downstream pathfinding and simulation modules.',
-      whyImportant: 'Customizing rover parameters ensures calculations match the exact mechanical capabilities of Perseverance or custom robotic testbeds.',
-      howToUse: [
-        'Navigate to Mission Configuration from the Mission menu.',
-        'Adjust maximum traversability slope limit (default 14.0°).',
-        'Set battery capacity (default 2,400 Wh) and nominal power consumption.',
-        'Select rover vehicle profile (Perseverance, Curiosity, Sample Fetch Rover).'
-      ],
-      toolsAndControls: [
-        'Max Slope Slider (1° to 30° with real-time tipping warning).',
-        'Battery Capacity Input (1,000 Wh - 5,000 Wh).',
-        'Rover Profile Selector (Perseverance 1,025kg, Curiosity 899kg, SFR 350kg).',
-        'Save & Propagate Configuration Button.'
-      ],
-      expectedOutput: 'Updated global mission parameters applied instantly across analysis and navigation engines.',
-      realWorkflow: 'When planning traverses across loose sand where slip risk is higher, operators lower the max slope limit to 10° for increased safety.',
-      relatedModules: ['NASA Raw Image Feed', 'Route Laboratory', 'Scenario Testing']
+      badge: 'INGESTION & SETUP',
+      summary: 'Configures rover physical mass, wheel diameter, motor torque, battery energy capacity, and critical tipping slope thresholds.',
+      whatIsIt: 'Mission Configuration sets the foundational boundary constraints for all downstream pathfinding and safety calculations in MARSNAV.',
+      whyImportant: 'A path that is safe for a lightweight rover may cause wheel trenching or power exhaustion in a 1,025 kg vehicle like Perseverance.',
+      coreCapabilities: ['Rover kinematic profiling', 'Battery energy budget configuration', 'Maximum slope angle thresholding'],
+      howToUse: ['Select vehicle profile (e.g. Perseverance vs Curiosity)', 'Adjust battery capacity slider', 'Set maximum slope limit between 8° and 20°'],
+      toolsAndControls: ['Rover Profile Dropdown', 'Slope Limit Slider', 'Battery Capacity Gauge', 'Motor Torque Selector'],
+      expectedOutput: 'A verified vehicle kinematic profile governing pathfinding algorithms.',
+      realWorkflow: 'Operators set max slope to 14° and battery reserve to 2,400 Wh before planning Sol 340 traverse across the delta rim.',
+      relatedModules: ['Terrain Intelligence', 'Route Laboratory']
     },
-
-    // --- ANALYSIS ---
     {
       id: 'base-camp-intel',
-      category: 'Analysis',
+      category: 'ROVER NAVIGATION',
       workflowStep: null,
       title: 'Base Camp Intelligence',
-      subtitle: 'Landing Site Evaluation & Site Safety Intel',
-      icon: <Compass className="w-5 h-5 text-cyan-400" />,
-      badge: 'SITES',
-      summary: 'Comprehensive site intelligence module evaluating landing site safety, slope stability, communication line-of-sight, and resource proximity.',
-      whatIsIt: 'Base Camp Intelligence provides multi-factor site scoring for potential science camps and stationary lander sites, analyzing slopes, rock frequency, and orbital relay visibility.',
-      whyImportant: 'Establishing a secure base camp requires balancing scientific interest with absolute mechanical safety and solar charging efficiency.',
-      howToUse: [
-        'Open Base Camp Intelligence from the Analysis menu.',
-        'Review site evaluation scorecards (Slope, Boulder Density, Communications).',
-        'Compare alternative landing and camp coordinates.'
-      ],
-      toolsAndControls: [
-        'Site Suitability Scorecard.',
-        'Communication LOS (Line-of-Sight) Indicator.',
-        'Terrain Roughness Histogram.',
-        'Candidate Coordinates Comparison Matrix.'
-      ],
-      expectedOutput: 'Detailed site evaluation metrics and safety recommendations.',
-      realWorkflow: 'Mission directors use Base Camp Intel to select the safest overnight parking location during severe wind forecasts.',
-      relatedModules: ['Terrain Intelligence', 'Hazard Analysis', 'Risk Assessment']
+      subtitle: 'Landing Site Slope & Communication LOS',
+      icon: <Shield className="w-5 h-5 text-blue-400" />,
+      badge: 'HABITAT INTEL',
+      summary: 'Analyzes base camp location stability, line-of-sight communication coverage, and terrain hazards around the primary landing habitat.',
+      whatIsIt: 'Base Camp Intelligence evaluates the security and operational connectivity of the primary habitat or lander touchdown zone.',
+      whyImportant: 'Habitats require low-slope terrain (<5°), firm bedrock foundations, and unobstructed radio line-of-sight to orbiting relay satellites.',
+      coreCapabilities: ['Touchdown slope evaluation', 'Line-of-sight (LOS) radio coverage mapping', 'Hab perimeter hazard perimeter buffers'],
+      howToUse: ['Select habitat coordinates', 'Review LOS comms coverage across surrounding terrain', 'Verify terrain flatness within 100m radius'],
+      toolsAndControls: ['LOS Radar View', 'Slope Stability Meter', 'Foundation Analysis Card'],
+      expectedOutput: 'Verified habitat foundation stability and radio connectivity map.',
+      realWorkflow: 'Mission planners verify that the Octavia E. Butler landing site has unobstructed UHF communications with the Mars Reconnaissance Orbiter.',
+      relatedModules: ['Surface Explorer', 'Safety & Environment']
     },
     {
       id: 'nasa-raw-feed',
-      category: 'Analysis',
+      category: 'ROVER NAVIGATION',
       workflowStep: 2,
-      title: 'NASA Raw Image Feed',
-      subtitle: 'JPL Planetary Image Explorer (Step 02)',
+      title: 'Step 02: NASA Raw Image Feed',
+      subtitle: 'JPL Mars 2020 Navcam & Hazcam Downlink',
       icon: <Radio className="w-5 h-5 text-orange-400" />,
-      badge: 'STEP 02',
-      summary: 'Direct browser interface to browse, filter, and load raw image frames from NASA Mars 2020 Navcams and Hazcams.',
-      whatIsIt: 'NASA Raw Image Feed is Step 02 in the workflow, connecting to JPL public repositories to ingest authentic Martian surface frames by Sol, camera type, and frame ID.',
-      whyImportant: 'Testing route planning on genuine Jezero Crater imagery ensures robust preparation for real planetary conditions.',
-      howToUse: [
-        'Navigate to NASA Raw Image Feed from the Analysis menu.',
-        'Filter images by Sol number or camera instrument (Navcam Left/Right, Hazcam Front/Rear).',
-        'Click "Load into Mission" to set the raw image as the active terrain background.'
-      ],
-      toolsAndControls: [
-        'Sol Filter Selector (Sol 001 - Present).',
-        'Camera Instrument Selector (NAVCAM, HAZCAM, MASTCAM-Z).',
-        'Thumbnail Gallery & Metadata Inspector.',
-        'Ingest to Mission Canvas Action.'
-      ],
-      expectedOutput: 'Authentic Martian surface image loaded into active mission workspace.',
-      realWorkflow: 'An operator curates a newly downlinked Sol 428 Navcam frame from JPL feed and loads it for computer vision feature extraction.',
-      relatedModules: ['Dataset Catalogue', 'Terrain Intelligence', 'Mission Data & DEM']
+      badge: 'INGESTION & SETUP',
+      summary: 'Directly downlinks and parses real raw image feeds from Perseverance, Curiosity, Opportunity, and Spirit rover cameras via NASA JPL APIs.',
+      whatIsIt: 'This module is the authentic imagery ingestion conduit of MARSNAV, retrieving raw engineering Navcam and Hazcam frames directly from NASA JPL RSS feeds.',
+      whyImportant: 'Navigators cannot plan safe traverses from orbital images alone; meter-scale rock hazards are only resolved in surface camera frames.',
+      coreCapabilities: ['Multi-rover support (Perseverance, Curiosity, Opportunity, Spirit)', 'Camera filtering (Navcam, Hazcam, Mastcam)', 'Automatic Sol and pagination indexing'],
+      howToUse: ['Select rover mission and Sol number', 'Filter by camera type (e.g. NAVCAM_LEFT)', 'Click any thumbnail to inspect metadata and load into MarsWalk Ops'],
+      toolsAndControls: ['Mission Selector', 'Sol Search Bar', 'Camera Filter Dropdown', 'Raw Frame Gallery'],
+      expectedOutput: 'Authentic Martian surface frames loaded into the active exploration session.',
+      realWorkflow: 'Navigators downlink 6 Navcam stereo frames from Sol 680 to inspect a field of angular basalt boulders blocking the northern path.',
+      relatedModules: ['MarsWalk Ops', 'Terrain Intelligence']
     },
     {
       id: 'dataset-catalogue',
-      category: 'Analysis',
+      category: 'ROVER NAVIGATION',
       workflowStep: 3,
-      title: 'Dataset Catalogue',
-      subtitle: 'Planetary Data System (PDS) Verification (Step 03)',
-      icon: <Database className="w-5 h-5 text-emerald-400" />,
-      badge: 'STEP 03',
-      summary: 'Catalogue of verified planetary datasets, MRO HiRISE orthophotos, MOLA elevation data, and PDS compliance records.',
-      whatIsIt: 'Dataset Catalogue is Step 03 in the workflow, managing verified scientific data archives, checking coordinate reference frames, resolution integrity, and PDS metadata standards.',
-      whyImportant: 'Ensuring dataset compliance guarantees that all downstream engineering calculations rely on verified cartographic data.',
-      howToUse: [
-        'Open Dataset Catalogue from the Analysis menu.',
-        'Browse available Jezero Crater orthomosaics and DTM swaths.',
-        'Verify checksums and PDS compliance status before analysis.'
-      ],
-      toolsAndControls: [
-        'Dataset Repository Browser.',
-        'PDS Compliance Checker.',
-        'Checksum & Resolution Verifier.',
-        'HiRISE Swath Footprint Visualizer.'
-      ],
-      expectedOutput: 'Verified dataset records and compliance certifications.',
-      realWorkflow: 'Data scientists verify incoming MRO HiRISE swaths in the Dataset Catalogue before releasing them to operations.',
-      relatedModules: ['Terrain Intelligence', 'Mission Data & DEM', 'Validation Harness']
+      title: 'Step 03: Dataset Catalogue',
+      subtitle: 'PDS Compliance & Resolution Checksums',
+      icon: <Database className="w-5 h-5 text-orange-400" />,
+      badge: 'INGESTION & SETUP',
+      summary: 'Verifies calibration headers, pixel checksums, and geodetic reference datums for all imported orbital rasters and terrain models.',
+      whatIsIt: 'Dataset Catalogue is the data governance module ensuring that all raster DEMs and orthomosaics adhere to NASA Planetary Data System compliance.',
+      whyImportant: 'Importing unverified or improperly projected rasters leads to catastrophic navigation errors in the field.',
+      coreCapabilities: ['PDS3/PDS4 label parsing', 'Resolution checksum validation', 'Projection CRS verification'],
+      howToUse: ['Inspect the list of registered datasets', 'Verify status is marked VERIFIED or PARTIALLY COMPATIBLE', 'Click source link to open NASA PDS catalogue records'],
+      toolsAndControls: ['Dataset Grid', 'CRS Validator', 'PDS Record Linker'],
+      expectedOutput: 'Guaranteed compliance with NASA cartographic and elevation standards.',
+      realWorkflow: 'Engineers cross-check the resolution checksum of HiRISE DTM PSP_001414_1780 before initializing automated hazard detection.',
+      relatedModules: ['Mission Data & DEM', 'Terrain Intelligence']
     },
     {
       id: 'terrain-intelligence',
-      category: 'Analysis',
+      category: 'ROVER NAVIGATION',
       workflowStep: 4,
-      title: 'Terrain Intelligence',
-      subtitle: 'Automated Classification & Feature Extraction (Step 04)',
+      title: 'Step 04: Terrain Intelligence',
+      subtitle: 'Sobel Edge Detection & Contour Polygons',
       icon: <Cpu className="w-5 h-5 text-cyan-400" />,
-      badge: 'STEP 04',
-      summary: 'Advanced classical computer vision processing extracting terrain classifications, obstacle contours, and surface roughness maps.',
-      whatIsIt: 'Terrain Intelligence is Step 04 in the workflow. It executes Sobel edge detection, luminance gradient analysis, and morphological contouring to segment the terrain into distinct geological categories.',
-      whyImportant: 'Automated terrain intelligence eliminates manual tracing, providing rapid identification of traversable vs. impassable regions.',
-      howToUse: [
-        'Open Terrain Intelligence from the Analysis menu.',
-        'Click "Execute Terrain Scan" to run the classical CV detection pipeline.',
-        'Inspect classified feature counts (Rocks, Sand Ripples, Bedrock).'
-      ],
-      toolsAndControls: [
-        'Scan Execution Button.',
-        'Feature Classification Breakdown (Count & Area %).',
-        'Confidence Scoring Meter.',
-        'Edge Detection & Morphological Filter Overlays.'
-      ],
-      expectedOutput: 'Detailed terrain classification masks and obstacle polygon inventories.',
-      realWorkflow: 'When a new terrain image is loaded, Terrain Intelligence automatically scans the image to generate hazard polygons for pathfinding.',
-      relatedModules: ['Hazard Analysis', 'Dataset Catalogue', 'Route Laboratory']
+      badge: 'TERRAIN & SAFETY',
+      summary: 'Automated computer vision engine running edge gradients, contour extraction, and texture roughness scoring to identify obstacles.',
+      whatIsIt: 'Terrain Intelligence executes real-time computer vision algorithms on surface photographs, extracting discrete rock contours and sandy regolith textures.',
+      whyImportant: 'Manual identification of thousands of rocks is impossible in high-tempo missions. Automated CV extracts obstacles in milliseconds.',
+      coreCapabilities: ['Sobel luminance gradient edge detection', 'Polygon contour generation around rocks', 'Surface roughness index scoring'],
+      howToUse: ['Select filter mode (Sobel Edge, Slope Heatmap, Contour Polygons)', 'Observe extracted hazard polygons', 'Review detection count and confidence statistics'],
+      toolsAndControls: ['Filter Mode Selector', 'Roughness Meter', 'Contour Vector Overlay'],
+      expectedOutput: 'Vectorized obstacle polygons with quantified dimensions and spatial coordinates.',
+      realWorkflow: 'The CV pipeline processes a 1024x1024 Navcam frame in 14ms, localizing 18 rocks exceeding the 15cm rover belly pan clearance limit.',
+      relatedModules: ['Hazard Analysis', 'Route Laboratory']
     },
     {
       id: 'hazard-analysis',
-      category: 'Analysis',
+      category: 'ROVER NAVIGATION',
       workflowStep: 5,
-      title: 'Hazard Analysis',
-      subtitle: 'Rock, Slope & Pit Obstacle Evaluation (Step 05)',
-      icon: <ShieldAlert className="w-5 h-5 text-amber-400" />,
-      badge: 'STEP 05',
-      summary: 'Detailed hazard inspection tool analyzing rock size distribution, slope inclines, wheel sinkage risk, and safety clearance buffers.',
-      whatIsIt: 'Hazard Analysis is Step 05 in the workflow, focusing on identifying dangerous obstacles and buffering exclusion zones with customizable margins (2px to 28px).',
-      whyImportant: 'Proper hazard buffering prevents rover wheels from contacting sharp rock edges that could cause puncture or entrapment.',
-      howToUse: [
-        'Navigate to Hazard Analysis from the Analysis menu.',
-        'Inspect detected hazard polygon count and severity distribution.',
-        'Adjust safety buffer clearance slider to expand obstacle exclusion zones.'
-      ],
-      toolsAndControls: [
-        'Safety Buffer Clearance Slider (2px - 28px).',
-        'Hazard Severity Breakdown (Critical, Moderate, Low).',
-        'Manual Obstacle Editor (Add/Remove Boulders).',
-        'Clearance Envelope Radar Inspector.'
-      ],
-      expectedOutput: 'Configured hazard exclusion zones and rock distribution statistics.',
-      realWorkflow: 'In a boulder-strewn delta region, operators increase the safety buffer to 20px to ensure wide clearance around sharp rock hazards.',
-      relatedModules: ['Risk Assessment', 'Terrain Intelligence', 'Route Laboratory']
+      title: 'Step 05: Hazard Analysis',
+      subtitle: 'Adjustable Safety Buffers (2px to 28px)',
+      icon: <ShieldAlert className="w-5 h-5 text-cyan-400" />,
+      badge: 'TERRAIN & SAFETY',
+      summary: 'Expands dynamic exclusion envelopes around detected obstacles to safeguard wheels and chassis from sharp rocks and pit perimeters.',
+      whatIsIt: 'Hazard Analysis converts raw rock detections into buffered non-traversable exclusion zones based on rover geometry and wheel clearance margins.',
+      whyImportant: 'Passing too close to a jagged rock risks wheel tearing or high-centering. Safety buffers enforce minimum bypass distances.',
+      coreCapabilities: ['Configurable buffer margins (2px to 28px)', 'Exclusion zone area percentage calculation', 'Safe travel corridor quantification'],
+      howToUse: ['Adjust the Safety Buffer slider between 2px and 28px', 'Observe exclusion envelopes expand around rock nodes on the radar canvas', 'Verify safe corridor area remains above 75%'],
+      toolsAndControls: ['Buffer Margin Slider', 'Interactive Radar Canvas', 'Safe Travel Corridor Meter'],
+      expectedOutput: 'A binary costmap where obstacles and buffer envelopes are marked strictly impassable.',
+      realWorkflow: 'Navigators set an 18px buffer margin across the rocky Jezero crater floor, ensuring the rover stays at least 1.5m away from any sharp rock face.',
+      relatedModules: ['Risk Assessment', 'Route Laboratory']
     },
     {
       id: 'risk-assessment',
-      category: 'Analysis',
+      category: 'ROVER NAVIGATION',
       workflowStep: 6,
-      title: 'Risk Assessment',
-      subtitle: 'Traversal Risk & Operational Safety Scoring (Step 06)',
-      icon: <ShieldCheck className="w-5 h-5 text-emerald-400" />,
-      badge: 'STEP 06',
-      summary: 'Comprehensive risk evaluation synthesizing slope steepness, hazard density, slip probability, and mission safety margins.',
-      whatIsIt: 'Risk Assessment is Step 06 in the workflow, calculating an aggregate mission risk score (Low, Moderate, High, Critical) based on the planned route trajectory and terrain hazards.',
-      whyImportant: 'Quantifying traverse risk allows mission directors to make informed decisions on whether to proceed, detour, or abort.',
-      howToUse: [
-        'Open Risk Assessment from the Analysis menu.',
-        'Review overall safety score and risk factor breakdown.',
-        'Identify high-risk path segments requiring operator intervention.'
-      ],
-      toolsAndControls: [
-        'Aggregate Risk Scorecard (0 - 100 Safety Index).',
-        'Slip Probability Estimator.',
-        'Safety Margin Recommendations.',
-        'Critical Point Highlighter.'
-      ],
-      expectedOutput: 'Quantitative risk score and mitigation guidelines.',
-      realWorkflow: 'Before final command uplink, the safety officer reviews Risk Assessment to verify the path score remains within green operational limits.',
-      relatedModules: ['Route Laboratory', 'Hazard Analysis', 'Scenario Testing']
+      title: 'Step 06: Risk Assessment',
+      subtitle: 'Multi-Factor Traversal Safety Index',
+      icon: <ShieldCheck className="w-5 h-5 text-cyan-400" />,
+      badge: 'TERRAIN & SAFETY',
+      summary: 'Calculates multi-factor traversal safety scores incorporating slope gradient, wheel slip probability, rock density, and sun illumination angle.',
+      whatIsIt: 'Risk Assessment synthesizes terrain roughness, slope steepness, and soil mechanics into a single quantitative Traversal Safety Score (0–100).',
+      whyImportant: 'Navigators must weigh complex multi-factor risks before committing expensive flight hardware to a path.',
+      coreCapabilities: ['Multi-factor risk weighting', 'Wheel slip probability modeling', 'Unified Traversal Safety Score (0-100)'],
+      howToUse: ['Review the unified safety score across candidate corridors', 'Check individual risk factors (Slope Risk, Slip Risk, Rock Density)', 'Ensure total safety score exceeds 80 before proceeding to route computation'],
+      toolsAndControls: ['Safety Score Gauge', 'Risk Breakdown Radar', 'Slip Probability Meter'],
+      expectedOutput: 'A quantified risk assessment score verifying traverse feasibility.',
+      realWorkflow: 'The algorithm evaluates a direct path across a sand ripple field at 64/100 (high slip risk), prompting navigators to choose a firmer 89/100 bedrock route.',
+      relatedModules: ['Route Laboratory', 'Route Comparison']
     },
-
-    // --- NAVIGATION ---
     {
       id: 'route-lab',
-      category: 'Navigation',
+      category: 'ROVER NAVIGATION',
       workflowStep: 7,
-      title: 'Route Laboratory',
-      subtitle: 'Grid-Based A* Pathfinding & Waypoint Planning (Step 07)',
+      title: 'Step 07: Route Laboratory',
+      subtitle: 'Interactive A* Pathfinding & Waypoint Editing',
       icon: <Navigation className="w-5 h-5 text-orange-400" />,
-      badge: 'STEP 07',
-      summary: 'Interactive route planning laboratory featuring grid brush tools, start/destination placement, obstacle editing, and A* path computation.',
-      whatIsIt: 'Route Laboratory is Step 07 and the central interactive pathfinding engine. Operators place start [S] and destination [D] markers, draw obstacles, select route strategies (Alpha, Beta, Gamma, Delta), and compute collision-free trajectories.',
-      whyImportant: 'Efficient and safe path planning is the core objective of MARSNAV, ensuring the rover reaches science targets with minimum energy expenditure.',
-      howToUse: [
-        'Select Route Laboratory from the Navigation menu.',
-        'Click "Set Start [S]" and click on the map to define starting coordinates.',
-        'Click "Set Destination [D]" and click target coordinates.',
-        'Choose a routing strategy (Alpha: Shortest, Beta: Low Cost, Gamma: Max Clearance, Delta: Science Detour).',
-        'Click "Plan Route" to compute the optimal A* path.'
-      ],
-      toolsAndControls: [
-        'Start & Destination Marker Tools.',
-        'Grid Brush (Draw/Erase Obstacles).',
-        'Route Strategy Selector (Alpha, Beta, Gamma, Delta).',
-        'Plan Route & Reset Controls.',
-        'Route Metrics Summary (Distance in meters, Energy in Watt-hours, Node count).'
-      ],
-      expectedOutput: 'An optimized orange/cyan route polyline connecting start to goal with complete distance and energy statistics.',
-      realWorkflow: 'An operator sets start at the current rover location, targets a Jezero delta outcrop, selects Route Gamma for maximum clearance, and clicks Plan Route to generate the safe path.',
-      relatedModules: ['Route Comparison', 'Scenario Testing', 'Risk Assessment']
+      badge: 'PATH COMPUTATION',
+      summary: 'The primary algorithmic pathfinding laboratory in MARSNAV, computing collision-free A* trajectories across costmaps with strategy trade-offs.',
+      whatIsIt: 'Route Laboratory is the computational pathfinding core of MARSNAV. It executes modified A* search across 8-connected grid matrices, finding optimal paths while avoiding obstacles and maximizing clearances.',
+      whyImportant: 'Manual waypoint placement often misses tight obstacle gaps or takes unnecessarily long routes. Algorithmic A* pathfinding guarantees mathematically optimal solutions.',
+      coreCapabilities: ['A* search with 4 distinct strategies (Alpha, Beta, Gamma, Delta)', 'Interactive Start and Goal waypoint placement', 'Real-time traverse distance, energy, and Sol duration calculations'],
+      howToUse: ['Select Strategy (e.g. Route Gamma for maximum clearance, Route Alpha for shortest distance)', 'Click "Run Pathfinding" to execute the solver', 'Inspect the resulting green trajectory and waypoint matrix'],
+      toolsAndControls: ['Strategy Selector (Alpha/Beta/Gamma/Delta)', 'Solve Button', 'Interactive 10x10 Grid Simulator', 'Telemetry Readouts'],
+      expectedOutput: 'A verified, collision-free waypoint sequence optimized for rover kinematics.',
+      realWorkflow: 'Engineers select Route Gamma to bypass a dangerous sand trap, generating a 158.4m path with a maximum collision margin of 24px.',
+      relatedModules: ['Route Comparison', 'Scenario Testing']
     },
     {
       id: 'route-comparison',
-      category: 'Navigation',
+      category: 'ROVER NAVIGATION',
       workflowStep: 8,
-      title: 'Route Comparison',
-      subtitle: 'Side-by-Side Path Trade-Off Analysis (Step 08)',
-      icon: <Route className="w-5 h-5 text-blue-400" />,
-      badge: 'STEP 08',
-      summary: 'Comparative analysis workstation evaluating multiple route alternatives across distance, energy cost, and hazard exposure.',
-      whatIsIt: 'Route Comparison is Step 08 in the workflow, allowing operators to simultaneously view and compare Alpha, Beta, Gamma, and Delta route options on a comparative metrics table and chart.',
-      whyImportant: 'Evaluating trade-offs between a shorter risky path vs. a longer safe path is critical for mission optimization.',
-      howToUse: [
-        'Open Route Comparison from the Navigation menu.',
-        'Review the comparative metrics table comparing distance (m), energy (Wh), and hazard clearance.',
-        'Select the optimal route strategy for command uplink.'
-      ],
-      toolsAndControls: [
-        'Multi-Route Metrics Table.',
-        'Energy vs. Distance Trade-Off Graph.',
-        'Strategy Recommendation Badge.',
-        'Side-by-Side Path Visualizer.'
-      ],
-      expectedOutput: 'Side-by-side comparative analysis of all computed route options.',
-      realWorkflow: 'Operators compare Route Alpha (shortest, 120m, 45Wh, high slip risk) with Route Gamma (safe detour, 155m, 58Wh, zero hazard exposure) and select Gamma.',
-      relatedModules: ['Scenario Testing', 'Route Laboratory', 'Risk Assessment']
+      title: 'Step 08: Route Comparison',
+      subtitle: 'Distance vs Energy vs Safety Trade-Offs',
+      icon: <Route className="w-5 h-5 text-orange-400" />,
+      badge: 'PATH COMPUTATION',
+      summary: 'Compares multiple candidate trajectories side-by-side, evaluating trade-offs between path length, watt-hour consumption, and collision safety margins.',
+      whatIsIt: 'Route Comparison provides a multi-criteria decision matrix allowing flight directors to evaluate 4 distinct route strategies before transmission.',
+      whyImportant: 'The shortest path is rarely the safest. Decision-makers need clear visual trade-offs between transit time, battery drain, and rock proximity.',
+      coreCapabilities: ['Side-by-side route metrics comparison', 'Energy expenditure trade-off analysis', 'Safety margin vs traverse distance scoring'],
+      howToUse: ['Review the 4-column comparison table', 'Compare Route Alpha (Shortest) against Route Gamma (Safest)', 'Select the winning trajectory to submit for validation'],
+      toolsAndControls: ['Trade-Off Matrix Table', 'Metric Comparison Bars', 'Select Strategy Button'],
+      expectedOutput: 'Clear quantitative justification for the selected traversal trajectory.',
+      realWorkflow: 'Mission planners choose Route Gamma over Route Alpha because spending an extra 16 Wh of battery reduces obstacle collision probability by 78%.',
+      relatedModules: ['Route Laboratory', 'Scenario Testing']
     },
     {
       id: 'scenario-testing',
-      category: 'Navigation',
+      category: 'ROVER NAVIGATION',
       workflowStep: 9,
-      title: 'Scenario Testing',
-      subtitle: 'Emergency Anomaly & Contingency Simulation (Step 09)',
-      icon: <AlertOctagon className="w-5 h-5 text-amber-400" />,
-      badge: 'STEP 09',
-      summary: 'Contingency testing lab simulating dust storms, battery degradation, communication dropouts, and wheel slip emergencies.',
-      whatIsIt: 'Scenario Testing is Step 09 in the workflow. It injects simulated environmental anomalies into the navigation system to test automated rover contingency responses and replanning resilience.',
-      whyImportant: 'Preparedness for unexpected Martian weather or mechanical faults ensures mission survival under adverse conditions.',
-      howToUse: [
-        'Open Scenario Testing from the Navigation menu.',
-        'Select an emergency scenario (e.g., Dust Storm Opacity Spike, Wheel Slip Spike, Power Draw Anomaly).',
-        'Execute simulation and observe system automated replanning and warning responses.'
-      ],
-      toolsAndControls: [
-        'Scenario Selector Dropdown.',
-        'Anomaly Injection Controls.',
-        'Contingency Response Log.',
-        'Emergency Fallback Path Generator.'
-      ],
-      expectedOutput: 'Real-time simulation of system response to emergency anomalies.',
-      realWorkflow: 'Safety engineers inject a dust storm scenario to verify that the energy budget calculation correctly triggers low-power mode.',
-      relatedModules: ['Validation Harness', 'Route Laboratory', 'Live NASA Stream']
+      title: 'Step 09: Scenario Testing',
+      subtitle: 'Dust Storm & Anomaly Emergency Injection',
+      icon: <AlertOctagon className="w-5 h-5 text-orange-400" />,
+      badge: 'PATH COMPUTATION',
+      summary: 'Injects simulated emergencies (sudden dust storms, wheel actuator jams, sensor dropouts) to stress-test path resilience.',
+      whatIsIt: 'Scenario Testing is the stress-testing harness where mission planners simulate unexpected anomalies along a planned trajectory.',
+      whyImportant: 'Mars is unpredictable. Verifying that a route has safe turnaround spots during a sudden dust storm or communication loss prevents mission loss.',
+      coreCapabilities: ['Anomaly injection engine (Dust storm, Wheel lock, Low battery)', 'Dynamic path re-planning under degraded conditions', 'Emergency shelter waypoint identification'],
+      howToUse: ['Select anomaly scenario to inject', 'Observe the algorithm recalculate emergency abort paths', 'Verify that the rover can reach a safe parking orientation'],
+      toolsAndControls: ['Scenario Injector Buttons', 'Degraded Telemetry View', 'Emergency Abort Path Generator'],
+      expectedOutput: 'Demonstrated trajectory resilience under severe operational anomalies.',
+      realWorkflow: 'Navigators simulate a 50% battery dropout mid-traverse, verifying that the rover automatically redirects to a south-facing slope for emergency solar recharging.',
+      relatedModules: ['Validation Harness', 'Mission Audit']
     },
 
-    // --- VALIDATION ---
+    // =========================================================================
+    // CATEGORY 6: VERIFICATION & AUDIT
+    // =========================================================================
     {
       id: 'validation-harness',
-      category: 'Validation',
+      category: 'VERIFICATION & AUDIT',
       workflowStep: 10,
-      title: 'Validation Harness',
-      subtitle: 'Automated Software Subsystem Diagnostics (Step 10)',
+      title: 'Step 10: Validation Harness',
+      subtitle: 'Automated Unit Test Diagnostics',
       icon: <Terminal className="w-5 h-5 text-emerald-400" />,
-      badge: 'STEP 10',
-      summary: 'Automated diagnostic test harness executing unit checks across pathfinding, sensor ingestion, and kinematics modules.',
-      whatIsIt: 'Validation Harness is Step 10 in the workflow, running an automated suite of system tests verifying the integrity of math solvers, grid graph generators, and coordinate transforms.',
-      whyImportant: 'Automated testing guarantees that no software regression has broken navigation math prior to deployment.',
-      howToUse: [
-        'Open Validation Harness from the Validation menu.',
-        'Click "Run Test Suite" to execute all diagnostic unit checks.',
-        'Review test pass/fail status and execution time.'
-      ],
-      toolsAndControls: [
-        'Run Diagnostics Button.',
-        'Subsystem Test Results Ledger.',
-        'Error Log & Stack Trace Inspector.',
-        'Regression Benchmark Suite.'
-      ],
-      expectedOutput: 'All tests passed (Green) confirmation across system modules.',
-      realWorkflow: 'Before every major mission planning session, the systems administrator runs Validation Harness to ensure 100% software health.',
-      relatedModules: ['Model Evaluation', 'Mission Audit', 'System Settings']
+      badge: 'VERIFICATION & AUDIT',
+      summary: 'Executes automated diagnostic test suites verifying mathematical solver convergence, coordinate conversions, and buffer envelope generation.',
+      whatIsIt: 'Validation Harness is the automated software testing framework of MARSNAV, running unit tests across mathematical solvers, API connections, and coordinate transforms.',
+      whyImportant: 'Software regressions or math rounding errors in mission control software can lead directly to rover collisions.',
+      coreCapabilities: ['Automated diagnostic test execution', 'Sub-millisecond solver latency profiling', 'Coordinate conversion accuracy verification'],
+      howToUse: ['Click "Run Diagnostics"', 'Review test results (PASS/FAIL) across all 4 core sub-engines', 'Verify total execution time is under 20ms'],
+      toolsAndControls: ['Diagnostic Runner Button', 'Test Output Matrix', 'Latency Profiler'],
+      expectedOutput: 'Green confirmation that all mathematical models are operating with 100% precision.',
+      realWorkflow: 'Prior to daily uplink, operators run the validation harness to verify that the A* matrix solver passes all 14 regression benchmarks.',
+      relatedModules: ['Model Evaluation', 'Mission Audit']
     },
     {
       id: 'model-eval',
-      category: 'Validation',
+      category: 'VERIFICATION & AUDIT',
       workflowStep: 11,
-      title: 'Model Evaluation',
-      subtitle: 'AI & Classical CV Accuracy Benchmarks (Step 11)',
-      icon: <BarChart3 className="w-5 h-5 text-indigo-400" />,
-      badge: 'STEP 11',
-      summary: 'Analytical benchmarking suite measuring computer vision precision, recall, segmentation accuracy, and inference latency.',
-      whatIsIt: 'Model Evaluation is Step 11 in the workflow, measuring the performance and accuracy of terrain classification algorithms against verified ground-truth annotations.',
-      whyImportant: 'Rigorous performance metrics ensure high confidence in automated obstacle detection.',
-      howToUse: [
-        'Open Model Evaluation from the Validation menu.',
-        'Inspect precision, recall, and F1-score benchmarks.',
-        'Review confusion matrices for rock vs. sand classification.'
-      ],
-      toolsAndControls: [
-        'Precision/Recall Metrics Dashboard.',
-        'Confusion Matrix Display.',
-        'Inference Latency Timer.',
-        'IoU (Intersection-over-Union) Inspector.'
-      ],
-      expectedOutput: 'Quantitative accuracy benchmarks for terrain segmentation.',
-      realWorkflow: 'AI researchers evaluate detection performance on newly added Navcam datasets to ensure false-positive rock rates remain below 2%.',
-      relatedModules: ['Mission Audit', 'Terrain Intelligence', 'Validation Harness']
+      title: 'Step 11: Model Evaluation',
+      subtitle: 'Precision, Recall & CV Benchmarks',
+      icon: <BarChart3 className="w-5 h-5 text-emerald-400" />,
+      badge: 'VERIFICATION & AUDIT',
+      summary: 'Benchmarks computer vision obstacle detection against verified NASA JPL AI4Mars ground-truth labeled datasets.',
+      whatIsIt: 'Model Evaluation scores the machine learning and computer vision detectors against ground-truth datasets hand-labeled by NASA scientists.',
+      whyImportant: 'Navigators need to know the exact false-positive and false-negative rates of the rock detector before trusting autonomous traversal.',
+      coreCapabilities: ['Precision, recall, and F1-score calculation', 'Confusion matrix visualization', 'Benchmarking against AI4Mars verified ground truth'],
+      howToUse: ['Inspect the model evaluation metrics card', 'Review precision (>95%) and recall (>90%) benchmarks', 'Check false-positive rates on sandy terrain'],
+      toolsAndControls: ['Confusion Matrix Display', 'Precision/Recall Gauges', 'AI4Mars Benchmark Selector'],
+      expectedOutput: 'Empirical verification of computer-vision reliability on Martian terrain.',
+      realWorkflow: 'The CV team validates that the terrain segmenter achieves a 98.4% precision rate on Jezero delta conglomerate rocks.',
+      relatedModules: ['Validation Harness', 'Mission Audit']
     },
     {
       id: 'audit',
-      category: 'Validation',
+      category: 'VERIFICATION & AUDIT',
       workflowStep: 12,
-      title: 'Mission Audit',
-      subtitle: 'Complete Operational Dossier & PDF Export (Step 12)',
-      icon: <FileSpreadsheet className="w-5 h-5 text-slate-300" />,
-      badge: 'STEP 12',
-      summary: 'Comprehensive mission audit ledger compiling all analysis results, route metrics, field notes, and one-click professional PDF report export.',
-      whatIsIt: 'Mission Audit is the culmination (Step 12) of the workflow, aggregating the entire mission history into a structured dossier format and enabling one-click professional PDF report generation via jsPDF.',
-      whyImportant: 'Maintaining a complete, traceable audit trail is essential for NASA mission reporting and post-mission analysis.',
-      howToUse: [
-        'Open Mission Audit from the Validation menu.',
-        'Review compiled mission dossier sections (Mission Info, Route Metrics, Validation Reports, Field Notes, Visual Evidence).',
-        'Click "Export Mission PDF Dossier" to download a complete formatted PDF report.'
-      ],
-      toolsAndControls: [
-        'Dossier Summary Viewer.',
-        'Export Mission PDF Dossier Button.',
-        'Traversal Log Inspector.',
-        'Cryptographic Checksum & Sign-off.'
-      ],
-      expectedOutput: 'A professionally formatted multi-page PDF mission report downloaded directly to your device.',
-      realWorkflow: 'At the conclusion of a planning session, the lead mission planner exports the Mission Audit PDF dossier to include in the daily shift report.',
-      relatedModules: ['Spatial Field Notebook', 'Route Laboratory', 'Validation Harness']
+      title: 'Step 12: Mission Audit',
+      subtitle: 'Compiled Dossier & One-Click PDF Report',
+      icon: <FileSpreadsheet className="w-5 h-5 text-emerald-400" />,
+      badge: 'VERIFICATION & AUDIT',
+      summary: 'Compiles the complete operational dossier including route metrics, hazard logs, diagnostic checksums, and exports a one-click mission PDF report.',
+      whatIsIt: 'Mission Audit is the final stage of the traversal pipeline. It compiles all inputs, telemetry, route waypoints, risk scores, and test logs into a certified mission document.',
+      whyImportant: 'Every command sent to Mars must be archived in an immutable audit trail for NASA planetary mission records.',
+      coreCapabilities: ['Automated operational dossier generation', 'Complete mathematical and coordinate checksums', 'One-click client-side PDF export'],
+      howToUse: ['Review the compiled dossier summary cards', 'Verify that all 12 pipeline steps are marked VERIFIED', 'Click "Export Mission PDF Dossier" to download the report'],
+      toolsAndControls: ['Dossier Summary Cards', 'PDF Export Generator', 'Mission Checksum Validator'],
+      expectedOutput: 'A certified multi-page PDF operational dossier ready for flight authorization.',
+      realWorkflow: 'The Lead Flight Director reviews the compiled Sol 340 dossier and signs off on telecommand uplink to the Deep Space Network.',
+      relatedModules: ['Mission Overview', 'Validation Harness']
     },
 
-    // --- ASSISTANCE ---
+    // =========================================================================
+    // CATEGORY 7: SYSTEM & AI ASSISTANCE
+    // =========================================================================
     {
       id: 'guide',
-      category: 'Assistance',
+      category: 'SYSTEM & AI',
       workflowStep: null,
       title: 'Mission Manual',
-      subtitle: 'Interactive Operating Manual & Flowchart Guide',
-      icon: <BookOpen className="w-5 h-5 text-amber-300" />,
-      badge: 'DOCS',
-      summary: 'The comprehensive interactive operating manual providing detailed operating guides for every MARSNAV module.',
-      whatIsIt: 'Mission Manual is the exact interactive training platform you are currently exploring, designed to teach operators every aspect of the MARSNAV software suite without quizzes or exams.',
-      whyImportant: 'Thorough operator training ensures safe and effective utilization of complex planetary robotics software.',
-      howToUse: [
-        'Browse manual chapters by category or search for specific terms.',
-        'Explore interactive module guides and animated workflow demonstrations.',
-        'Use quick-reference shortcuts for common operations.'
-      ],
-      toolsAndControls: [
-        'Workflow Flowchart Navigator.',
-        'All 22 Modules Library.',
-        'Architecture Navigation Map.',
-        'Quick Reference Cheatsheet.'
-      ],
-      expectedOutput: 'Clear, comprehensive operating instructions for any MARSNAV feature.',
-      realWorkflow: 'New mission team members spend their first day exploring the Mission Manual to master route planning and hazard analysis.',
-      relatedModules: ['ORBIT AI Assistant', 'System Settings', 'Mission Overview']
+      subtitle: 'Interactive Operating Manual & Learning Center',
+      icon: <BookOpen className="w-5 h-5 text-cyan-400" />,
+      badge: 'OPERATING MANUAL',
+      summary: 'Comprehensive interactive operating manual, architectural map, and live simulator for all 32 MARSNAV exploration and navigation modules.',
+      whatIsIt: 'This manual itself! It provides operators, engineers, and scientists with complete operational workflows, technical explanations, and interactive simulators.',
+      whyImportant: 'Complex planetary exploration software requires thorough, accessible documentation to ensure mission personnel understand every tool and constraint.',
+      coreCapabilities: ['Interactive workflow flowchart', 'Searchable 32-module documentation library', 'Embedded interactive hardware simulators'],
+      howToUse: ['Browse the 12-Step Traversal Pipeline or Astronaut Exploration Workflow', 'Use the search bar to find specific algorithms or tools', 'Operate embedded interactive simulators'],
+      toolsAndControls: ['Flowchart Tab', 'Modules Library', 'Architecture Map', 'Quick Reference'],
+      expectedOutput: 'Complete mastery of MARSNAV flight software capabilities.',
+      realWorkflow: 'New rover navigators spend their first week in the Mission Manual running interactive A* simulators before handling flight consoles.',
+      relatedModules: ['Mission Overview', 'ORBIT AI Assistant']
     },
     {
       id: 'orbit-terminal',
-      category: 'Assistance',
+      category: 'SYSTEM & AI',
       workflowStep: null,
       title: 'ORBIT AI Assistant',
-      subtitle: 'Planetary Robotics Expert AI Terminal',
-      icon: <Bot className="w-5 h-5 text-red-400" />,
-      badge: 'AI',
-      summary: 'Conversational AI assistant powered by Google Gemini, providing expert guidance on planetary science, rover mechanics, and software usage.',
-      whatIsIt: 'ORBIT AI Assistant is an integrated conversational LLM terminal trained on planetary robotics, Jezero Crater geology, and MARSNAV software architecture.',
-      whyImportant: 'Instant expert answers help operators resolve complex navigation or geological questions without consulting external manuals.',
-      howToUse: [
-        'Open ORBIT AI Assistant from the Assistance menu.',
-        'Type any question regarding rover kinematics, route strategies, or Jezero mineralogy.',
-        'Receive instant expert responses and command suggestions.'
-      ],
-      toolsAndControls: [
-        'Conversational Chat Input.',
-        'Prompt Suggestion Chips.',
-        'AI Response Stream & Code Formatter.',
-        'Context Sync with Active Coordinates.'
-      ],
-      expectedOutput: 'Accurate, context-aware expert answers and operational recommendations.',
-      realWorkflow: 'An operator asks ORBIT: "What is the recommended max slope limit for loose sand ripples?" and receives an instant expert explanation.',
-      relatedModules: ['Mission Manual', 'System Settings', 'Route Laboratory']
+      subtitle: 'Google Gemini Planetary Robotics Terminal',
+      icon: <Bot className="w-5 h-5 text-purple-400" />,
+      badge: 'AI ASSISTANT',
+      summary: 'Conversational mission assistant powered by Google Gemini, answering complex questions on rover kinematics, Jezero mineralogy, and path safety.',
+      whatIsIt: 'ORBIT is the intelligent mission assistant of MARSNAV. Connected to Google Gemini with autonomous fallback knowledge, it assists operators with expert engineering advice.',
+      whyImportant: 'Having an instant expert capable of synthesizing rover telemetry with published planetary science literature speeds up tactical decision-making.',
+      coreCapabilities: ['Conversational AI interface powered by Gemini 2.5 Flash', 'Planetary science and rover kinematics knowledge base', 'Autonomous fallback engine when offline'],
+      howToUse: ['Type natural language questions in the chat terminal', 'Ask about slope slip limits, CRISM mineral signatures, or A* algorithm details', 'Receive instant, structured engineering recommendations'],
+      toolsAndControls: ['Chat Input Bar', 'Conversation History Log', 'Model Selector', 'Clear Memory Button'],
+      expectedOutput: 'Actionable, scientifically grounded engineering recommendations.',
+      realWorkflow: 'An operator asks: "What is the slip probability of 14° sand dunes at Jezero Delta?", and ORBIT returns empirical wheel-soil interaction equations.',
+      relatedModules: ['Mission Manual', 'Mission Overview']
     },
     {
       id: 'settings',
-      category: 'Assistance',
+      category: 'SYSTEM & AI',
       workflowStep: null,
       title: 'System Settings',
-      subtitle: 'Preferences, Theme & System Configuration',
+      subtitle: 'Workstation Preferences & Display Cache',
       icon: <Settings className="w-5 h-5 text-slate-400" />,
-      badge: 'CONFIG',
-      summary: 'Global application preferences including dark theme customization, audio feedback, unit preferences, and API endpoints.',
-      whatIsIt: 'System Settings allows operators to customize their workstation environment, toggle audio cues, manage storage caches, and configure connection endpoints.',
-      whyImportant: 'Personalized workstation settings improve operator ergonomics and comfort during long mission shifts.',
-      howToUse: [
-        'Open System Settings from the Assistance menu.',
-        'Adjust theme preferences, units (metric vs imperial), and audio cues.',
-        'Clear local storage cache if required.'
-      ],
-      toolsAndControls: [
-        'Theme & Display Toggles.',
-        'Unit Preference Selector (Meters / Feet).',
-        'Audio Feedback Volume & SFX Toggles.',
-        'Cache Clear & Local Storage Reset Utility.'
-      ],
-      expectedOutput: 'Persisted user preferences applied across the MARSNAV workstation.',
-      realWorkflow: 'Operators adjust interface contrast and sound effects during night-shift operations in the mission control room.',
-      relatedModules: ['Mission Configuration', 'Mission Manual', 'Mission Overview']
+      badge: 'SYSTEM CONFIG',
+      summary: 'Configures client display preferences, map rendering quality, audio feedback, unit systems (metric/imperial), and clears local storage caches.',
+      whatIsIt: 'System Settings manages the personal preferences, rendering options, and local caching behavior of the MARSNAV workstation.',
+      whyImportant: 'Different operators require tailored interface contrasts, audio alert volumes, and cache management for high-stress mission shifts.',
+      coreCapabilities: ['Display theme and contrast toggles', 'Unit preference selector', 'Audio alert controls', 'Cache purge utility'],
+      howToUse: ['Adjust audio volume for mission alarms', 'Configure preferred coordinate formats', 'Clear local storage cache if required'],
+      toolsAndControls: ['Theme Toggles', 'Unit Selector', 'Audio Volume Sliders', 'Cache Reset Utility'],
+      expectedOutput: 'Persisted user preferences applied across the workstation.',
+      realWorkflow: 'Operators adjust interface contrast and alarm volume during night-shift operations in the mission control room.',
+      relatedModules: ['Mission Overview', 'Mission Configuration']
     }
   ], []);
 
@@ -719,7 +1018,7 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
         sec.subtitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
         sec.summary.toLowerCase().includes(searchQuery.toLowerCase()) ||
         sec.whatIsIt.toLowerCase().includes(searchQuery.toLowerCase());
-      
+
       const matchesCategory = selectedCategoryFilter === 'ALL' || sec.category === selectedCategoryFilter;
       return matchesSearch && matchesCategory;
     });
@@ -732,27 +1031,26 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
 
   // Active workflow step info if applicable
   const activeWorkflowStep = useMemo(() => {
-    return WORKFLOW_STEPS.find(s => s.id === selectedSectionId) || null;
-  }, [selectedSectionId]);
+    return currentWorkflowSteps.find(s => s.id === selectedSectionId) || null;
+  }, [currentWorkflowSteps, selectedSectionId]);
 
   // Previous and next workflow steps for navigation
   const prevWorkflowStep = useMemo(() => {
     if (!activeWorkflowStep) return null;
-    const currentIndex = WORKFLOW_STEPS.findIndex(s => s.step === activeWorkflowStep.step);
-    return currentIndex > 0 ? WORKFLOW_STEPS[currentIndex - 1] : null;
-  }, [activeWorkflowStep]);
+    const currentIndex = currentWorkflowSteps.findIndex(s => s.step === activeWorkflowStep.step);
+    return currentIndex > 0 ? currentWorkflowSteps[currentIndex - 1] : null;
+  }, [activeWorkflowStep, currentWorkflowSteps]);
 
   const nextWorkflowStep = useMemo(() => {
     if (!activeWorkflowStep) return null;
-    const currentIndex = WORKFLOW_STEPS.findIndex(s => s.step === activeWorkflowStep.step);
-    return currentIndex < WORKFLOW_STEPS.length - 1 ? WORKFLOW_STEPS[currentIndex + 1] : null;
-  }, [activeWorkflowStep]);
+    const currentIndex = currentWorkflowSteps.findIndex(s => s.step === activeWorkflowStep.step);
+    return currentIndex < currentWorkflowSteps.length - 1 ? currentWorkflowSteps[currentIndex + 1] : null;
+  }, [activeWorkflowStep, currentWorkflowSteps]);
 
   // Helper to run simulated A* path calculation
   const handleSolveRoute = () => {
     setIsSolvingRoute(true);
     setTimeout(() => {
-      // Set new path variation
       if (selectedStrategy === 'Alpha') {
         setActiveRoutePath([0, 1, 2, 3, 14, 25, 36, 47, 58, 69, 79, 88]);
       } else if (selectedStrategy === 'Beta') {
@@ -763,7 +1061,7 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
         setActiveRoutePath([0, 1, 12, 22, 32, 33, 34, 44, 54, 66, 77, 88]);
       }
       setIsSolvingRoute(false);
-    }, 600);
+    }, 500);
   };
 
   const handleRunDiagnostics = () => {
@@ -772,10 +1070,19 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
     setTimeout(() => {
       setDiagnosticRunning(false);
       setDiagnosticDone(true);
-    }, 900);
+    }, 700);
   };
 
-  const categories = ['ALL', 'Mission', 'Analysis', 'Navigation', 'Validation', 'Assistance'];
+  const categories = [
+    'ALL',
+    'ASTRONAUT SURFACE OPERATIONS',
+    'MARS ENVIRONMENT & SCIENCE',
+    'ASTRONAUT MOBILITY & NAVIGATION',
+    'MISSION DATA & FIELD OPERATIONS',
+    'ROVER NAVIGATION',
+    'VERIFICATION & AUDIT',
+    'SYSTEM & AI'
+  ];
 
   useEffect(() => {
     if (!isOpen) return;
@@ -788,7 +1095,6 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Unconditional return rule: all hooks are mounted above
   if (!isOpen) return null;
 
   return (
@@ -798,9 +1104,8 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-[#050814] border border-white/20 rounded-3xl w-full max-w-[1480px] h-[94vh] flex flex-col overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.95)]"
+        className="bg-[#050814] border border-white/20 rounded-3xl w-full max-w-[1540px] h-[94vh] flex flex-col overflow-hidden shadow-[0_30px_90px_rgba(0,0,0,0.95)]"
       >
-        
         {/* Top Header Bar */}
         <div className="h-16 bg-[#04060f] border-b border-white/10 px-5 sm:px-6 flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3.5">
@@ -813,7 +1118,7 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                   MARSNAV — Interactive Operating Manual
                 </h2>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-                  Mission Control Standard v4.0
+                  Mission Control Standard v4.5
                 </span>
                 <span className="hidden lg:inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
@@ -821,7 +1126,7 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                 </span>
               </div>
               <p className="text-slate-400 text-xs font-mono hidden sm:block">
-                Professional NASA mission-control software manual &amp; interactive workflow learning center
+                Professional NASA mission-control software manual &amp; astronaut exploration learning center
               </p>
             </div>
           </div>
@@ -859,7 +1164,7 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
               }`}
             >
               <Workflow className="w-4 h-4 text-orange-300" />
-              <span>Mission Workflow Flowchart</span>
+              <span>Mission Workflows</span>
               <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/40 text-orange-200">12 Steps</span>
             </button>
 
@@ -872,7 +1177,7 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
               }`}
             >
               <BookMarked className="w-4 h-4 text-cyan-300" />
-              <span>All 22 Modules Library</span>
+              <span>All {manualSections.length} Modules Library</span>
             </button>
 
             <button
@@ -909,7 +1214,7 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                 }}
                 className="px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold transition cursor-pointer flex items-center gap-2 shadow-lg"
               >
-                <span>Launch in MARSNAV</span>
+                <span>OPEN MODULE IN MARSNAV</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </button>
             )}
@@ -918,51 +1223,69 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
 
         {/* Main Workspace Body */}
         <div className="flex-1 flex overflow-hidden">
-          
           {/* ======================================================== */}
           {/* VIEW 1: HERO MISSION WORKFLOW FLOWCHART (INTERACTIVE)    */}
           {/* ======================================================== */}
           {currentView === 'flowchart' ? (
             <div className="flex-1 flex flex-col lg:flex-row overflow-hidden bg-[#030611]">
-              
               {/* Left Flowchart Track & Stepper Canvas */}
               <div className="w-full lg:w-[480px] xl:w-[540px] border-r border-white/10 bg-[#040817] flex flex-col shrink-0 overflow-hidden">
-                
-                {/* Flowchart Control Header */}
-                <div className="p-4 border-b border-white/10 bg-[#050a1d] flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center space-x-2 text-xs font-mono font-bold text-orange-400 uppercase tracking-wider">
+                {/* Workflow Pipeline Switcher Header */}
+                <div className="p-4 border-b border-white/10 bg-[#050a1d] space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-bold text-orange-400 uppercase tracking-wider flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5" />
-                      <span>12-Step Traversal Pipeline</span>
-                    </div>
-                    <p className="text-[11px] text-slate-400 font-mono mt-0.5">
-                      Click any step below to inspect tools, instructions &amp; live interactive simulator
-                    </p>
-                  </div>
-                  <div className="flex items-center space-x-1.5 font-mono text-[10px]">
-                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      <span>Interactive Traversal Pipeline</span>
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                       Sequential A*
                     </span>
+                  </div>
+
+                  {/* Pipeline Toggle Tabs: Rover vs Astronaut Surface Exploration */}
+                  <div className="grid grid-cols-2 gap-1.5 bg-black/60 p-1 rounded-xl border border-white/10 font-mono text-xs">
+                    <button
+                      onClick={() => {
+                        setActiveWorkflowPipeline('rover');
+                        setSelectedSectionId(ROVER_WORKFLOW_STEPS[0].id);
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg font-bold transition cursor-pointer text-center ${
+                        activeWorkflowPipeline === 'rover'
+                          ? 'bg-orange-500 text-white shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Rover 12-Step Pipeline
+                    </button>
+                    <button
+                      onClick={() => {
+                        setActiveWorkflowPipeline('astronaut');
+                        setSelectedSectionId(ASTRONAUT_WORKFLOW_STEPS[0].id);
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg font-bold transition cursor-pointer text-center ${
+                        activeWorkflowPipeline === 'astronaut'
+                          ? 'bg-cyan-600 text-white shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Astronaut Surface EVA
+                    </button>
                   </div>
                 </div>
 
                 {/* Vertical Scrollable Flowchart Nodes List */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 relative">
-                  
-                  {WORKFLOW_STEPS.map((wf, idx) => {
+                  {currentWorkflowSteps.map((wf, idx) => {
                     const isSelected = selectedSectionId === wf.id;
-                    const isLast = idx === WORKFLOW_STEPS.length - 1;
+                    const isLast = idx === currentWorkflowSteps.length - 1;
 
                     return (
                       <div key={wf.id} className="relative group">
-                        
-                        {/* Connecting Line between steps */}
                         {!isLast && (
                           <div className="absolute left-6 top-13 bottom-[-14px] w-0.5 z-0">
                             <div className={`w-full h-full transition-colors duration-300 ${
                               isSelected ? 'bg-gradient-to-b from-orange-500 to-cyan-500 shadow-[0_0_8px_rgba(249,115,22,0.6)]' : 'bg-white/15'
                             }`} />
-                            {/* Animated light pulse traveling down when selected */}
                             {isSelected && (
                               <div className="w-2 h-2 rounded-full bg-cyan-400 -left-[3px] absolute animate-bounce shadow-[0_0_10px_rgba(6,182,212,1)]" />
                             )}
@@ -979,7 +1302,6 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                           }`}
                         >
                           <div className="flex items-center space-x-3.5 min-w-0">
-                            {/* Step Number Circle */}
                             <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-mono font-bold text-xs shrink-0 transition-transform ${
                               isSelected
                                 ? 'bg-orange-500 text-white shadow-[0_0_15px_rgba(249,115,22,0.8)] scale-110'
@@ -988,7 +1310,6 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                               {wf.step < 10 ? `0${wf.step}` : wf.step}
                             </div>
 
-                            {/* Node Metadata */}
                             <div className="min-w-0">
                               <div className="flex items-center space-x-2">
                                 <span className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border ${wf.phaseColor}`}>
@@ -1017,13 +1338,11 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                             isSelected ? 'text-orange-400 translate-x-1' : 'text-slate-500 group-hover:text-slate-300'
                           }`} />
                         </div>
-
                       </div>
                     );
                   })}
                 </div>
 
-                {/* Bottom Footer Info */}
                 <div className="p-3 bg-[#040715] border-t border-white/10 text-[11px] font-mono text-slate-400 flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-400" />
@@ -1041,7 +1360,6 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
 
               {/* Right Detail & Interactive Demonstration Panel */}
               <div className="flex-1 overflow-y-auto p-5 sm:p-7 space-y-6 bg-[#030611] text-slate-200">
-                
                 {/* Header Banner for Selected Node */}
                 <div className="p-6 rounded-3xl bg-gradient-to-r from-[#0d162f] via-[#091024] to-[#050a18] border border-white/15 relative overflow-hidden shadow-2xl">
                   <div className="absolute top-0 right-0 w-80 h-80 bg-orange-500/5 rounded-full blur-3xl pointer-events-none" />
@@ -1105,7 +1423,7 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                       <span>Live Interactive Demonstration — {activeSection.title}</span>
                     </div>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-orange-500/10 text-orange-300 border border-orange-500/20">
-                      Real-Time Hardware Simulator
+                      Real-Time Operational Simulator
                     </span>
                   </div>
 
@@ -1144,7 +1462,6 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                           </button>
                           <button
                             onClick={() => {
-                              // Toggle random obstacles
                               setGridObstacles(prev => prev.length > 5 ? [14, 25, 36, 47, 58] : [12, 13, 23, 24, 35, 45, 55, 62, 63, 64]);
                               handleSolveRoute();
                             }}
@@ -1205,9 +1522,7 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                             </div>
                             <div className="p-3 rounded-xl bg-white/5 border border-white/10">
                               <div className="text-[10px] text-slate-400">EST. SOL TIME</div>
-                              <div className="text-base font-bold text-amber-300 mt-0.5">
-                                19 min 40s
-                              </div>
+                              <div className="text-base font-bold text-amber-300 mt-0.5">19 min 40s</div>
                             </div>
                           </div>
 
@@ -1219,257 +1534,532 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                     </div>
                   )}
 
-                  {/* 2. HAZARD ANALYSIS BUFFER RADAR */}
-                  {selectedSectionId === 'hazard-analysis' && (
-                    <div className="space-y-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono text-slate-300">
-                        <div className="flex items-center gap-3">
-                          <span>Safety Buffer Margin:</span>
-                          <span className="text-orange-400 font-bold text-sm">{safetyBufferPx} px ({safetyBufferPx * 0.25} meters)</span>
+                  {/* ASTRONAUT 1. SURFACE MISSION DASHBOARD DEMO */}
+                  {selectedSectionId === 'surface-dashboard' && (
+                    <div className="space-y-4 font-mono text-xs">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setEvaIsRunning(!evaIsRunning)}
+                            className="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            {evaIsRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                            <span>{evaIsRunning ? 'Pause EVA Clock' : 'Resume EVA Clock'}</span>
+                          </button>
+                          <button
+                            onClick={() => setEvaDurationSec(3600)}
+                            className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 cursor-pointer"
+                          >
+                            Reset
+                          </button>
                         </div>
-                        <div className="text-slate-400 text-xs">
-                          Exclusion Envelope expands around boulders to safeguard rover wheels.
+                        <div className="text-cyan-400 font-bold text-sm">
+                          EVA Duration: {Math.floor(evaDurationSec / 3600)}h {Math.floor((evaDurationSec % 3600) / 60)}m {evaDurationSec % 60}s
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-4">
-                        <span className="text-xs font-mono text-slate-400">2px</span>
-                        <input
-                          type="range"
-                          min="2"
-                          max="28"
-                          value={safetyBufferPx}
-                          onChange={e => setSafetyBufferPx(Number(e.target.value))}
-                          className="flex-1 accent-orange-500 h-2 bg-black/60 rounded-lg cursor-pointer"
-                        />
-                        <span className="text-xs font-mono text-slate-400">28px</span>
-                      </div>
-
-                      <div className="p-4 rounded-2xl bg-black/60 border border-white/10 flex flex-col md:flex-row items-center gap-6">
-                        {/* Interactive Radar SVG */}
-                        <div className="w-48 h-48 rounded-2xl bg-[#040815] border border-cyan-500/30 relative flex items-center justify-center shrink-0 overflow-hidden shadow-inner">
-                          {/* Radial grid circles */}
-                          <div className="absolute w-40 h-40 rounded-full border border-cyan-500/15" />
-                          <div className="absolute w-28 h-28 rounded-full border border-cyan-500/20" />
-                          <div className="absolute w-16 h-16 rounded-full border border-cyan-500/30" />
-                          
-                          {/* Central Rover Node */}
-                          <div className="w-3.5 h-3.5 rounded-full bg-cyan-400 z-10 shadow-[0_0_12px_rgba(6,182,212,1)]" />
-
-                          {/* Boulders with dynamic buffer rings */}
-                          {[
-                            { x: 35, y: 40, r: 4 },
-                            { x: 130, y: 45, r: 6 },
-                            { x: 140, y: 130, r: 5 },
-                            { x: 50, y: 135, r: 7 }
-                          ].map((boulder, bIdx) => (
-                            <div
-                              key={bIdx}
-                              className="absolute flex items-center justify-center"
-                              style={{ left: boulder.x, top: boulder.y }}
-                            >
-                              {/* Buffer Ring */}
-                              <div
-                                className="absolute rounded-full border border-orange-500/60 bg-orange-500/15 transition-all duration-150 pointer-events-none"
-                                style={{
-                                  width: boulder.r * 2 + safetyBufferPx * 2.2,
-                                  height: boulder.r * 2 + safetyBufferPx * 2.2
-                                }}
-                              />
-                              {/* Boulder Core */}
-                              <div
-                                className="rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)] z-10"
-                                style={{ width: boulder.r * 2, height: boulder.r * 2 }}
-                              />
-                            </div>
-                          ))}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="p-3 bg-black/50 rounded-xl border border-white/10 space-y-1">
+                          <span className="text-[10px] text-slate-400 uppercase">Suit Pressure</span>
+                          <div className="text-lg font-bold text-emerald-400">29.6 kPa</div>
+                          <span className="text-[10px] text-slate-500">Pure O2 (Nominal)</span>
                         </div>
-
-                        {/* Readouts */}
-                        <div className="flex-1 space-y-2.5 font-mono text-xs">
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                            <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-                              <div className="text-[10px] text-slate-400">DETECTED ROCKS</div>
-                              <div className="text-base font-bold text-amber-400 mt-0.5">14 Features</div>
-                            </div>
-                            <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-                              <div className="text-[10px] text-slate-400">EXCLUSION AREA</div>
-                              <div className="text-base font-bold text-orange-400 mt-0.5">{(12.5 + safetyBufferPx * 0.8).toFixed(1)}%</div>
-                            </div>
-                            <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-                              <div className="text-[10px] text-slate-400">SAFE TRAVEL CORRIDOR</div>
-                              <div className="text-base font-bold text-emerald-400 mt-0.5">{(87.5 - safetyBufferPx * 0.8).toFixed(1)}%</div>
-                            </div>
-                          </div>
-                          <p className="text-slate-300 text-xs font-sans leading-relaxed">
-                            Increasing the buffer expands exclusion zones around sharp rock edges, forcing pathfinding into wider safety corridors. Recommended setting for Jezero Delta is 14px to 18px.
-                          </p>
+                        <div className="p-3 bg-black/50 rounded-xl border border-white/10 space-y-1">
+                          <span className="text-[10px] text-slate-400 uppercase">Oxygen Reserves</span>
+                          <div className="text-lg font-bold text-cyan-400">{astronautSuitO2}%</div>
+                          <span className="text-[10px] text-slate-500">5.2 Hours Remaining</span>
+                        </div>
+                        <div className="p-3 bg-black/50 rounded-xl border border-white/10 space-y-1">
+                          <span className="text-[10px] text-slate-400 uppercase">Astronaut Heart Rate</span>
+                          <div className="text-lg font-bold text-amber-400">{astronautHeartRate} BPM</div>
+                          <span className="text-[10px] text-slate-500">Metabolic: 280 kcal/hr</span>
+                        </div>
+                        <div className="p-3 bg-black/50 rounded-xl border border-white/10 space-y-1">
+                          <span className="text-[10px] text-slate-400 uppercase">DSN Comms RSSI</span>
+                          <div className="text-lg font-bold text-purple-400">-68 dBm</div>
+                          <span className="text-[10px] text-slate-500">Latency: 14.2 min RTT</span>
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {/* 3. MISSION CONFIGURATION PARAMETER SIMULATOR */}
-                  {selectedSectionId === 'configuration' && (
-                    <div className="space-y-4 font-mono text-xs text-slate-300">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="p-4 rounded-2xl bg-black/50 border border-white/10 space-y-2">
-                          <div className="flex justify-between">
-                            <span>Max Traversable Slope:</span>
-                            <span className="text-orange-400 font-bold">{roverMaxSlope}°</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="5"
-                            max="25"
-                            value={roverMaxSlope}
-                            onChange={e => setRoverMaxSlope(Number(e.target.value))}
-                            className="w-full accent-orange-500 h-2 bg-black/60 rounded-lg cursor-pointer"
-                          />
-                          <div className="flex justify-between text-[10px] text-slate-400">
-                            <span>5° (Ultra Safe)</span>
-                            <span>14° (Nominal)</span>
-                            <span>25° (Critical Tipping)</span>
-                          </div>
+                  {/* ASTRONAUT 2. MISSION SCIENCE PLANNER DEMO */}
+                  {selectedSectionId === 'science-planner' && (
+                    <div className="space-y-4 font-mono text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="p-3 bg-black/50 rounded-xl border border-white/10 space-y-1.5">
+                          <span className="text-[10px] text-slate-400 uppercase block">1. Research Target</span>
+                          <select
+                            value={selectedScienceTarget}
+                            onChange={e => setSelectedScienceTarget(e.target.value as any)}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-cyan-300 font-bold"
+                          >
+                            <option value="delta_fan">Jezero Delta Fan Mudstone</option>
+                            <option value="crater_rim">Belva Crater Rim Carbonates</option>
+                            <option value="sulfate_margin">Hydrated Sulfate Margin</option>
+                          </select>
                         </div>
 
-                        <div className="p-4 rounded-2xl bg-black/50 border border-white/10 space-y-2">
-                          <div className="flex justify-between">
-                            <span>Battery Energy Reserve:</span>
-                            <span className="text-cyan-400 font-bold">{roverBatteryWh} Wh</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="1200"
-                            max="3600"
-                            step="100"
-                            value={roverBatteryWh}
-                            onChange={e => setRoverBatteryWh(Number(e.target.value))}
-                            className="w-full accent-cyan-500 h-2 bg-black/60 rounded-lg cursor-pointer"
-                          />
-                          <div className="flex justify-between text-[10px] text-slate-400">
-                            <span>1,200 Wh</span>
-                            <span>2,400 Wh (Nominal)</span>
-                            <span>3,600 Wh (Full)</span>
+                        <div className="p-3 bg-black/50 rounded-xl border border-white/10 space-y-1.5">
+                          <span className="text-[10px] text-slate-400 uppercase block">2. Instrument Allocation</span>
+                          <select
+                            value={scienceInstrument}
+                            onChange={e => setScienceInstrument(e.target.value as any)}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-purple-300 font-bold"
+                          >
+                            <option value="SuperCam">SuperCam Laser (LIBS)</option>
+                            <option value="SHERLOC">SHERLOC UV Raman</option>
+                            <option value="PIXL">PIXL Micro-XRF</option>
+                          </select>
+                        </div>
+
+                        <div className="p-3 bg-black/50 rounded-xl border border-white/10 space-y-1.5">
+                          <span className="text-[10px] text-slate-400 uppercase block">3. Target Priority</span>
+                          <div className="flex gap-1.5 pt-0.5">
+                            <button
+                              onClick={() => setSciencePriority('PRIMARY')}
+                              className={`flex-1 py-1 rounded-lg font-bold ${sciencePriority === 'PRIMARY' ? 'bg-orange-500 text-white' : 'bg-slate-900 text-slate-400'}`}
+                            >
+                              Primary
+                            </button>
+                            <button
+                              onClick={() => setSciencePriority('SECONDARY')}
+                              className={`flex-1 py-1 rounded-lg font-bold ${sciencePriority === 'SECONDARY' ? 'bg-orange-500 text-white' : 'bg-slate-900 text-slate-400'}`}
+                            >
+                              Secondary
+                            </button>
                           </div>
                         </div>
                       </div>
 
-                      <div className="p-3.5 rounded-xl bg-white/5 border border-white/10 flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-400">Computed Range Envelope:</span>
-                          <span className="text-emerald-400 font-bold text-sm">{(roverBatteryWh / 18.5).toFixed(1)} meters</span>
+                      <div className="p-4 bg-purple-950/20 border border-purple-500/30 rounded-xl space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-purple-300 font-bold">Planned Science Timeline Sequence</span>
+                          <span className="text-emerald-400 font-bold">Total Duration: 55 Minutes</span>
                         </div>
+                        <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-300">
+                          <div className="p-2 bg-black/40 rounded border border-white/5">
+                            <strong>00-15m:</strong> Context imaging &amp; stand-off Raman scan.
+                          </div>
+                          <div className="p-2 bg-black/40 rounded border border-white/5">
+                            <strong>15-35m:</strong> Abrasion patch cleaning &amp; XRF mapping.
+                          </div>
+                          <div className="p-2 bg-black/40 rounded border border-white/5">
+                            <strong>35-55m:</strong> Hermetic sample core extraction to Tube #12.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ASTRONAUT 3. MARS SURFACE EXPLORER DEMO */}
+                  {selectedSectionId === 'surface-explorer' && (
+                    <div className="space-y-4 font-mono text-xs">
+                      <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="text-slate-400">Slope Tipping Margin:</span>
-                          <span className={`font-bold ${roverMaxSlope > 18 ? 'text-red-400' : 'text-emerald-400'}`}>
-                            {roverMaxSlope > 18 ? 'WARNING (Steep Grade)' : 'NOMINAL (Safe Clearance)'}
+                          <span className="text-slate-400">Inspect Science Waypoint:</span>
+                          {['Kodiak Butte', 'Delta Scarp', 'Belva Rim'].map(poi => (
+                            <button
+                              key={poi}
+                              onClick={() => setSelectedPoiName(poi)}
+                              className={`px-3 py-1 rounded-lg border cursor-pointer ${
+                                selectedPoiName === poi ? 'bg-cyan-600 text-white border-cyan-400 font-bold' : 'bg-slate-900 text-slate-400 border-white/10'
+                              }`}
+                            >
+                              {poi}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-cyan-300">
+                          <Compass className="w-3.5 h-3.5" />
+                          <span>MOLA Datum: -2,540 m (Areoid)</span>
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-slate-950 rounded-xl border border-cyan-500/30 grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="p-3 bg-black/50 rounded-lg">
+                          <span className="text-slate-500 text-[10px] block">TARGET FEATURE</span>
+                          <span className="text-white font-bold text-sm">{selectedPoiName}</span>
+                        </div>
+                        <div className="p-3 bg-black/50 rounded-lg">
+                          <span className="text-slate-500 text-[10px] block">STRATIGRAPHIC AGE</span>
+                          <span className="text-amber-300 font-bold">Late Noachian (~3.8 Ga)</span>
+                        </div>
+                        <div className="p-3 bg-black/50 rounded-lg">
+                          <span className="text-slate-500 text-[10px] block">SCIENTIFIC SIGNIFICANCE</span>
+                          <span className="text-emerald-400 font-bold">Deltaic sediment fan deposits</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ASTRONAUT 4. MULTILAYER DATA FUSION DEMO */}
+                  {selectedSectionId === 'multilayer-map' && (
+                    <div className="space-y-4 font-mono text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-slate-400">Toggle Overlays:</span>
+                          <button
+                            onClick={() => setDemoLayerTrek(!demoLayerTrek)}
+                            className={`px-2.5 py-1 rounded border cursor-pointer ${demoLayerTrek ? 'bg-cyan-600 text-white border-cyan-400' : 'bg-slate-900 text-slate-500 border-slate-800'}`}
+                          >
+                            CTX Optical
+                          </button>
+                          <button
+                            onClick={() => setDemoLayerHillshade(!demoLayerHillshade)}
+                            className={`px-2.5 py-1 rounded border cursor-pointer ${demoLayerHillshade ? 'bg-cyan-600 text-white border-cyan-400' : 'bg-slate-900 text-slate-500 border-slate-800'}`}
+                          >
+                            HRSC Hillshade
+                          </button>
+                          <button
+                            onClick={() => setDemoLayerThemis(!demoLayerThemis)}
+                            className={`px-2.5 py-1 rounded border cursor-pointer ${demoLayerThemis ? 'bg-cyan-600 text-white border-cyan-400' : 'bg-slate-900 text-slate-500 border-slate-800'}`}
+                          >
+                            THEMIS IR
+                          </button>
+                          <button
+                            onClick={() => setDemoLayerGeology(!demoLayerGeology)}
+                            className={`px-2.5 py-1 rounded border cursor-pointer ${demoLayerGeology ? 'bg-purple-600 text-white border-purple-400' : 'bg-slate-900 text-slate-500 border-slate-800'}`}
+                          >
+                            SIM 3292 Geology
+                          </button>
+                          <button
+                            onClick={() => setDemoLayerDetections(!demoLayerDetections)}
+                            className={`px-2.5 py-1 rounded border cursor-pointer ${demoLayerDetections ? 'bg-emerald-600 text-white border-emerald-400' : 'bg-slate-900 text-slate-500 border-slate-800'}`}
+                          >
+                            CV Bounding Boxes
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">Opacity:</span>
+                          <input
+                            type="range"
+                            min="0.1"
+                            max="1"
+                            step="0.05"
+                            value={demoFusionOpacity}
+                            onChange={e => setDemoFusionOpacity(Number(e.target.value))}
+                            className="w-24 accent-cyan-400"
+                          />
+                          <span className="text-cyan-300">{Math.round(demoFusionOpacity * 100)}%</span>
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-slate-950 rounded-xl border border-white/10 flex items-center justify-between text-[11px] text-slate-300">
+                        <div className="flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-cyan-400" />
+                          <span>Active Compositor: <strong>{demoLayerTrek ? 'CTX 6m' : 'Base'} + {demoLayerGeology ? 'USGS SIM 3292' : 'None'}</strong></span>
+                        </div>
+                        <span className="text-emerald-400 font-bold">Zero Text Collision Mode Active</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ASTRONAUT 5. SAFETY & ENVIRONMENT DEMO */}
+                  {selectedSectionId === 'safety-monitoring' && (
+                    <div className="space-y-4 font-mono text-xs">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="p-4 bg-black/50 rounded-xl border border-white/10 space-y-2">
+                          <div className="flex justify-between">
+                            <span>Dust Opacity (Tau):</span>
+                            <span className="text-amber-400 font-bold">{demoDustTau.toFixed(2)} Tau</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0.1"
+                            max="2.5"
+                            step="0.05"
+                            value={demoDustTau}
+                            onChange={e => setDemoDustTau(Number(e.target.value))}
+                            className="w-full accent-amber-500"
+                          />
+                          <div className="flex justify-between text-[10px] text-slate-500">
+                            <span>0.1 (Clear Sky)</span>
+                            <span>1.0 (Haze)</span>
+                            <span>2.5 (Severe Dust Storm)</span>
+                          </div>
+                        </div>
+
+                        <div className="p-4 bg-black/50 rounded-xl border border-white/10 space-y-2">
+                          <div className="flex justify-between">
+                            <span>Diurnal Ambient Temperature:</span>
+                            <span className="text-cyan-400 font-bold">{demoAtmosTemp}°C</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="-85"
+                            max="5"
+                            step="1"
+                            value={demoAtmosTemp}
+                            onChange={e => setDemoAtmosTemp(Number(e.target.value))}
+                            className="w-full accent-cyan-500"
+                          />
+                          <div className="flex justify-between text-[10px] text-slate-500">
+                            <span>-85°C (Night Min)</span>
+                            <span>-55°C (Mean)</span>
+                            <span>+5°C (Summer Peak)</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className={`p-3 rounded-xl border font-bold flex items-center justify-between ${
+                        demoDustTau > 1.2 ? 'bg-red-950/40 border-red-500/60 text-red-300' : 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
+                      }`}>
+                        <span>Hazard Status: {demoDustTau > 1.2 ? 'DUST STORM CAUTION — Solar Array Output Down 65%' : 'ATMOSPHERE NOMINAL — 742 Pa Surface Pressure'}</span>
+                        <span>Safety Index: {demoDustTau > 1.2 ? '54/100' : '92/100'}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ASTRONAUT 6. GEOLOGICAL TARGETS DEMO */}
+                  {selectedSectionId === 'geological-targets' && (
+                    <div className="space-y-4 font-mono text-xs">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {[
+                          { id: 'smectite_clay', name: 'Smectite Clay Member', min: 'Fe/Mg Phyllosilicates', score: 96 },
+                          { id: 'magnesite_carb', name: 'Magnesite Carbonate Rim', min: 'Precipitated Carbonates', score: 91 },
+                          { id: 'hydrated_sulfate', name: 'Hydrated Sulfate Margin', min: 'Evaporite Sulfates', score: 84 }
+                        ].map(t => (
+                          <div
+                            key={t.id}
+                            onClick={() => setSelectedMineralTarget(t.id as any)}
+                            className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                              selectedMineralTarget === t.id
+                                ? 'bg-pink-950/40 border-pink-500 shadow-md'
+                                : 'bg-slate-900/60 border-slate-800'
+                            }`}
+                          >
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="font-bold text-white">{t.name}</span>
+                              <span className="text-pink-400 font-bold">{t.score}/100</span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 block">{t.min}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="p-3 bg-slate-950 rounded-xl border border-white/10 flex items-center justify-between">
+                        <span>Investigation Status: <strong>{targetInvestigationStatus}</strong></span>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setTargetInvestigationStatus('Identified')}
+                            className="px-2 py-1 rounded bg-slate-800 text-slate-300 hover:text-white"
+                          >
+                            Identified
+                          </button>
+                          <button
+                            onClick={() => setTargetInvestigationStatus('In Progress')}
+                            className="px-2 py-1 rounded bg-amber-600 text-white"
+                          >
+                            In Progress
+                          </button>
+                          <button
+                            onClick={() => setTargetInvestigationStatus('Sample Cached')}
+                            className="px-2 py-1 rounded bg-emerald-600 text-white"
+                          >
+                            Sample Cached
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ASTRONAUT 7. SUIT MOBILITY DEMO */}
+                  {selectedSectionId === 'suit-mobility' && (
+                    <div className="space-y-4 font-mono text-xs">
+                      <div className="p-4 bg-black/50 rounded-xl border border-white/10 space-y-2">
+                        <div className="flex justify-between">
+                          <span>Terrain Incline Slope:</span>
+                          <span className="text-emerald-400 font-bold">{suitSlopeDeg}°</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="25"
+                          value={suitSlopeDeg}
+                          onChange={e => {
+                            const sl = Number(e.target.value);
+                            setSuitSlopeDeg(sl);
+                            setAstronautPaceKmH(Math.max(0.6, 3.8 - sl * 0.14));
+                          }}
+                          className="w-full accent-emerald-500"
+                        />
+                        <div className="flex justify-between text-[10px] text-slate-500">
+                          <span>0° (Flat Pavement)</span>
+                          <span>12° (Nominal Grade)</span>
+                          <span>25° (Critical Tipping Limit)</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="p-3 bg-slate-900/60 rounded-xl border border-white/10">
+                          <span className="text-[10px] text-slate-400 block">WALKING SPEED</span>
+                          <span className="text-base font-bold text-cyan-400">{astronautPaceKmH.toFixed(1)} km/h</span>
+                        </div>
+                        <div className="p-3 bg-slate-900/60 rounded-xl border border-white/10">
+                          <span className="text-[10px] text-slate-400 block">METABOLIC WORKLOAD</span>
+                          <span className="text-base font-bold text-amber-400">{Math.round(200 + suitSlopeDeg * 16)} kcal/hr</span>
+                        </div>
+                        <div className="p-3 bg-slate-900/60 rounded-xl border border-white/10">
+                          <span className="text-[10px] text-slate-400 block">SUIT JOINT TORQUE</span>
+                          <span className="text-base font-bold text-purple-400">{Math.round(45 + suitSlopeDeg * 2.8)} Nm</span>
+                        </div>
+                        <div className="p-3 bg-slate-900/60 rounded-xl border border-white/10">
+                          <span className="text-[10px] text-slate-400 block">FATIGUE MARGIN</span>
+                          <span className={`text-base font-bold ${suitSlopeDeg > 15 ? 'text-red-400' : 'text-emerald-400'}`}>
+                            {suitSlopeDeg > 15 ? 'HIGH STRAIN' : 'NOMINAL'}
                           </span>
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {/* 4. TERRAIN INTELLIGENCE CV SIMULATOR */}
-                  {selectedSectionId === 'terrain-intelligence' && (
-                    <div className="space-y-4 font-mono text-xs text-slate-300">
-                      <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                        <span className="text-slate-400 shrink-0">CV Mode:</span>
-                        {(['edge', 'slope', 'contour', 'raw'] as const).map(mode => (
-                          <button
-                            key={mode}
-                            onClick={() => setActiveCvFilter(mode)}
-                            className={`px-3 py-1.5 rounded-xl border transition cursor-pointer text-xs uppercase ${
-                              activeCvFilter === mode
-                                ? 'bg-cyan-600 text-white border-cyan-400 font-bold shadow'
-                                : 'bg-black/40 text-slate-400 border-white/10 hover:border-white/20'
-                            }`}
-                          >
-                            {mode === 'edge' ? 'Sobel Edge Detection' : mode === 'slope' ? 'Slope Gradient Heatmap' : mode === 'contour' ? 'Contour Polygon Mask' : 'Raw Composite'}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="p-4 rounded-2xl bg-black/60 border border-white/10 flex flex-col sm:flex-row items-center gap-6">
-                        {/* Filtered Mars Terrain Simulation Swatch */}
-                        <div className={`w-48 h-32 rounded-xl border flex items-center justify-center transition-all ${
-                          activeCvFilter === 'edge' ? 'bg-[#030818] border-cyan-400 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.3)]' :
-                          activeCvFilter === 'slope' ? 'bg-gradient-to-tr from-emerald-950 via-amber-950 to-red-950 border-amber-400 text-amber-200' :
-                          activeCvFilter === 'contour' ? 'bg-[#080d25] border-orange-400 text-orange-300' :
-                          'bg-[#2d1810] border-orange-800 text-orange-200'
-                        }`}>
-                          <div className="text-center space-y-1">
-                            <Cpu className="w-6 h-6 mx-auto animate-pulse" />
-                            <div className="text-[11px] font-bold uppercase">{activeCvFilter} Filter Active</div>
-                            <div className="text-[9px] opacity-75">1024x1024 Resolution</div>
-                          </div>
-                        </div>
-
-                        <div className="flex-1 space-y-2">
-                          <div className="text-sm font-bold text-white font-sans">
-                            Classical Computer Vision Pipeline
-                          </div>
-                          <p className="text-xs font-sans text-slate-300 leading-relaxed">
-                            Applies pixel luminance gradients to segment rock obstacles from sandy regolith. Features exceeding 15cm height are flagged into downstream hazard analysis with zero external server latency.
-                          </p>
-                          <div className="flex items-center gap-4 text-cyan-400 font-mono text-xs pt-1">
-                            <span>Detected: 18 Rocks</span>
-                            <span>·</span>
-                            <span>Confidence: 98.4%</span>
-                            <span>·</span>
-                            <span>Latency: 14ms</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 5. VALIDATION HARNESS DIAGNOSTIC SIMULATOR */}
-                  {selectedSectionId === 'validation-harness' && (
-                    <div className="space-y-3 font-mono text-xs">
+                  {/* ASTRONAUT 8. ASTRONAUT ROUTE PLANNER DEMO */}
+                  {selectedSectionId === 'astronaut-route-planner' && (
+                    <div className="space-y-4 font-mono text-xs">
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-300">Automated Subsystem Diagnostics:</span>
+                        <div className="flex items-center gap-3">
+                          <span>Obstacle Avoidance Radius:</span>
+                          <span className="text-orange-400 font-bold">{avoidanceBufferM.toFixed(1)} meters</span>
+                        </div>
                         <button
-                          onClick={handleRunDiagnostics}
-                          disabled={diagnosticRunning}
-                          className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition cursor-pointer flex items-center gap-1.5 shadow"
+                          onClick={() => setAvoidanceBufferM(prev => (prev === 4 ? 6 : 4))}
+                          className="px-3 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300"
                         >
-                          <RefreshCw className={`w-3.5 h-3.5 ${diagnosticRunning ? 'animate-spin' : ''}`} />
-                          <span>{diagnosticRunning ? 'Testing Subsystems...' : 'Run Diagnostics'}</span>
+                          Toggle 4m / 6m Buffer
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      <div className="p-4 bg-black/60 rounded-xl border border-white/10 grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="p-3 bg-slate-900/60 rounded-lg">
+                          <span className="text-slate-400 text-[10px] block">TOTAL WALK DISTANCE</span>
+                          <span className="text-lg font-bold text-orange-400">324.6 meters</span>
+                        </div>
+                        <div className="p-3 bg-slate-900/60 rounded-lg">
+                          <span className="text-slate-400 text-[10px] block">ESTIMATED WALK TIME</span>
+                          <span className="text-lg font-bold text-cyan-400">7 mins 12 secs</span>
+                        </div>
+                        <div className="p-3 bg-slate-900/60 rounded-lg">
+                          <span className="text-slate-400 text-[10px] block">SAFETY CLEARANCE</span>
+                          <span className="text-lg font-bold text-emerald-400">100% COLLISION FREE</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ASTRONAUT 9. RADIATION & SPACE WEATHER DEMO */}
+                  {selectedSectionId === 'radiation-monitor' && (
+                    <div className="space-y-4 font-mono text-xs">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-400">Solar Flare Class:</span>
+                          {(['C1.2', 'M2.4', 'X1.1'] as const).map(fl => (
+                            <button
+                              key={fl}
+                              onClick={() => {
+                                setSolarFlareClass(fl);
+                                setSpeAlertActive(fl === 'X1.1');
+                              }}
+                              className={`px-2.5 py-1 rounded border font-bold ${
+                                solarFlareClass === fl ? 'bg-yellow-500 text-black border-yellow-400' : 'bg-slate-900 text-slate-400 border-slate-800'
+                              }`}
+                            >
+                              {fl}
+                            </button>
+                          ))}
+                        </div>
+                        <span className={`px-2 py-0.5 rounded font-bold ${speAlertActive ? 'bg-red-500/20 text-red-300 border border-red-500/40 animate-pulse' : 'bg-emerald-500/20 text-emerald-300'}`}>
+                          {speAlertActive ? 'SPE ALARM ACTIVE — SHELTER REQUIRED' : 'GCR BACKGROUND ONLY'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="p-3 bg-slate-900/60 rounded-xl border border-white/10">
+                          <span className="text-[10px] text-slate-400 block">SURFACE DOSE RATE</span>
+                          <span className="text-base font-bold text-yellow-400">0.64 mGy/day</span>
+                          <span className="text-[10px] text-slate-500">MSL RAD Baseline</span>
+                        </div>
+                        <div className="p-3 bg-slate-900/60 rounded-xl border border-white/10">
+                          <span className="text-[10px] text-slate-400 block">PROTON FLUX (&gt;=10 MeV)</span>
+                          <span className="text-base font-bold text-cyan-400">{speAlertActive ? '142 pfu' : '0.12 pfu'}</span>
+                          <span className="text-[10px] text-slate-500">NOAA GOES Primary</span>
+                        </div>
+                        <div className="p-3 bg-slate-900/60 rounded-xl border border-white/10">
+                          <span className="text-[10px] text-slate-400 block">30-DAY CUMULATIVE</span>
+                          <span className="text-base font-bold text-emerald-400">19.2 mSv</span>
+                          <span className="text-[10px] text-slate-500">Limit: 250 mSv ALARA</span>
+                        </div>
+                        <div className="p-3 bg-slate-900/60 rounded-xl border border-white/10">
+                          <span className="text-[10px] text-slate-400 block">DONKI ALERT FEED</span>
+                          <span className="text-base font-bold text-purple-400">CLEAR</span>
+                          <span className="text-[10px] text-slate-500">No CME Interception</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ASTRONAUT 10. MARSWALK OPS FIELD DEMO */}
+                  {selectedSectionId === 'marsnav-v4' && (
+                    <div className="space-y-4 font-mono text-xs">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setMarsWalkPlaying(!marsWalkPlaying)}
+                            className="px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            {marsWalkPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                            <span>{marsWalkPlaying ? 'Pause Sequence' : 'Play Trajectory Sequence'}</span>
+                          </button>
+                          <button
+                            onClick={() => setMarsWalkStep(prev => (prev >= 4 ? 1 : prev + 1))}
+                            className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 cursor-pointer flex items-center gap-1"
+                          >
+                            <SkipForward className="w-3.5 h-3.5" />
+                            <span>Step Forward</span>
+                          </button>
+                          <button
+                            onClick={() => setMarsWalkStep(1)}
+                            className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 cursor-pointer"
+                          >
+                            Reset
+                          </button>
+                        </div>
+                        <span className="text-orange-400 font-bold">Stage {marsWalkStep} of 4</span>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-2 text-center text-[11px]">
                         {[
-                          { name: 'A* Pathfinding Matrix Solver', status: 'PASS', time: '4.2ms' },
-                          { name: 'PDS HiRISE Coordinate Transform', status: 'PASS', time: '1.8ms' },
-                          { name: 'Hazard Buffer Envelope Generator', status: 'PASS', time: '6.1ms' },
-                          { name: 'Telemetry Telecommand Serializer', status: 'PASS', time: '0.9ms' }
-                        ].map((diag, dIdx) => (
-                          <div key={dIdx} className="p-3 rounded-xl bg-black/50 border border-white/10 flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <span className={`w-2 h-2 rounded-full ${diagnosticRunning ? 'bg-amber-400 animate-ping' : 'bg-emerald-400'}`} />
-                              <span className="text-slate-200">{diag.name}</span>
-                            </div>
-                            <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px]">
-                              {diagnosticRunning ? 'TESTING' : `${diag.status} (${diag.time})`}
-                            </span>
+                          '1. Raw Frame Downlink',
+                          '2. CV Feature Bounding',
+                          '3. Footprint Stride Plan',
+                          '4. Astrobiology Sampling'
+                        ].map((st, i) => (
+                          <div
+                            key={i}
+                            className={`p-2.5 rounded-xl border ${
+                              marsWalkStep === i + 1
+                                ? 'bg-orange-500/20 border-orange-500 text-orange-300 font-bold'
+                                : 'bg-black/40 border-white/5 text-slate-500'
+                            }`}
+                          >
+                            {st}
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
 
-                  {/* 6. GENERIC CONTEXTUAL SIMULATION FOR OTHER MODULES */}
-                  {!['route-lab', 'hazard-analysis', 'configuration', 'terrain-intelligence', 'validation-harness'].includes(selectedSectionId) && (
+                  {/* Fallback for other standard modules */}
+                  {!['route-lab', 'surface-dashboard', 'science-planner', 'surface-explorer', 'multilayer-map', 'safety-monitoring', 'geological-targets', 'suit-mobility', 'astronaut-route-planner', 'radiation-monitor', 'marsnav-v4'].includes(selectedSectionId) && (
                     <div className="p-4 rounded-2xl bg-black/50 border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-xs">
                       <div className="space-y-1">
                         <div className="text-slate-200 font-bold flex items-center gap-2">
                           <Activity className="w-4 h-4 text-cyan-400" />
-                          <span>Telemetry &amp; Workstation Status Nominal</span>
+                          <span>Autonomous System Telemetry Nominal</span>
                         </div>
                         <p className="text-slate-400 text-[11px] font-sans">
-                          This module runs autonomously and synchronizes state with the global MARSNAV mission memory.
+                          Synchronized with the authoritative MARSNAV mission memory and real NASA planetary endpoints.
                         </p>
                       </div>
                       {onNavigateWorkspace && (
@@ -1489,36 +2079,36 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                 </div>
 
                 {/* ======================================================== */}
-                {/* DETAILED TECHNICAL SECTIONS A THROUGH G                  */}
+                {/* DETAILED TECHNICAL DOCUMENTATION SECTIONS (A THROUGH G)   */}
                 {/* ======================================================== */}
 
-                {/* A. What is this section? */}
+                {/* A. Overview & Purpose */}
                 <div className="p-6 rounded-2xl bg-[#080c1d] border border-white/15 space-y-2 shadow-lg">
                   <div className="flex items-center gap-2 text-orange-400 font-bold text-xs font-mono uppercase tracking-wider">
                     <Info className="w-4 h-4" />
-                    <span>A. Module Overview &amp; Role</span>
+                    <span>A. Module Overview &amp; Mission Purpose</span>
                   </div>
                   <p className="text-slate-200 text-sm leading-relaxed font-sans">
                     {activeSection.whatIsIt}
                   </p>
                 </div>
 
-                {/* B. Why is it important? */}
+                {/* B. Why It Is Critical */}
                 <div className="p-6 rounded-2xl bg-cyan-950/20 border border-cyan-500/30 space-y-2">
                   <div className="flex items-center gap-2 text-cyan-400 font-bold text-xs font-mono uppercase tracking-wider">
                     <Zap className="w-4 h-4" />
-                    <span>B. Why It Is Critical to Mission Safety</span>
+                    <span>B. Why This Module Is Needed &amp; Safety Relevance</span>
                   </div>
                   <p className="text-slate-200 text-sm leading-relaxed font-sans">
                     {activeSection.whyImportant}
                   </p>
                 </div>
 
-                {/* C. How to use it (Step-by-Step Instructions) */}
+                {/* C. How to Operate */}
                 <div className="p-6 rounded-2xl bg-[#080c1d] border border-white/15 space-y-3 shadow-lg">
                   <div className="flex items-center gap-2 text-orange-400 font-bold text-xs font-mono uppercase tracking-wider">
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>C. How to Operate (Numbered Procedures)</span>
+                    <span>C. Step-by-Step Operating Instructions</span>
                   </div>
                   <div className="space-y-2.5 pt-1">
                     {activeSection.howToUse.map((step, idx) => (
@@ -1532,11 +2122,11 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                   </div>
                 </div>
 
-                {/* D. Available Tools and Controls */}
+                {/* D. Available Tools & Controls */}
                 <div className="p-6 rounded-2xl bg-[#080c1d] border border-white/15 space-y-3 shadow-lg">
                   <div className="flex items-center gap-2 text-cyan-400 font-bold text-xs font-mono uppercase tracking-wider">
                     <SlidersHorizontal className="w-4 h-4" />
-                    <span>D. Available Tools &amp; Operating Controls</span>
+                    <span>D. Available Tools, Controls &amp; Inputs</span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
                     {activeSection.toolsAndControls.map((tool, idx) => (
@@ -1552,30 +2142,30 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                 <div className="p-6 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 space-y-2">
                   <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs font-mono uppercase tracking-wider">
                     <Check className="w-4 h-4" />
-                    <span>E. Expected Output &amp; Verification Criteria</span>
+                    <span>E. Expected Outputs &amp; Scientific Interpretation</span>
                   </div>
                   <p className="text-slate-200 text-sm leading-relaxed font-sans">
                     {activeSection.expectedOutput}
                   </p>
                 </div>
 
-                {/* F. Real Mission Workflow */}
+                {/* F. Real Mission Workflow Scenario */}
                 <div className="p-6 rounded-2xl bg-[#080c1d] border border-white/15 space-y-2 shadow-lg">
                   <div className="flex items-center gap-2 text-orange-400 font-bold text-xs font-mono uppercase tracking-wider">
                     <Compass className="w-4 h-4" />
-                    <span>F. Real Mission Operations Example</span>
+                    <span>F. Practical Operational Mission Scenario</span>
                   </div>
                   <p className="text-slate-300 text-sm leading-relaxed font-sans italic">
                     &ldquo;{activeSection.realWorkflow}&rdquo;
                   </p>
                 </div>
 
-                {/* G. Next Operation & Related Modules */}
+                {/* G. Integration with Other Modules */}
                 <div className="p-6 rounded-2xl bg-[#080c1d] border border-white/15 space-y-3 shadow-lg">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-slate-300 font-bold text-xs font-mono uppercase tracking-wider">
                       <Layers className="w-4 h-4 text-orange-400" />
-                      <span>G. Downstream Connections &amp; Next Operation</span>
+                      <span>G. Downstream Inter-Module Integration</span>
                     </div>
                     {nextWorkflowStep && (
                       <button
@@ -1605,28 +2195,24 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                     })}
                   </div>
                 </div>
-
               </div>
-
             </div>
           ) : currentView === 'index' ? (
             /* ======================================================== */
-            /* VIEW 2: ALL 22 MODULES LIBRARY                           */
+            /* VIEW 2: ALL 32 MODULES LIBRARY                           */
             /* ======================================================== */
             <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-[#030611]">
-              
-              {/* Left Sidebar for Quick Category Navigation */}
-              <div className="w-full md:w-72 bg-[#040817] border-r border-white/10 flex flex-col shrink-0 overflow-y-auto p-4 space-y-4">
+              {/* Left Sidebar for Categories */}
+              <div className="w-full md:w-80 bg-[#040817] border-r border-white/10 flex flex-col shrink-0 overflow-y-auto p-4 space-y-4">
                 <div className="space-y-1">
                   <div className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-semibold px-2">
-                    Module Index ({manualSections.length} Total)
+                    Dynamic Registry ({manualSections.length} Modules Total)
                   </div>
                   <p className="text-[11px] font-sans text-slate-400 px-2 leading-tight">
-                    Every workspace is documented with operating guides.
+                    Every operational tool and exploration module documented with procedures.
                   </p>
                 </div>
 
-                {/* Filter Categories */}
                 <div className="space-y-1">
                   {categories.map(cat => (
                     <button
@@ -1638,8 +2224,8 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                           : 'text-slate-400 hover:text-white hover:bg-white/5'
                       }`}
                     >
-                      <span>{cat}</span>
-                      <span className="text-[10px] opacity-75">
+                      <span className="truncate pr-2">{cat}</span>
+                      <span className="text-[10px] opacity-75 shrink-0">
                         {cat === 'ALL' ? manualSections.length : manualSections.filter(s => s.category === cat).length}
                       </span>
                     </button>
@@ -1647,14 +2233,11 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                 </div>
 
                 <div className="border-t border-white/10 pt-4 space-y-2">
-                  <div className="text-[10px] font-mono text-cyan-400 uppercase tracking-widest font-semibold px-2">
-                    Primary Workflow
-                  </div>
                   <button
                     onClick={() => setCurrentView('flowchart')}
                     className="w-full p-2.5 rounded-xl bg-orange-500/15 border border-orange-500/30 text-orange-300 hover:bg-orange-500/25 transition text-xs font-mono font-bold flex items-center justify-between cursor-pointer"
                   >
-                    <span>View 12-Step Flowchart</span>
+                    <span>View Interactive Flowchart</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -1662,23 +2245,19 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
 
               {/* Right Content Grid with Search */}
               <div className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-6 bg-[#030611] text-slate-200">
-                {/* Search Bar */}
                 <div className="relative">
                   <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Search all 22 modules by name, algorithm, tool, or keyword..."
+                    placeholder={`Search all ${manualSections.length} modules by title, algorithm, instrument, or keyword...`}
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     className="w-full bg-black/60 border border-white/15 rounded-2xl pl-11 pr-4 py-3 text-white text-xs font-mono focus:outline-none focus:border-orange-500 shadow-inner"
                   />
                 </div>
 
-                {/* Module Cards Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {filteredSections.map(sec => {
-                    const isWorkflow = sec.workflowStep !== null;
-
                     return (
                       <div
                         key={sec.id}
@@ -1693,27 +2272,16 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                             <div className="w-10 h-10 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-orange-400 group-hover:scale-110 transition-transform">
                               {sec.icon}
                             </div>
-                            <div className="flex items-center space-x-1.5">
-                              {isWorkflow ? (
-                                <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-300 border border-orange-500/40 font-bold">
-                                  STEP 0{sec.workflowStep}
-                                </span>
-                              ) : (
-                                <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-white/5 text-slate-400 border border-white/10">
-                                  SUPPORT
-                                </span>
-                              )}
-                              <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-black/50 text-slate-300 border border-white/10">
-                                {sec.category}
-                              </span>
-                            </div>
+                            <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-black/50 text-cyan-300 border border-white/10 truncate max-w-[150px]">
+                              {sec.category}
+                            </span>
                           </div>
 
                           <div className="space-y-1">
                             <h3 className="text-white font-bold text-base font-sans group-hover:text-orange-400 transition-colors">
                               {sec.title}
                             </h3>
-                            <p className="text-slate-400 text-xs font-mono">{sec.subtitle}</p>
+                            <p className="text-slate-400 text-xs font-mono truncate">{sec.subtitle}</p>
                           </div>
 
                           <p className="text-slate-300 text-xs leading-relaxed font-sans line-clamp-3">
@@ -1731,7 +2299,6 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                   })}
                 </div>
               </div>
-
             </div>
           ) : currentView === 'map' ? (
             /* ======================================================== */
@@ -1743,27 +2310,42 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                   Subsystem Architecture &amp; Data Pipeline
                 </span>
                 <h2 className="text-2xl sm:text-3xl font-black text-white font-sans tracking-tight">
-                  7 Core Subsystems of MARSNAV
+                  8 Core Subsystems of MARSNAV
                 </h2>
                 <p className="text-slate-400 text-xs font-mono max-w-2xl mx-auto">
                   Click any subsystem block or module to launch its interactive walkthrough in the flowchart view.
                 </p>
               </div>
 
-              {/* Subsystems Visual Cluster */}
               <div className="max-w-5xl w-full space-y-6">
                 {[
                   {
-                    name: '1. Surface Exploration & EVA Operations',
-                    color: 'border-orange-500/40 bg-orange-950/15',
+                    name: '1. Astronaut Exploration & Field Science',
+                    color: 'border-orange-500/50 bg-orange-950/20',
                     modules: [
-                      { id: 'overview', title: 'Mission Overview', desc: 'Bird-eye telemetry & rover health' },
-                      { id: 'marsnav-v4', title: 'MARSWALK OPS', desc: 'Real-time EVA heading & surface walk' },
-                      { id: 'field-notebook', title: 'Spatial Field Notebook', desc: 'Geological sample logging with map link' }
+                      { id: 'astronaut-exploration', title: 'Astronaut Surface Ops', desc: 'Central EVA exploration hub' },
+                      { id: 'surface-dashboard', title: 'Surface Mission Dashboard', desc: 'EVA duration, suit vitals & consumables' },
+                      { id: 'science-planner', title: 'Mission Science Planner', desc: 'Observation sequencing & targets' },
+                      { id: 'surface-explorer', title: 'Mars Surface Explorer', desc: 'Jezero basin topography & POIs' },
+                      { id: 'multilayer-map', title: 'Multilayer Data Fusion', desc: 'Multispectral orbital & surface CV' },
+                      { id: 'safety-monitoring', title: 'Safety & Environment', desc: 'Martian weather, pressure & dust Tau' },
+                      { id: 'geological-targets', title: 'Geological Targets', desc: 'Astrobiology mineral classification' },
+                      { id: 'suit-mobility', title: 'Suit Mobility Analysis', desc: 'xEMU joint torque & metabolic rate' },
+                      { id: 'astronaut-route-planner', title: 'Astronaut Route Planner', desc: 'Walking paths with turn buffers' },
+                      { id: 'radiation-monitor', title: 'Radiation & Space Weather', desc: 'NOAA SWPC protons & ALARA limits' }
                     ]
                   },
                   {
-                    name: '2. Remote Sensing & Planetary Topography',
+                    name: '2. Field Operations & Sample Logging',
+                    color: 'border-amber-500/40 bg-amber-950/15',
+                    modules: [
+                      { id: 'marsnav-v4', title: 'MARSWALK OPS / EVA', desc: 'Active camera frame ingestion & CV' },
+                      { id: 'field-notebook', title: 'Spatial Field Notebook', desc: 'Geological sample logging with map link' },
+                      { id: 'overview', title: 'Mission Overview', desc: 'Bird-eye telemetry & rover health' }
+                    ]
+                  },
+                  {
+                    name: '3. Remote Sensing & Planetary Topography',
                     color: 'border-cyan-500/40 bg-cyan-950/15',
                     modules: [
                       { id: 'explorer-3d', title: '3D Terrain Explorer', desc: 'Topographical relief & Three.js mesh' },
@@ -1772,21 +2354,12 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                     ]
                   },
                   {
-                    name: '3. Data Ingestion & NASA Repositories',
-                    color: 'border-amber-500/40 bg-amber-950/15',
-                    modules: [
-                      { id: 'configuration', title: 'Step 01: Mission Configuration', desc: 'Max slope limits & battery constraints' },
-                      { id: 'nasa-raw-feed', title: 'Step 02: NASA Raw Image Feed', desc: 'JPL Mars 2020 Navcam & Hazcam download' },
-                      { id: 'dataset-catalogue', title: 'Step 03: Dataset Catalogue', desc: 'PDS compliance & resolution checksums' }
-                    ]
-                  },
-                  {
                     name: '4. Automated Computer Vision & Hazard Intelligence',
                     color: 'border-blue-500/40 bg-blue-950/15',
                     modules: [
-                      { id: 'terrain-intelligence', title: 'Step 04: Terrain Intelligence', desc: 'Sobel edge detection & contour polygons' },
-                      { id: 'hazard-analysis', title: 'Step 05: Hazard Analysis', desc: 'Adjustable safety buffers (2px - 28px)' },
-                      { id: 'risk-assessment', title: 'Step 06: Risk Assessment', desc: 'Multi-factor traversal safety index' },
+                      { id: 'terrain-intelligence', title: 'Terrain Intelligence', desc: 'Sobel edge detection & contour polygons' },
+                      { id: 'hazard-analysis', title: 'Hazard Analysis', desc: 'Adjustable safety buffers (2px - 28px)' },
+                      { id: 'risk-assessment', title: 'Risk Assessment', desc: 'Multi-factor traversal safety index' },
                       { id: 'base-camp-intel', title: 'Base Camp Intelligence', desc: 'Landing site slope & communication LOS' }
                     ]
                   },
@@ -1794,18 +2367,18 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                     name: '5. Autonomous Pathfinding & Trajectory Generation',
                     color: 'border-orange-500/40 bg-orange-950/15',
                     modules: [
-                      { id: 'route-lab', title: 'Step 07: Route Laboratory', desc: 'A* pathfinding with Alpha-Delta strategies' },
-                      { id: 'route-comparison', title: 'Step 08: Route Comparison', desc: 'Distance vs Energy vs Safety trade-offs' },
-                      { id: 'scenario-testing', title: 'Step 09: Scenario Testing', desc: 'Dust storm & anomaly emergency injection' }
+                      { id: 'route-lab', title: 'Route Laboratory', desc: 'A* pathfinding with Alpha-Delta strategies' },
+                      { id: 'route-comparison', title: 'Route Comparison', desc: 'Distance vs Energy vs Safety trade-offs' },
+                      { id: 'scenario-testing', title: 'Scenario Testing', desc: 'Dust storm & anomaly emergency injection' }
                     ]
                   },
                   {
                     name: '6. Verification, Diagnostics & Mission Audit',
                     color: 'border-emerald-500/40 bg-emerald-950/15',
                     modules: [
-                      { id: 'validation-harness', title: 'Step 10: Validation Harness', desc: 'Automated unit test diagnostics' },
-                      { id: 'model-eval', title: 'Step 11: Model Evaluation', desc: 'Precision, recall & CV benchmarks' },
-                      { id: 'audit', title: 'Step 12: Mission Audit', desc: 'Compiled dossier & one-click PDF report' }
+                      { id: 'validation-harness', title: 'Validation Harness', desc: 'Automated unit test diagnostics' },
+                      { id: 'model-eval', title: 'Model Evaluation', desc: 'Precision, recall & CV benchmarks' },
+                      { id: 'audit', title: 'Mission Audit', desc: 'Compiled dossier & one-click PDF report' }
                     ]
                   },
                   {
@@ -1855,50 +2428,50 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
                 <div>
                   <h2 className="text-2xl font-black text-white mb-1">MARSNAV Mission Operations Cheatsheet</h2>
                   <p className="text-slate-400 text-xs font-mono">
-                    Essential operational workflows, safety parameters, and keyboard controls for rover navigators.
+                    Essential operational workflows, safety parameters, and keyboard controls for rover navigators &amp; astronaut exploration crews.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   {[
                     {
+                      category: 'ASTRONAUT EVA OPERATIONS',
+                      title: 'Managing Extravehicular Activity Limits',
+                      steps: [
+                        'Verify suit pressure reads nominal 29.6 kPa pure O2 before egressing airlock.',
+                        'Monitor consumable reserves; plan 1.5x return margin for walk duration.',
+                        'Maintain pace below 420 kcal/hr on inclines to prevent suit cooling failure.',
+                        'Log all drill cores with titanium sample tube barcodes in Spatial Field Notebook.'
+                      ]
+                    },
+                    {
+                      category: 'RADIATION PROTECTION',
+                      title: 'Monitoring Solar Weather & ALARA Limits',
+                      steps: [
+                        'Inspect NOAA SWPC GOES X-ray monitor for incoming M-class or X-class flares.',
+                        'Check proton flux (>10 MeV); any spike above 10 pfu triggers shelter alert.',
+                        'Ensure 30-day cumulative astronaut exposure stays below 250 mSv ALARA threshold.',
+                        'Execute immediate regolith bunker retreat if an interplanetary shock wave arrives.'
+                      ]
+                    },
+                    {
+                      category: 'DATA FUSION & CV',
+                      title: 'Analyzing High-Resolution Surface Frames',
+                      steps: [
+                        'Ingest Mastcam or Navcam image in MarsWalk Ops.',
+                        'Open Multilayer Map to inspect clustered and localized rock detections.',
+                        'Use category pills to isolate Boulders (>0.5m) and Bedrock Pavements.',
+                        'Cross-reference with USGS SIM 3292 geology and MRO CTX orbital mosaics.'
+                      ]
+                    },
+                    {
                       category: 'ROUTE GENERATION',
                       title: 'Planning a Safe Surface Traverse',
                       steps: [
-                        'Open Route Laboratory (Step 07) from the Navigation menu.',
-                        'Click "Set Start [S]" and select the rover current coordinates.',
-                        'Click "Set Destination [D]" and click the target science outcrop.',
+                        'Open Route Laboratory or Astronaut Route Planner.',
+                        'Click "Set Start [A]" and "Set Destination [B]" on the verified terrain grid.',
                         'Select Strategy: Route Gamma for Maximum Clearance, Route Alpha for Shortest Trajectory.',
-                        'Click "Plan Route" to compute the collision-free A* trajectory.'
-                      ]
-                    },
-                    {
-                      category: 'HAZARD MITIGATION',
-                      title: 'Inspecting & Buffering Surface Obstacles',
-                      steps: [
-                        'Open Hazard Analysis (Step 05) or Terrain Intelligence (Step 04).',
-                        'Review automatically extracted rock and pit polygon contours.',
-                        'Adjust the Safety Buffer Clearance slider (2px to 28px) to expand safety margins.',
-                        'Use 3D Terrain Explorer to inspect slope grades along the corridor.'
-                      ]
-                    },
-                    {
-                      category: 'MISSION REPORTING',
-                      title: 'Exporting Mission Audit PDF Dossier',
-                      steps: [
-                        'Complete desired route calculation, hazard check, and field notes.',
-                        'Navigate to Mission Audit (Step 12) under the Validation menu.',
-                        'Review compiled dossier summary: Route Metrics, Test Diagnostics, and Field Observations.',
-                        'Click "Export Mission PDF Dossier" to download a formatted multi-page report.'
-                      ]
-                    },
-                    {
-                      category: 'AI CONSULTATION',
-                      title: 'Consulting ORBIT AI Assistant',
-                      steps: [
-                        'Open ORBIT AI Assistant from the Assistance menu.',
-                        'Type questions regarding rover kinematics, wheel slip, or Jezero mineralogy.',
-                        'Receive instant expert recommendations powered by Google Gemini.'
+                        'Verify trajectory distance and watt-hour energy consumption before uplink.'
                       ]
                     }
                   ].map((card, cIdx) => (
@@ -1926,9 +2499,7 @@ export default function MarsNavGuide({ isOpen, onClose, onNavigateWorkspace, onS
               </div>
             </div>
           )}
-
         </div>
-
       </div>
     </div>
   );

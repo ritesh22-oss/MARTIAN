@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { ChevronLeft, ChevronRight, PanelLeftOpen, PanelRightOpen, Eye, EyeOff } from 'lucide-react';
 import { createDetailedMarsRover } from '../utils/roverModel';
 import { getTrekTilePreviewUrl } from '../services/marsGeospatialService';
+import { fetchMarsEnvironmentalData } from '../services/nasaDataService';
 
 /**
  * @param {{
@@ -24,6 +25,21 @@ export default function MarsTerrain3D({
 }) {
   const [leftPanelOpen, setLeftPanelOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [envData, setEnvData] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    fetchMarsEnvironmentalData()
+      .then((data) => {
+        if (active && data) setEnvData(data);
+      })
+      .catch((err) => {
+        console.warn('Failed to load real environmental data:', err);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const terrainConfigRef = useRef({
     dtmData: selectedDtmData,
@@ -1157,25 +1173,47 @@ export default function MarsTerrain3D({
 
             <div className="border border-white/10 bg-[#0b0e14]/90 backdrop-blur-xl p-3 shadow-lg">
               <div className="flex items-center justify-between border-b border-white/10 pb-1.5 mb-2 text-xs">
-                <span className="text-white font-bold">ENVIRONMENTAL SENSORS (MEDA)</span>
-                <span className="text-[#00daf3] text-[10px]">NOMINAL</span>
+                <span className="text-white font-bold">METEOROLOGICAL SENSORS (PDS / InSight)</span>
+                <span className="text-[#00daf3] text-[10px]">
+                  {envData?.insight?.mostRecent?.sol ? `SOL ${envData.insight.mostRecent.sol}` : 'PDS ARCHIVE'}
+                </span>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-black/40 p-2 border border-white/10">
-                  <span className="text-[9px] text-gray-400 block">SURFACE TEMP</span>
-                  <span className="text-white font-semibold">-42°C</span>
+                  <span className="text-[9px] text-gray-400 block">AIR TEMP (TWINS)</span>
+                  <span className="text-white font-semibold">
+                    {envData?.insight?.mostRecent?.airTemperature?.average != null
+                      ? `${envData.insight.mostRecent.airTemperature.average.toFixed(1)}°C`
+                      : envData?.perseveranceMeda?.baselineObservations?.airTemperature?.pdsMean != null
+                      ? `${envData.perseveranceMeda.baselineObservations.airTemperature.pdsMean}°C (PDS)`
+                      : 'DATA UNAVAILABLE'}
+                  </span>
                 </div>
                 <div className="bg-black/40 p-2 border border-white/10">
-                  <span className="text-[9px] text-gray-400 block">ATMOS DENSITY</span>
-                  <span className="text-white font-semibold">0.020 kg/m³</span>
+                  <span className="text-[9px] text-gray-400 block">ATMOS PRESSURE</span>
+                  <span className="text-white font-semibold">
+                    {envData?.insight?.mostRecent?.atmosphericPressure?.average != null
+                      ? `${envData.insight.mostRecent.atmosphericPressure.average.toFixed(0)} Pa`
+                      : envData?.perseveranceMeda?.baselineObservations?.atmosphericPressure?.mean != null
+                      ? `${envData.perseveranceMeda.baselineObservations.atmosphericPressure.mean} Pa (PDS)`
+                      : 'DATA UNAVAILABLE'}
+                  </span>
                 </div>
                 <div className="bg-black/40 p-2 border border-white/10">
                   <span className="text-[9px] text-gray-400 block">WIND VELOCITY</span>
-                  <span className="text-[#ffb955] font-semibold">14.8 m/s ENE</span>
+                  <span className="text-[#ffb955] font-semibold">
+                    {envData?.insight?.mostRecent?.horizontalWind?.average != null
+                      ? `${envData.insight.mostRecent.horizontalWind.average.toFixed(1)} m/s ${envData.insight.mostRecent.horizontalWind.mostCommonDirection || ''}`
+                      : 'DATA UNAVAILABLE'}
+                  </span>
                 </div>
                 <div className="bg-black/40 p-2 border border-white/10">
-                  <span className="text-[9px] text-gray-400 block">SOLAR IRRADIANCE</span>
-                  <span className="text-[#00daf3] font-semibold">590 W/m²</span>
+                  <span className="text-[9px] text-gray-400 block">DUST OPTICAL DEPTH</span>
+                  <span className="text-[#00daf3] font-semibold">
+                    {envData?.perseveranceMeda?.baselineObservations?.dustOpticalDepth?.tau != null
+                      ? `${envData.perseveranceMeda.baselineObservations.dustOpticalDepth.tau} Tau (RDS)`
+                      : 'DATA UNAVAILABLE'}
+                  </span>
                 </div>
               </div>
             </div>

@@ -45,6 +45,15 @@ export const RadiationSpaceWeather: React.FC = () => {
   const [envError, setEnvError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (spaceWeatherData?.dateRange?.startDate && !startDate) {
+      setStartDate(spaceWeatherData.dateRange.startDate);
+    }
+    if (spaceWeatherData?.dateRange?.endDate && !endDate) {
+      setEndDate(spaceWeatherData.dateRange.endDate);
+    }
+  }, [spaceWeatherData?.dateRange]);
+
+  useEffect(() => {
     setEnvLoading(true);
     fetchMarsEnvironmentalData()
       .then(d => {
@@ -515,7 +524,11 @@ export const RadiationSpaceWeather: React.FC = () => {
                 <td className="py-3 px-3 font-bold text-cyan-300">Mars Meteorology</td>
                 <td className="py-3 px-3">NASA PDS / InSight / Perseverance MEDA</td>
                 <td className="py-3 px-3">MEDA / REMS Environmental Sensors</td>
-                <td className="py-3 px-3 text-amber-300">-62.4 °C | 7.18 mbar</td>
+                <td className="py-3 px-3 text-amber-300">
+                  {insightObs?.airTemperature
+                    ? `${insightObs.airTemperature.averageC.toFixed(1)} °C | ${(insightObs.atmosphericPressure?.averagePa ? insightObs.atmosphericPressure.averagePa / 100 : 7.18).toFixed(2)} mbar`
+                    : '-62.4 °C | 7.18 mbar (InSight Baseline)'}
+                </td>
                 <td className="py-3 px-3">Observed Surface</td>
               </tr>
               <tr>

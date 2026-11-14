@@ -134,10 +134,15 @@ app.get('/api/diagnostics', (_req, res) => {
   });
 });
 
+// Helper to get clean sanitized NASA API Key (stripping any accidental quotes or whitespace)
+function getSanitizedNasaApiKey(): string {
+  const rawKey = (process.env.NASA_API_KEY || '').trim().replace(/^["']|["']$/g, '');
+  return rawKey.length > 0 ? rawKey : 'DEMO_KEY';
+}
+
 // Sanitized production diagnostic endpoint (never leaks API keys)
 app.get('/api/nasa/diagnostics', async (_req, res) => {
-  const rawKey = (process.env.NASA_API_KEY || '').trim();
-  const apiKey = rawKey.length > 0 ? rawKey : 'DEMO_KEY';
+  const apiKey = getSanitizedNasaApiKey();
 
   const probes = [
     {
@@ -1129,19 +1134,27 @@ app.get('/api/nasa/images-library/asset/:nasaId', async (req, res) => {
 });
 
 // NASA Planetary APOD
-app.get('/api/nasa/planetary/apod', async (_req, res, next) => {
+app.get('/api/nasa/planetary/apod', async (_req, res) => {
   try {
-    const rawKey = (process.env.NASA_API_KEY || '').trim();
-    const apiKey = rawKey.length > 0 ? rawKey : 'DEMO_KEY';
+    const apiKey = getSanitizedNasaApiKey();
     const apodUrl = `https://api.nasa.gov/planetary/apod?api_key=${apiKey}`;
 
     const { data } = await NASADataEngine.fetchWithCache<any>(apodUrl, {
       cacheTTLMs: 1000 * 60 * 60 * 6,
-      timeoutMs: 8000
+      timeoutMs: 6000,
+      retries: 1
     });
-    res.json({ success: true, apod: data });
-  } catch (err) {
-    next(err);
+    return res.json({ success: true, apod: data });
+  } catch (err: any) {
+    console.warn('[APOD] Upstream NASA APOD error:', getErrorMessage(err));
+    return res.status(200).json({
+      success: false,
+      apod: null,
+      error: {
+        code: err?.upstreamStatus === 429 ? 'RATE_LIMITED' : 'UPSTREAM_DEGRADED',
+        message: getErrorMessage(err)
+      }
+    });
   }
 });
 
@@ -1149,8 +1162,7 @@ app.get('/api/nasa/planetary/apod', async (_req, res, next) => {
 
 app.get('/api/nasa/environmental', async (_req, res) => {
   try {
-    const rawKey = (process.env.NASA_API_KEY || '').trim();
-    const apiKey = rawKey.length > 0 ? rawKey : 'DEMO_KEY';
+    const apiKey = getSanitizedNasaApiKey();
 
     // 1. Query Real NASA InSight Weather Archive
     const insightUrl = `https://api.nasa.gov/insight_weather/?api_key=${apiKey}&feedtype=json&ver=1.0`;
@@ -1161,8 +1173,8 @@ app.get('/api/nasa/environmental', async (_req, res) => {
     try {
       const insightRes = await NASADataEngine.fetchWithCache<any>(insightUrl, {
         cacheTTLMs: 1000 * 60 * 60,
-        timeoutMs: 9000,
-        retries: 1
+        timeoutMs: 5000,
+        retries: 0
       });
       if (insightRes?.data && Array.isArray(insightRes.data.sol_keys) && insightRes.data.sol_keys.length > 0) {
         insightRaw = insightRes.data;
@@ -1310,10 +1322,9 @@ app.get('/api/space-weather/mars', async (req, res) => {
     const cached = getGeoCache<any>(cacheKey);
     if (cached) return res.json(cached);
 
-    const rawKey = (process.env.NASA_API_KEY || '').trim();
-    const nasaKey = rawKey.length > 0 ? rawKey : 'DEMO_KEY';
+    const nasaKey = getSanitizedNasaApiKey();
 
-    const fetchJsonSafe = async (url: string, timeoutMs = 8000): Promise<{ ok: boolean; status: number; data: any; error?: string }> => {
+    const fetchJsonSafe = async (url: string, timeoutMs = 5000): Promise<{ ok: boolean; status: number; data: any; error?: string }> => {
       try {
         const resp = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
         if (!resp.ok) {
@@ -1368,12 +1379,13 @@ app.get('/api/space-weather/mars', async (req, res) => {
       }));
 
     const kpSeries: Array<{ timestamp: string; value: number }> = [];
-    if (Array.isArray(kpRes.data) && kpRes.data.length > 1) {
-      for (const row of kpRes.data.slice(1)) {
-        if (Array.isArray(row) && row.length >= 2) {
-          const kpVal = parseFloat(String(row[1]));
-          if (!isNaN(kpVal)) {
-            kpSeries.push({ timestamp: String(row[0]), value: kpVal });
+    if (Array.isArray(kpRes.data) && kpRes.data.length > 0) {
+      for (const row of kpRes.data) {
+        if (row && typeof row === 'object') {
+          const time = row.time_tag || (Array.isArray(row) ? row[0] : null);
+          const val = row.Kp !== undefined ? Number(row.Kp) : (Array.isArray(row) ? parseFloat(String(row[1])) : NaN);
+          if (time && !isNaN(val)) {
+            kpSeries.push({ timestamp: String(time), value: val });
           }
         }
       }
@@ -1393,6 +1405,10 @@ app.get('/api/space-weather/mars', async (req, res) => {
 
     const normalizeDonki = (r: { ok: boolean; status: number; data: any; error?: string }, kind: 'FLR' | 'CME' | 'SEP' | 'GST') => {
       if (!r.ok) {
+        // NASA DONKI returns HTTP 404 when 0 events occur within the requested date window
+        if (r.status === 404) {
+          return { available: true, count: 0, items: [] as any[], note: `No NASA DONKI ${kind} events recorded between ${startDate} and ${endDate}.` };
+        }
         return { available: false, count: 0, items: [] as any[], note: r.error || `HTTP ${r.status}` };
       }
       const arr = Array.isArray(r.data) ? r.data : [];
@@ -2145,13 +2161,19 @@ app.get('/api/nasa/hirise/products', async (req, res, next) => {
       );
     }
 
-    res.json({
+    return res.json({
       success: true,
       products: filtered,
       retrievedAt: new Date().toISOString()
     });
-  } catch (err) {
-    next(err);
+  } catch (err: any) {
+    console.warn('[H ку/H куSTAC] Error searching HiRISE products:', getErrorMessage(err));
+    return res.status(200).json({
+      success: false,
+      products: [],
+      error: { code: 'STAC_QUERY_DEGRADED', message: getErrorMessage(err) },
+      retrievedAt: new Date().toISOString()
+    });
   }
 });
 

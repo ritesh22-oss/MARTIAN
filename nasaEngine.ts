@@ -149,8 +149,8 @@ export class NASADataEngine {
     // Automatically append API key if it's api.nasa.gov (excluding images-api.nasa.gov which rejects api_key)
     let finalUrl = url;
     if (url.includes('api.nasa.gov') && !url.includes('images-api.nasa.gov') && !url.includes('api_key=')) {
-      // Trim the key to avoid whitespace-only values from .env
-      const rawKey = (process.env.NASA_API_KEY || '').trim();
+      // Clean quotes and whitespace from key
+      const rawKey = (process.env.NASA_API_KEY || '').trim().replace(/^["']|["']$/g, '');
       const apiKey = rawKey.length > 0 ? rawKey : 'DEMO_KEY';
       finalUrl += (url.includes('?') ? '&' : '?') + `api_key=${apiKey}`;
     }
@@ -173,11 +173,10 @@ export class NASADataEngine {
         clearTimeout(timeout);
 
         if (response.status === 429) {
-          const retryAfter = response.headers.get('Retry-After');
-          const delay = retryAfter ? parseInt(retryAfter) * 1000 : 2000 * (i + 1);
-          console.warn(`[NASA_ENGINE] Rate limited (429). Retrying in ${delay}ms...`);
-          await new Promise(r => setTimeout(r, delay));
-          continue;
+          console.warn(`[NASA_ENGINE] Upstream rate limit (429) on ${url}. Fast-failing to prevent request hang.`);
+          const err: any = new Error(`NASA_API_RATE_LIMIT: Rate limit exceeded on api.nasa.gov`);
+          err.upstreamStatus = 429;
+          throw err;
         }
 
         if (!response.ok) {
@@ -191,10 +190,13 @@ export class NASADataEngine {
         return await response.json();
       } catch (err: any) {
         lastError = err;
+        if (err.upstreamStatus === 429) {
+          break; // Do not retry on 429
+        }
         if (err.name === 'AbortError') {
           console.warn(`[NASA_ENGINE] Timeout attempt ${i + 1} for ${url}`);
         } else if (i < retries) {
-          const delay = 1000 * Math.pow(2, i);
+          const delay = Math.min(2000, 1000 * Math.pow(2, i));
           console.warn(`[NASA_ENGINE] Attempt ${i + 1} failed: ${err.message}. Retrying in ${delay}ms...`);
           await new Promise(r => setTimeout(r, delay));
         }

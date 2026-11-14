@@ -1,4 +1,4 @@
-import app from './api/index';
+import app from './server/api';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';

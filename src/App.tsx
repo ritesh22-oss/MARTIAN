@@ -287,12 +287,14 @@ function WorkstationMain() {
       </div>
 
       {/* Global Utilities & Modals */}
-      <CommandPalette />
+      {Boolean(user) && <CommandPalette />}
 
-      <SavedMissionsModal
-        isOpen={missionsModalOpen}
-        onClose={() => setMissionsModalOpen(false)}
-      />
+      {Boolean(user) && (
+        <SavedMissionsModal
+          isOpen={missionsModalOpen}
+          onClose={() => setMissionsModalOpen(false)}
+        />
+      )}
 
       <MarsNavGuide
         isOpen={guideModalOpen}
@@ -326,17 +328,13 @@ function WorkstationMain() {
 }
 
 export default function App() {
-  const [booted, setBooted] = useState(false);
+  const [showIntroOverlay, setShowIntroOverlay] = useState(false);
 
   useEffect(() => {
-    const handleReplay = () => setBooted(false);
+    const handleReplay = () => setShowIntroOverlay(true);
     window.addEventListener('marsnav:replay-intro', handleReplay);
     return () => window.removeEventListener('marsnav:replay-intro', handleReplay);
   }, []);
-
-  if (!booted) {
-    return <BootScreen onComplete={() => setBooted(true)} />;
-  }
 
   return (
     <AuthProvider>
@@ -346,6 +344,9 @@ export default function App() {
             <AstronautExplorationProvider>
               <OnboardingProvider>
                 <WorkstationMain />
+                {showIntroOverlay && (
+                  <BootScreen onComplete={() => setShowIntroOverlay(false)} />
+                )}
               </OnboardingProvider>
             </AstronautExplorationProvider>
           </TerrainAnalysisProvider>

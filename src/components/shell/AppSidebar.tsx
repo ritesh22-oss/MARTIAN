@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { useWorkspace, WorkspaceId } from '../../context/WorkspaceContext';
 import { useOnboarding } from '../../context/OnboardingContext';
+import { useAuth } from '../../context/AuthContext';
 import { PWAInstallButton } from '../PWAInstallButton';
 import MarsNavLogo from '../MarsNavLogo';
 
@@ -53,6 +54,23 @@ export default function AppSidebar() {
     systemStatus
   } = useWorkspace();
   const { startManualTour, isActive: isOnboardingActive, phase, currentStep } = useOnboarding();
+  const { user, openAuthModal } = useAuth();
+
+  const handleNavClick = (id: WorkspaceId) => {
+    if (!user) {
+      openAuthModal('signin');
+      return;
+    }
+    setActiveWorkspace(id);
+  };
+
+  const handleMissionGuideClick = () => {
+    if (!user) {
+      openAuthModal('signin');
+      return;
+    }
+    startManualTour();
+  };
 
   const groups: NavGroup[] = [
     {
@@ -156,13 +174,13 @@ export default function AppSidebar() {
 
             <div className="space-y-1">
               {group.items.map((item) => {
-                const isActive = activeWorkspace === item.id;
+                const isActive = Boolean(user) && activeWorkspace === item.id;
                 const isTourHighlighted = phase === 'tour' && currentStep?.workspaceId === item.id;
                 return (
                   <button
                     key={item.id}
                     data-tour-nav={item.id}
-                    onClick={() => setActiveWorkspace(item.id)}
+                    onClick={() => handleNavClick(item.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer group relative ${
                       isActive || isTourHighlighted
                         ? 'bg-gradient-to-r from-orange-600/20 via-amber-600/10 to-transparent text-white border-l-2 border-orange-500 font-semibold shadow-inner'
@@ -202,7 +220,7 @@ export default function AppSidebar() {
                 <button
                   type="button"
                   data-tour-nav="mission-guide-launcher"
-                  onClick={startManualTour}
+                  onClick={handleMissionGuideClick}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer group relative ${
                     isOnboardingActive
                       ? 'bg-gradient-to-r from-cyan-600/20 via-orange-600/10 to-transparent text-white border-l-2 border-cyan-400 font-semibold shadow-inner'

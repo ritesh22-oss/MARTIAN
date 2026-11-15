@@ -16,6 +16,7 @@ import {
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
 import { useMissionRecord } from './MissionRecordContext';
+import { useAuth } from './AuthContext';
 import { sharedExplorationStore } from '../services/sharedExplorationStore';
 
 export type WorkspaceId =
@@ -260,6 +261,7 @@ const defaultSharedSession: SharedTerrainSession = {
 const WorkspaceContext = createContext<WorkspaceContextType | null>(null);
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>('overview');
   const [activeDataset, setActiveDataset] = useState<string>('HiRISE DTM Jezero Fan (PSP_001414_1780)');
   const [sidebarCollapsed, setSidebarCollapsedState] = useState<boolean>(() => {
@@ -463,22 +465,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     // Mission state is now handled by MissionRecordContext
   }, []);
 
-  // Ensure there is always at least one initial active mission once initial load finishes
-  const hasAutoCreatedMissionRef = useRef(false);
+  // Select first user mission automatically if missions exist and activeMissionId is unset
   useEffect(() => {
     if (missionsLoading) return;
-    if (missions.length === 0) {
-      if (!hasAutoCreatedMissionRef.current) {
-        hasAutoCreatedMissionRef.current = true;
-        recordCreateNewMission({
-          name: 'Sol 428 Jezero Delta Exploration',
-          description: 'Primary baseline traverse across Jezero crater delta deposit.'
-        });
-      }
-    } else if (!activeMissionId || !missions.some(m => m.id === activeMissionId)) {
+    if (missions.length > 0 && (!activeMissionId || !missions.some(m => m.id === activeMissionId))) {
       setRecordActiveMission(missions[0].id);
     }
-  }, [missions, missionsLoading, activeMissionId, setRecordActiveMission, recordCreateNewMission]);
+  }, [missions, missionsLoading, activeMissionId, setRecordActiveMission]);
 
   // Derive activeMission object
   const activeMission = useMemo(() => (
@@ -872,9 +865,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, []);
 
-  // Global Keyboard Navigation & Quick Actions
+  // Global Keyboard Navigation & Quick Actions (active when authenticated)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!user) return;
+
       // 1. Command Palette Shortcut: Ctrl+K / Cmd+K
       if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
@@ -919,7 +914,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [commandPaletteOpen]);
+  }, [user, commandPaletteOpen]);
 
   const updateSettings = (partial: Partial<WorkspaceSettings>) => {
     setSettings(prev => ({ ...prev, ...partial }));

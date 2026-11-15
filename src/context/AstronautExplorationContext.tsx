@@ -730,7 +730,7 @@ export const AstronautExplorationProvider: React.FC<{ children: React.ReactNode 
         lon: hasValid ? lon : null,
         coordinateScope: hasValid ? 'exact_verified' : 'unavailable',
         locationLabel: hasValid
-          ? `Operator-specified (${lat!.toFixed(3)}°N, ${lon!.toFixed(3)}°E)`
+          ? `User-specified (${lat!.toFixed(3)}°N, ${lon!.toFixed(3)}°E)`
           : 'Coordinates Unavailable'
       }
     });

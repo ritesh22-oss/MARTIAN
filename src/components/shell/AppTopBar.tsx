@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Cloud,
   CheckCircle2,
@@ -40,6 +40,49 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
   const network = useNetworkStatus();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const accountDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!userDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (accountDropdownRef.current && !accountDropdownRef.current.contains(e.target as Node)) {
+        setUserDropdownOpen(false);
+      }
+    };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setUserDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleEsc);
+    };
+  }, [userDropdownOpen]);
+
+  const handleProtectedWorkspaceNav = (targetWorkspace: string) => {
+    if (!user) {
+      openAuthModal('signin');
+      return;
+    }
+    setActiveWorkspace(targetWorkspace as any);
+  };
+
+  const handleProtectedSearch = () => {
+    if (!user) {
+      openAuthModal('signin');
+      return;
+    }
+    setCommandPaletteOpen(true);
+  };
+
+  const handleProtectedArchive = () => {
+    if (!user) {
+      openAuthModal('signin');
+      return;
+    }
+    setMissionManagerOpen(true);
+  };
 
   const actualDisplayName = user
     ? (userProfile?.displayName?.trim() || user.displayName?.trim() || user.email?.split('@')[0] || user.email || 'Account')
@@ -118,11 +161,11 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
           {/* Desktop & Tablet Navigation Categories Hub */}
           <nav className="hidden md:flex items-center gap-0.5 sm:gap-1 bg-white/5 p-1 rounded-xl border border-white/5 shrink-0">
             {categories.map((cat) => {
-              const isActive = currentCategory === cat.label;
+              const isActive = Boolean(user) && currentCategory === cat.label;
               return (
                 <button
                   key={cat.label}
-                  onClick={() => setActiveWorkspace(cat.defaultWorkspace as any)}
+                  onClick={() => handleProtectedWorkspaceNav(cat.defaultWorkspace)}
                   className={`px-2.5 lg:px-3 py-1.5 rounded-lg text-[9px] lg:text-[10px] font-bold tracking-widest transition-all cursor-pointer relative shrink-0 ${
                     isActive 
                       ? 'text-cyan-400 bg-cyan-400/10 border border-cyan-400/20 shadow-[0_0_15px_rgba(34,211,238,0.1)]' 
@@ -142,7 +185,7 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
         {/* 2. CENTER ZONE: Flexible Integrated Search Field (Shrinks first) */}
         <div className="hidden lg:flex items-center flex-1 min-w-0 max-w-[180px] xl:max-w-xs mx-1">
           <button
-            onClick={() => setCommandPaletteOpen(true)}
+            onClick={handleProtectedSearch}
             className="w-full h-8 sm:h-9 bg-black/40 hover:bg-black/60 border border-white/10 hover:border-orange-500/40 rounded-xl px-2.5 flex items-center justify-between text-slate-400 hover:text-white transition-all group cursor-pointer min-w-0"
           >
             <div className="flex items-center gap-2 truncate min-w-0">
@@ -153,11 +196,11 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
           </button>
         </div>
 
-        {/* 3. RIGHT ZONE: Active Mission, Controls & Operator Dropdown */}
+        {/* 3. RIGHT ZONE: Active Mission, Controls & Account Menu */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0">
           {/* Quick Search Button for medium/mobile screens */}
           <button
-            onClick={() => setCommandPaletteOpen(true)}
+            onClick={handleProtectedSearch}
             className="flex lg:hidden items-center justify-center w-8 h-8 sm:h-9 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-orange-400 transition-colors cursor-pointer shrink-0"
             title="Search Missions & Tools (⌘K)"
           >
@@ -165,7 +208,7 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
           </button>
 
           {/* Compact Active Mission Monitor (Visible on 2XL wide screens) */}
-          {activeMission && (
+          {Boolean(user) && activeMission && (
             <div className="hidden 2xl:flex items-center h-8 sm:h-9 px-2.5 rounded-xl bg-cyan-950/20 border border-cyan-500/30 text-cyan-200 shrink-0">
               <div className="flex items-center gap-1.5 max-w-[120px]">
                 <span className="relative flex h-1.5 w-1.5 shrink-0">
@@ -188,7 +231,7 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
           {/* Action Controls Box */}
           <div className="flex items-center gap-0.5 sm:gap-1 h-8 sm:h-9 p-0.5 rounded-xl bg-white/5 border border-white/5 shrink-0">
             <button
-              onClick={() => setMissionManagerOpen(true)}
+              onClick={handleProtectedArchive}
               className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white transition-all text-[10px] sm:text-[11px] font-medium cursor-pointer shrink-0"
               title="Open Mission Archive"
             >
@@ -222,7 +265,7 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
           </div>
 
           {/* User Account / Prominent Authentication Section (shrink-0, always visible) */}
-          <div className="relative shrink-0 flex-shrink-0 z-40">
+          <div ref={accountDropdownRef} className="relative shrink-0 flex-shrink-0 z-40">
             {authLoading ? (
               <div className="h-8 sm:h-9 w-24 rounded-xl bg-white/5 border border-white/10 animate-pulse" />
             ) : !user ? (
@@ -308,12 +351,12 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
           {/* Mobile Categories Navigation Grid */}
           <div className="grid grid-cols-2 gap-1.5 p-1 bg-black/40 rounded-xl border border-white/5">
             {categories.map((cat) => {
-              const isActive = currentCategory === cat.label;
+              const isActive = Boolean(user) && currentCategory === cat.label;
               return (
                 <button
                   key={cat.label}
                   onClick={() => {
-                    setActiveWorkspace(cat.defaultWorkspace as any);
+                    handleProtectedWorkspaceNav(cat.defaultWorkspace);
                     setMobileMenuOpen(false);
                   }}
                   className={`px-3 py-2 rounded-lg text-xs font-bold tracking-wider transition-all cursor-pointer text-center ${

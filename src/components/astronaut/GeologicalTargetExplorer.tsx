@@ -837,10 +837,10 @@ export const GeologicalTargetExplorer: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Operator Status Controls */}
+                {/* Target Exploration Status Controls */}
                 <div className="space-y-2">
                   <span className="text-[10px] font-mono text-slate-400 uppercase block font-bold">
-                    Operator Target Exploration Status (Persisted)
+                    Target Exploration Status (Persisted)
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {statuses.map(s => (

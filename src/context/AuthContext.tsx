@@ -141,13 +141,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const pendingSignupInfoRef = useRef<{ email: string; displayName: string } | null>(null);
 
-  const [guestUser, setGuestUser] = useState<User | null>(() => {
-    try {
-      const cached = localStorage.getItem('marsnav_guest_session');
-      if (cached) return JSON.parse(cached);
-    } catch {}
-    return null;
-  });
+  const [guestUser, setGuestUser] = useState<User | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [profileSynced, setProfileSynced] = useState(false);

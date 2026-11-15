@@ -50,12 +50,12 @@ export default function OverviewWorkspace() {
   const [tempTitle, setTempTitle] = useState('');
   const [showFullLogModal, setShowFullLogModal] = useState(false);
 
-  // Fallback defaults if activeMission is loading
+  // Fallback defaults if no mission is active yet
   const currentMission = activeMission || {
-    id: activeMissionId || 'msn_pending',
-    name: 'Initializing Mission Data...',
+    id: activeMissionId || 'no_mission',
+    name: 'No Active Mission Selected',
     status: 'Standby',
-    roverProfile: 'Rover Profile Syncing...',
+    roverProfile: 'Perseverance (Mars 2020)',
     createdAt: new Date().toISOString(),
     startPoint: null,
     destinationPoint: null,

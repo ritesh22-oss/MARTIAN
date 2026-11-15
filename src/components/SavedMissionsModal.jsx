@@ -22,7 +22,7 @@ import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 
 export default function SavedMissionsModal({ isOpen, onClose }) {
-  const { user, login } = useAuth();
+  const { user, openAuthModal } = useAuth();
   const {
     missions,
     activeMissionId,
@@ -233,11 +233,11 @@ export default function SavedMissionsModal({ isOpen, onClose }) {
             <div className="flex items-center space-x-2">
               <span className="text-slate-400 text-[11px]">Sign in to sync across devices:</span>
               <button
-                onClick={login}
-                className="px-2.5 py-1 rounded-lg bg-orange-600/30 hover:bg-orange-600/50 border border-orange-500/40 text-orange-200 text-[11px] font-sans flex items-center space-x-1"
+                onClick={() => openAuthModal('signin')}
+                className="px-2.5 py-1 rounded-lg bg-orange-600/30 hover:bg-orange-600/50 border border-orange-500/40 text-orange-200 text-[11px] font-sans flex items-center space-x-1 cursor-pointer"
               >
                 <LogIn className="w-3 h-3" />
-                <span>Google Sign In</span>
+                <span>Sign In</span>
               </button>
             </div>
           )}

@@ -1,6 +1,6 @@
-import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import { Search } from 'lucide-react';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { MissionRecordProvider } from './context/MissionRecordContext';
 import { WorkspaceProvider, useWorkspace, WorkspaceId } from './context/WorkspaceContext';
 import { TerrainAnalysisProvider } from './context/TerrainAnalysisContext';
@@ -43,6 +43,7 @@ import SavedMissionsModal from './components/SavedMissionsModal';
 import MarsNavGuide from './components/MarsNavGuide';
 import OrbitChat from './components/OrbitChat';
 import GuidedTourOverlay from './components/onboarding/GuidedTourOverlay';
+import WelcomeLanding from './components/WelcomeLanding';
 
 import { useNetworkStatus } from './hooks/useNetworkStatus';
 import OfflineScreen from './components/OfflineScreen';
@@ -63,10 +64,22 @@ class InlinedErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 }
 
 function WorkstationMain() {
+  const { user, loading: authLoading } = useAuth();
   const { activeWorkspace, setActiveWorkspace, commandPaletteOpen, setCommandPaletteOpen } = useWorkspace();
   const { isActive: isOnboardingActive, startManualTour } = useOnboarding();
   const [missionsModalOpen, setMissionsModalOpen] = useState(false);
   const [guideModalOpen, setGuideModalOpen] = useState(false);
+
+  const wasAuthenticatedRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    if (authLoading) return;
+    const isNowAuth = Boolean(user);
+    if (wasAuthenticatedRef.current === false && isNowAuth) {
+      setActiveWorkspace('overview');
+    }
+    wasAuthenticatedRef.current = isNowAuth;
+  }, [authLoading, user, setActiveWorkspace]);
   
   const network = useNetworkStatus();
   const [forceOfflineView, setForceOfflineView] = useState(false);
@@ -246,7 +259,13 @@ function WorkstationMain() {
           data-marsnav-main="true"
           className="flex-1 overflow-y-auto bg-[#070913] relative"
         >
-          {[
+          {authLoading ? (
+            <div className="w-full min-h-full flex items-center justify-center p-8 text-slate-400 text-xs font-mono">
+              Verifying authentication session...
+            </div>
+          ) : !user ? (
+            <WelcomeLanding />
+          ) : [
             'astronaut-exploration',
             'surface-dashboard',
             'science-planner',
@@ -288,7 +307,7 @@ function WorkstationMain() {
       <GuidedTourOverlay />
 
       {/* Floating ORBIT Assistant (always available in any workspace outside active tour) */}
-      {!isOnboardingActive && <OrbitChat onOpenGuide={() => setGuideModalOpen(true)} />}
+      {Boolean(user) && !isOnboardingActive && <OrbitChat onOpenGuide={() => setGuideModalOpen(true)} />}
 
       {/* Network Status Overlays */}
       {forceOfflineView && (

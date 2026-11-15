@@ -6,7 +6,6 @@ import {
   WifiOff,
   User as UserIcon,
   LogOut,
-  LogIn,
   ChevronDown,
   BookOpen,
   Search,
@@ -15,7 +14,8 @@ import {
   Compass,
   Layers,
   Sliders,
-  Navigation
+  Navigation,
+  Settings
 } from 'lucide-react';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
@@ -36,10 +36,15 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
     setCommandPaletteOpen
   } = useWorkspace();
 
-  const { user, userProfile, login, logout } = useAuth();
+  const { user, userProfile, loading: authLoading, openAuthModal, logout } = useAuth();
   const network = useNetworkStatus();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const actualDisplayName = user
+    ? (userProfile?.displayName?.trim() || user.displayName?.trim() || user.email?.split('@')[0] || user.email || 'Account')
+    : '';
+  const actualEmail = user ? (user.email || userProfile?.email || '') : '';
 
   // Mapping workspaces to categories for active state highlighting
   const workspaceToCategory: Record<string, string> = {
@@ -84,12 +89,10 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
     { label: 'VALIDATION', defaultWorkspace: 'validation-harness' }
   ];
 
-  const handleLogin = async () => {
-    try {
-      await login();
-    } catch (err) {
-      console.error('Login failed', err);
-    }
+  const handleOpenAccountSettings = () => {
+    setUserDropdownOpen(false);
+    setActiveWorkspace('settings');
+    window.dispatchEvent(new CustomEvent('marsnav:open-account-settings'));
   };
 
   const handleLogout = async () => {
@@ -218,56 +221,73 @@ export default function AppTopBar({ onOpenMissions, onOpenGuideModal }: AppTopBa
             )}
           </div>
 
-          {/* User Account / Profile Section (Protected Space shrink-0) */}
+          {/* User Account / Prominent Authentication Section (shrink-0, always visible) */}
           <div className="relative shrink-0 flex-shrink-0 z-40">
-            <button
-              onClick={() => setUserDropdownOpen(prev => !prev)}
-              className="flex items-center gap-1.5 sm:gap-2 h-8 sm:h-9 px-2 sm:px-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/20 text-white transition-all cursor-pointer text-[11px] shrink-0 font-semibold shadow-sm"
-              title="Operator Profile & Authentication"
-            >
-              <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-cyan-500 to-orange-500 flex items-center justify-center text-white shrink-0 shadow-sm">
-                <UserIcon className="w-3 h-3" />
+            {authLoading ? (
+              <div className="h-8 sm:h-9 w-24 rounded-xl bg-white/5 border border-white/10 animate-pulse" />
+            ) : !user ? (
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <button
+                  type="button"
+                  onClick={() => openAuthModal('signin')}
+                  className="flex items-center gap-1.5 sm:gap-2 h-8 sm:h-9 px-3 sm:px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-[11px] sm:text-xs tracking-wide shadow-[0_0_20px_rgba(6,182,212,0.3)] transition-all cursor-pointer shrink-0 active:scale-[0.98]"
+                >
+                  <UserIcon className="w-3.5 h-3.5 shrink-0" />
+                  <span>SIGN IN</span>
+                </button>
               </div>
-              <span className="inline-block truncate max-w-[80px] sm:max-w-[120px] text-slate-100 font-semibold">
-                {user ? (user.displayName || user.email?.split('@')[0] || 'Operator') : 'Operator'}
-              </span>
-              <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
-            </button>
-
-            {userDropdownOpen && (
-              <div className="absolute right-0 mt-2 w-60 bg-[#0B1020] border border-slate-700/80 rounded-2xl shadow-2xl py-2 z-50 font-mono text-xs">
-                <div className="px-4 py-2 border-b border-slate-800">
-                  <span className="text-[10px] text-slate-400 block">AUTHENTICATED OPERATOR</span>
-                  <span className="text-white font-bold truncate block">
-                    {user ? (user.email || user.displayName || 'MarsNav Operator') : 'Guest Operator'}
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setUserDropdownOpen(prev => !prev)}
+                  className="flex items-center gap-1.5 sm:gap-2 h-8 sm:h-9 px-2 sm:px-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/20 text-white transition-all cursor-pointer text-[11px] sm:text-xs shrink-0 font-semibold shadow-sm"
+                  title={actualDisplayName}
+                >
+                  <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-cyan-500 to-orange-500 flex items-center justify-center text-white shrink-0 shadow-sm">
+                    <UserIcon className="w-3 h-3" />
+                  </div>
+                  <span className="inline-block truncate max-w-[90px] sm:max-w-[140px] text-slate-100 font-semibold">
+                    {actualDisplayName}
                   </span>
-                  {userProfile && (
-                    <span className="mt-1 inline-block px-2 py-0.5 rounded text-[9px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-                      {userProfile.role || 'Operator'}
-                    </span>
-                  )}
-                </div>
+                  <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
+                </button>
 
-                <div className="py-1">
-                  {user ? (
-                    <button
-                      onClick={handleLogout}
-                      className="w-full text-left px-4 py-2 hover:bg-rose-500/10 text-rose-300 flex items-center gap-2 cursor-pointer transition-colors"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Sign Out</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleLogin}
-                      className="w-full text-left px-4 py-2 hover:bg-cyan-500/10 text-cyan-300 flex items-center gap-2 cursor-pointer transition-colors"
-                    >
-                      <LogIn className="w-3.5 h-3.5" />
-                      <span>Sign In</span>
-                    </button>
-                  )}
-                </div>
-              </div>
+                {userDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-64 bg-[#0B1020] border border-slate-700/80 rounded-2xl shadow-2xl py-2 z-50 text-xs">
+                    <div className="px-4 py-2.5 border-b border-slate-800 space-y-0.5">
+                      <span className="text-white font-semibold truncate block text-sm">
+                        {actualDisplayName}
+                      </span>
+                      {actualEmail && (
+                        <span className="text-slate-400 text-[11px] truncate block">
+                          {actualEmail}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="py-1">
+                      <button
+                        type="button"
+                        onClick={handleOpenAccountSettings}
+                        className="w-full text-left px-4 py-2 hover:bg-white/5 text-slate-200 flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <Settings className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Account settings</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="w-full text-left px-4 py-2 hover:bg-rose-500/10 text-rose-300 flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Sign Out</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
 

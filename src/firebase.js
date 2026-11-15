@@ -1,5 +1,15 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, getAdditionalUserInfo } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
+  signOut,
+  getAdditionalUserInfo
+} from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer, disableNetwork } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -38,6 +48,30 @@ export async function signInWithGoogle() {
     }
     throw error;
   }
+}
+
+export async function signInWithEmail(email, password) {
+  const result = await signInWithEmailAndPassword(auth, email, password);
+  if (result?.user?.uid) {
+    recentNewUserSignIns.set(result.user.uid, false);
+  }
+  return result.user;
+}
+
+export async function createAccountWithEmail(email, password, displayName) {
+  const result = await createUserWithEmailAndPassword(auth, email, password);
+  if (result?.user?.uid) {
+    recentNewUserSignIns.set(result.user.uid, true);
+  }
+  const trimmedName = typeof displayName === 'string' ? displayName.trim() : '';
+  if (trimmedName && result?.user) {
+    await updateProfile(result.user, { displayName: trimmedName });
+  }
+  return result.user;
+}
+
+export async function sendPasswordReset(email) {
+  await sendPasswordResetEmail(auth, email);
 }
 
 export async function signOutUser() {

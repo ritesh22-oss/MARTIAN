@@ -11,16 +11,29 @@ import {
   RotateCcw,
   Sparkles,
   Flame,
-  Info
+  Info,
+  User as UserIcon,
+  LogOut,
+  Compass
 } from 'lucide-react';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { useAuth } from '../../context/AuthContext';
+import { useOnboarding } from '../../context/OnboardingContext';
 import { MARS_REFERENCE_DATUM } from '../../utils/marsScienceData';
 import ConnectionDiagnostics from '../ConnectionDiagnostics';
 
 export default function SettingsWorkspace() {
   const { settings, updateSettings, systemStatus, checkSystemHealth } = useWorkspace();
-  const [activeTab, setActiveTab] = useState<'display' | 'ai' | 'shortcuts' | 'about'>('display');
+  const { user, userProfile, logout } = useAuth();
+  const { startManualTour } = useOnboarding();
+  const [activeTab, setActiveTab] = useState<'account' | 'display' | 'ai' | 'shortcuts' | 'about'>('display');
   const [savedNotice, setSavedNotice] = useState(false);
+
+  React.useEffect(() => {
+    const openAccountTab = () => setActiveTab('account');
+    window.addEventListener('marsnav:open-account-settings', openAccountTab);
+    return () => window.removeEventListener('marsnav:open-account-settings', openAccountTab);
+  }, []);
 
   const handleSave = () => {
     setSavedNotice(true);
@@ -54,7 +67,15 @@ export default function SettingsWorkspace() {
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex items-center bg-black/40 p-1 rounded-xl border border-slate-800 text-xs">
+        <div className="flex flex-wrap items-center bg-black/40 p-1 rounded-xl border border-slate-800 text-xs gap-1">
+          <button
+            onClick={() => setActiveTab('account')}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+              activeTab === 'account' ? 'bg-orange-600 text-white' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Account
+          </button>
           <button
             onClick={() => setActiveTab('display')}
             className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
@@ -94,6 +115,56 @@ export default function SettingsWorkspace() {
         <div className="p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-emerald-300 text-xs flex items-center space-x-2 animate-fade-in">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>Workstation settings saved successfully.</span>
+        </div>
+      )}
+
+      {/* Tab 0: Account Settings */}
+      {activeTab === 'account' && (
+        <div className="bg-[#090E1C] border border-slate-800 p-6 rounded-2xl space-y-6 font-sans">
+          <div className="border-b border-slate-800 pb-3">
+            <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
+              <UserIcon className="w-4 h-4 text-cyan-400" />
+              <span>Account Settings</span>
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+            <div className="p-4 rounded-xl bg-black/40 border border-slate-800 space-y-1">
+              <span className="text-[11px] font-mono uppercase text-slate-400 block">Profile Name</span>
+              <span className="text-sm font-semibold text-white block">
+                {userProfile?.displayName || user?.displayName || user?.email?.split('@')[0] || 'Not signed in'}
+              </span>
+            </div>
+
+            <div className="p-4 rounded-xl bg-black/40 border border-slate-800 space-y-1">
+              <span className="text-[11px] font-mono uppercase text-slate-400 block">Email Address</span>
+              <span className="text-sm font-medium text-slate-200 block break-all">
+                {user?.email || userProfile?.email || 'No email associated'}
+              </span>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-800 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={startManualTour}
+              className="px-4 py-2.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-200 font-semibold text-xs flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <Compass className="w-4 h-4 text-cyan-400" />
+              <span>Launch Mission Guide</span>
+            </button>
+
+            {user && (
+              <button
+                type="button"
+                onClick={() => logout()}
+                className="px-4 py-2.5 rounded-xl bg-rose-950/60 hover:bg-rose-900/70 border border-rose-500/40 text-rose-200 font-semibold text-xs flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <LogOut className="w-4 h-4 text-rose-400" />
+                <span>Sign Out</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
 

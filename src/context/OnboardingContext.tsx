@@ -31,7 +31,7 @@ interface OnboardingContextType {
 const OnboardingContext = createContext<OnboardingContextType | null>(null);
 
 export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, userProfile, loading: authLoading, profileSynced, updateOnboardingState } = useAuth();
+  const { user, userProfile, loading: authLoading, profileSynced, openAuthModal, updateOnboardingState } = useAuth();
   const { setActiveWorkspace, setSidebarCollapsed } = useWorkspace();
 
   const [phase, setPhase] = useState<OnboardingPhase>('idle');
@@ -78,7 +78,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (authLoading || !profileSynced || !user || !userProfile) return;
 
     // Guest mode sessions never auto-launch onboarding
-    if ((user as any).isAnonymous || user.uid === 'guest-commander-session') {
+    if ((user as any).isAnonymous || user.uid === 'guest-session') {
       return;
     }
 
@@ -114,7 +114,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setCurrentStepIndex(0);
     setPhase('tour');
     triggerStepMoodReaction('happy', 'speaking', 650);
-    if (!isManualReplay && user && !(user as any).isAnonymous && user.uid !== 'guest-commander-session') {
+    if (!isManualReplay && user && !(user as any).isAnonymous && user.uid !== 'guest-session') {
       updateOnboardingState({
         onboarding_completed: false,
         onboarding_skipped: false,
@@ -125,6 +125,10 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [isManualReplay, user, updateOnboardingState, setSidebarCollapsed, triggerStepMoodReaction]);
 
   const startManualTour = useCallback(() => {
+    if (!user) {
+      openAuthModal('signin');
+      return;
+    }
     const alreadyFinished = Boolean(
       userProfile?.onboarding_completed || userProfile?.onboarding_skipped
     );
@@ -133,7 +137,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setCurrentStepIndex(0);
     setPhase('tour');
     triggerStepMoodReaction('happy', 'speaking', 650);
-    if (!alreadyFinished && user && !(user as any).isAnonymous && user.uid !== 'guest-commander-session') {
+    if (!alreadyFinished && !(user as any).isAnonymous && user.uid !== 'guest-session') {
       updateOnboardingState({
         onboarding_completed: false,
         onboarding_skipped: false,
@@ -141,7 +145,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         onboarding_current_step: 1,
       });
     }
-  }, [userProfile, user, updateOnboardingState, setSidebarCollapsed, triggerStepMoodReaction]);
+  }, [userProfile, user, openAuthModal, updateOnboardingState, setSidebarCollapsed, triggerStepMoodReaction]);
 
   const goToStep = useCallback((index: number) => {
     const clamped = Math.max(0, Math.min(ORBIT_TOUR_STEPS.length - 1, index));
@@ -149,7 +153,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setCurrentStepIndex(clamped);
     triggerStepMoodReaction('thinking', 'speaking', 550);
 
-    if (!isManualReplay && user && !(user as any).isAnonymous && user.uid !== 'guest-commander-session') {
+    if (!isManualReplay && user && !(user as any).isAnonymous && user.uid !== 'guest-session') {
       updateOnboardingState({
         onboarding_current_step: clamped + 1,
       });
@@ -159,7 +163,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const finishTour = useCallback(() => {
     setPhase('complete');
     setRobotMood('celebrating');
-    if (!isManualReplay && user && !(user as any).isAnonymous && user.uid !== 'guest-commander-session') {
+    if (!isManualReplay && user && !(user as any).isAnonymous && user.uid !== 'guest-session') {
       updateOnboardingState({
         onboarding_completed: true,
         onboarding_skipped: false,
@@ -186,7 +190,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const skipTour = useCallback(() => {
     setPhase('idle');
     setRobotMood('idle');
-    if (!isManualReplay && user && !(user as any).isAnonymous && user.uid !== 'guest-commander-session') {
+    if (!isManualReplay && user && !(user as any).isAnonymous && user.uid !== 'guest-session') {
       updateOnboardingState({
         onboarding_completed: false,
         onboarding_skipped: true,
@@ -204,7 +208,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const completeAndExit = useCallback(() => {
     setPhase('idle');
     setRobotMood('idle');
-    if (!isManualReplay && user && !(user as any).isAnonymous && user.uid !== 'guest-commander-session') {
+    if (!isManualReplay && user && !(user as any).isAnonymous && user.uid !== 'guest-session') {
       updateOnboardingState({
         onboarding_completed: true,
         onboarding_skipped: false,

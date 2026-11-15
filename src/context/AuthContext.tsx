@@ -5,6 +5,9 @@ import {
   auth,
   db,
   signInWithGoogle,
+  signInWithEmail,
+  createAccountWithEmail,
+  sendPasswordReset,
   signOutUser,
   consumeLastSignInIsNewUser,
   handleFirestoreError,
@@ -13,8 +16,11 @@ import {
 } from '../firebase';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { UnauthorizedDomainModal } from '../components/UnauthorizedDomainModal';
+import { AuthModal } from '../components/AuthModal';
 
 export const ORBIT_ONBOARDING_VERSION = '1.0.0';
+
+export type AuthModalMode = 'signin' | 'signup' | 'reset' | null;
 
 export interface OnboardingState {
   onboarding_completed: boolean;
@@ -31,7 +37,6 @@ export interface UserProfile {
   photoURL: string;
   createdAt: string;
   updatedAt?: string;
-  role?: string;
   onboarding_completed?: boolean;
   onboarding_skipped?: boolean;
   onboarding_version?: string;
@@ -44,8 +49,14 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   loading: boolean;
   profileSynced: boolean;
+  authModalMode: AuthModalMode;
   unauthorizedDomainError: { domain: string; projectId: string } | null;
+  openAuthModal: (mode?: Exclude<AuthModalMode, null>) => void;
+  closeAuthModal: () => void;
   login: () => Promise<User | null>;
+  loginWithEmail: (email: string, password: string) => Promise<User | null>;
+  registerWithEmail: (email: string, password: string, displayName: string) => Promise<User | null>;
+  resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   enableGuestMode: () => void;
   clearUnauthorizedDomainError: () => void;
@@ -57,8 +68,14 @@ const AuthContext = createContext<AuthContextType>({
   userProfile: null,
   loading: true,
   profileSynced: false,
+  authModalMode: null,
   unauthorizedDomainError: null,
+  openAuthModal: () => {},
+  closeAuthModal: () => {},
   login: async () => null,
+  loginWithEmail: async () => null,
+  registerWithEmail: async () => null,
+  resetPassword: async () => {},
   logout: async () => {},
   enableGuestMode: () => {},
   clearUnauthorizedDomainError: () => {},
@@ -72,6 +89,14 @@ const clampStep = (step: unknown): number => {
 
 const getOnboardingCacheKey = (uid: string) => `marsnav_onboarding_${uid}`;
 const getProfileCacheKey = (uid: string) => `marsnav_profile_${uid}`;
+
+function deriveDisplayName(user: { displayName?: string | null; email?: string | null }): string {
+  const dn = user.displayName?.trim();
+  if (dn) return dn;
+  const email = user.email?.trim();
+  if (email && email.includes('@')) return email.split('@')[0];
+  return email || 'User';
+}
 
 function readLocalOnboarding(uid: string): Partial<OnboardingState> | null {
   try {
@@ -93,10 +118,9 @@ function writeLocalOnboarding(uid: string, state: OnboardingState) {
 function sanitizeProfilePayload(profile: UserProfile): Record<string, any> {
   return {
     uid: profile.uid.slice(0, 128),
-    email: (profile.email || 'commander@marsnav.space').slice(0, 254),
-    displayName: (profile.displayName || 'Mars Commander').slice(0, 100),
+    email: (profile.email || '').slice(0, 254),
+    displayName: (profile.displayName || deriveDisplayName(profile)).slice(0, 100),
     photoURL: (profile.photoURL || '').slice(0, 2000),
-    role: (profile.role || 'Flight Commander').slice(0, 64),
     createdAt: (profile.createdAt || new Date().toISOString()).slice(0, 64),
     updatedAt: new Date().toISOString().slice(0, 64),
     onboarding_completed: Boolean(profile.onboarding_completed),
@@ -115,6 +139,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const firebaseProfileRef = useRef<UserProfile | null>(null);
   firebaseProfileRef.current = firebaseProfile;
 
+  const pendingSignupInfoRef = useRef<{ email: string; displayName: string } | null>(null);
+
   const [guestUser, setGuestUser] = useState<User | null>(() => {
     try {
       const cached = localStorage.getItem('marsnav_guest_session');
@@ -125,6 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [loading, setLoading] = useState(true);
   const [profileSynced, setProfileSynced] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<AuthModalMode>(null);
   const [unauthorizedDomainError, setUnauthorizedDomainError] = useState<{ domain: string; projectId: string } | null>(null);
 
   useEffect(() => {
@@ -156,6 +183,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const cachedOnboarding = readLocalOnboarding(currentUser.uid);
       const justCreatedViaPopup = consumeLastSignInIsNewUser(currentUser.uid);
+      const pendingSignup =
+        pendingSignupInfoRef.current &&
+        currentUser.email &&
+        pendingSignupInfoRef.current.email === currentUser.email.toLowerCase()
+          ? pendingSignupInfoRef.current
+          : null;
 
       const createdAtMs = currentUser.metadata?.creationTime ? Date.parse(currentUser.metadata.creationTime) : 0;
       const lastSignInMs = currentUser.metadata?.lastSignInTime ? Date.parse(currentUser.metadata.lastSignInTime) : 0;
@@ -169,14 +202,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ? new Date(currentUser.metadata.creationTime).toISOString()
         : (cachedProfile?.createdAt || new Date().toISOString());
 
+      const resolvedName =
+        pendingSignup?.displayName ||
+        currentUser.displayName?.trim() ||
+        cachedProfile?.displayName?.trim() ||
+        deriveDisplayName(currentUser);
+
       const buildFallbackProfile = (isBrandNew: boolean): UserProfile => ({
         uid: currentUser.uid,
-        email: currentUser.email || cachedProfile?.email || 'commander@marsnav.space',
-        displayName: currentUser.displayName || cachedProfile?.displayName || 'Mars Commander',
+        email: currentUser.email || cachedProfile?.email || '',
+        displayName: resolvedName,
         photoURL: currentUser.photoURL || cachedProfile?.photoURL || '',
         createdAt: baseCreatedAt,
         updatedAt: new Date().toISOString(),
-        role: cachedProfile?.role || 'Flight Commander',
         onboarding_completed:
           cachedOnboarding?.onboarding_completed ??
           cachedProfile?.onboarding_completed ??
@@ -198,8 +236,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ),
       });
 
-      // Set optimistic local profile before async Firestore sync completes
-      const optimisticNew = justCreatedViaPopup === true || (!cachedProfile && !cachedOnboarding && isFirstAuthLoginWindow);
+      const optimisticNew =
+        Boolean(pendingSignup) ||
+        justCreatedViaPopup === true ||
+        (!cachedProfile && !cachedOnboarding && isFirstAuthLoginWindow);
       const optimisticProfile = buildFallbackProfile(optimisticNew);
       setFirebaseProfile(optimisticProfile);
 
@@ -225,27 +265,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             typeof remoteData.onboarding_completed === 'boolean' ||
             typeof remoteData.onboarding_skipped === 'boolean';
 
-          // Legacy user profile created prior to onboarding rollout retains completed status
           const resolvedCompleted = hasExplicitOnboardingFields
             ? Boolean(remoteData.onboarding_completed)
-            : !(justCreatedViaPopup === true || isFirstAuthLoginWindow);
+            : !(Boolean(pendingSignup) || justCreatedViaPopup === true || isFirstAuthLoginWindow);
 
           const resolvedProfile: UserProfile = {
             ...optimisticProfile,
             ...remoteData,
             uid: currentUser.uid,
             email: remoteData.email || optimisticProfile.email,
-            displayName: remoteData.displayName || optimisticProfile.displayName,
+            displayName:
+              pendingSignup?.displayName ||
+              currentUser.displayName?.trim() ||
+              remoteData.displayName ||
+              optimisticProfile.displayName,
             photoURL: remoteData.photoURL || optimisticProfile.photoURL,
             createdAt: remoteData.createdAt || baseCreatedAt,
             onboarding_completed: resolvedCompleted,
             onboarding_skipped: Boolean(remoteData.onboarding_skipped),
             onboarding_version: remoteData.onboarding_version || ORBIT_ONBOARDING_VERSION,
-            onboarding_completed_at: remoteData.onboarding_completed_at ?? (resolvedCompleted ? (remoteData.createdAt || baseCreatedAt) : null),
+            onboarding_completed_at:
+              remoteData.onboarding_completed_at ?? (resolvedCompleted ? (remoteData.createdAt || baseCreatedAt) : null),
             onboarding_current_step: clampStep(remoteData.onboarding_current_step ?? 0),
           };
 
-          // Sync legacy user doc once so its completed status is permanently explicit
           if (!hasExplicitOnboardingFields && resolvedCompleted) {
             setDoc(userDocRef, sanitizeProfilePayload(resolvedProfile), { merge: true }).catch(() => {});
           }
@@ -262,7 +305,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localStorage.setItem(cachedProfileKey, JSON.stringify(resolvedProfile));
           } catch {}
         } else {
-          // No Firestore profile doc yet: determine accurately if brand-new account or pre-existing returning user
           let hasExistingMissions = false;
           try {
             const missionsSnap = await getDocs(
@@ -272,10 +314,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } catch {}
 
           const isBrandNewUser =
-            !cachedOnboarding &&
-            !hasExistingMissions &&
-            (justCreatedViaPopup === true ||
-              (justCreatedViaPopup !== false && isFirstAuthLoginWindow && !cachedProfile));
+            Boolean(pendingSignup) ||
+            (!cachedOnboarding &&
+              !hasExistingMissions &&
+              (justCreatedViaPopup === true ||
+                (justCreatedViaPopup !== false && isFirstAuthLoginWindow && !cachedProfile)));
 
           const initialProfile = buildFallbackProfile(isBrandNewUser);
           setFirebaseProfile(initialProfile);
@@ -303,6 +346,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           markFirestoreQuotaExceeded();
         }
       } finally {
+        if (pendingSignup) {
+          pendingSignupInfoRef.current = null;
+        }
         if (!isCancelled) {
           setProfileSynced(true);
           setLoading(false);
@@ -322,13 +368,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const current = firebaseProfileRef.current || {
       uid: activeFirebaseUser.uid,
-      email: activeFirebaseUser.email || 'commander@marsnav.space',
-      displayName: activeFirebaseUser.displayName || 'Mars Commander',
+      email: activeFirebaseUser.email || '',
+      displayName: deriveDisplayName(activeFirebaseUser),
       photoURL: activeFirebaseUser.photoURL || '',
       createdAt: activeFirebaseUser.metadata?.creationTime
         ? new Date(activeFirebaseUser.metadata.creationTime).toISOString()
         : new Date().toISOString(),
-      role: 'Flight Commander',
     };
 
     const nextProfile: UserProfile = {
@@ -374,17 +419,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [firebaseUser]);
 
+  const openAuthModal = useCallback((mode: Exclude<AuthModalMode, null> = 'signin') => {
+    setAuthModalMode(mode);
+  }, []);
+
+  const closeAuthModal = useCallback(() => {
+    setAuthModalMode(null);
+  }, []);
+
   const enableGuestMode = () => {
     const mockGuest: any = {
-      uid: 'guest-commander-session',
-      displayName: 'Commander (Guest)',
-      email: 'commander@marsnav.space',
+      uid: 'guest-session',
+      displayName: 'Guest User',
+      email: '',
       photoURL: '',
-      emailVerified: true,
+      emailVerified: false,
       isAnonymous: true
     };
     setGuestUser(mockGuest);
     setUnauthorizedDomainError(null);
+    setAuthModalMode(null);
     setProfileSynced(true);
     try {
       localStorage.setItem('marsnav_guest_session', JSON.stringify(mockGuest));
@@ -403,11 +457,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (isUnauthorized) {
         const domain = window.location.hostname || 'localhost';
         const projectId = firebaseConfig?.projectId || 'idyllic-orbit-445507-q5';
+        setAuthModalMode(null);
         setUnauthorizedDomainError({ domain, projectId });
         return null;
       }
       throw error;
     }
+  };
+
+  const loginWithEmail = async (email: string, password: string): Promise<User | null> => {
+    setUnauthorizedDomainError(null);
+    return await signInWithEmail(email, password);
+  };
+
+  const registerWithEmail = async (
+    email: string,
+    password: string,
+    displayName: string
+  ): Promise<User | null> => {
+    setUnauthorizedDomainError(null);
+    const trimmedName = displayName.trim();
+    pendingSignupInfoRef.current = {
+      email: email.trim().toLowerCase(),
+      displayName: trimmedName,
+    };
+    try {
+      const createdUser = await createAccountWithEmail(email.trim(), password, trimmedName);
+      if (createdUser && trimmedName) {
+        setFirebaseProfile((prev) =>
+          prev
+            ? { ...prev, displayName: trimmedName }
+            : prev
+        );
+      }
+      return createdUser;
+    } catch (err) {
+      pendingSignupInfoRef.current = null;
+      throw err;
+    }
+  };
+
+  const resetPassword = async (email: string): Promise<void> => {
+    await sendPasswordReset(email.trim());
   };
 
   const logout = async () => {
@@ -428,11 +519,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ? firebaseProfile
     : (guestUser ? {
         uid: guestUser.uid,
-        email: guestUser.email || 'commander@marsnav.space',
-        displayName: guestUser.displayName || 'Commander (Guest)',
+        email: guestUser.email || '',
+        displayName: guestUser.displayName || 'Guest User',
         photoURL: '',
         createdAt: new Date().toISOString(),
-        role: 'Guest Commander',
         onboarding_completed: true,
         onboarding_skipped: false,
         onboarding_version: ORBIT_ONBOARDING_VERSION,
@@ -445,14 +535,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       userProfile: effectiveProfile,
       loading,
       profileSynced,
+      authModalMode,
       unauthorizedDomainError,
+      openAuthModal,
+      closeAuthModal,
       login,
+      loginWithEmail,
+      registerWithEmail,
+      resetPassword,
       logout,
       enableGuestMode,
       clearUnauthorizedDomainError: () => setUnauthorizedDomainError(null),
       updateOnboardingState,
     }}>
       {children}
+      <AuthModal />
       {unauthorizedDomainError && (
         <UnauthorizedDomainModal
           domain={unauthorizedDomainError.domain}

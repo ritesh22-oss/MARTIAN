@@ -50,7 +50,7 @@ export const GeologicalTargetExplorer: React.FC = () => {
     refreshGeospatialContext
   } = useAstronautExploration();
   const { selectAndLoadDtm, isProcessingDtm } = useWorkspace();
-  const { login } = useAuth();
+  const { openAuthModal } = useAuth();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedTargetId, setSelectedTargetId] = useState<string>('');
@@ -691,7 +691,7 @@ export const GeologicalTargetExplorer: React.FC = () => {
                       {!isFirebaseSignedIn && (
                         <button
                           type="button"
-                          onClick={() => login().catch(() => {})}
+                          onClick={() => openAuthModal('signin')}
                           className="px-2 py-0.5 rounded bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 text-[10px] font-mono text-cyan-200 cursor-pointer"
                         >
                           Sign In for Cloud Sync

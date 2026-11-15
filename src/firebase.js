@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, getAdditionalUserInfo } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer, disableNetwork } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -13,9 +13,22 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
+const recentNewUserSignIns = new Map();
+
+export function consumeLastSignInIsNewUser(uid) {
+  if (!uid || !recentNewUserSignIns.has(uid)) return null;
+  const val = recentNewUserSignIns.get(uid);
+  recentNewUserSignIns.delete(uid);
+  return val;
+}
+
 export async function signInWithGoogle() {
   try {
     const result = await signInWithPopup(auth, googleProvider);
+    const additionalInfo = getAdditionalUserInfo(result);
+    if (result?.user?.uid && additionalInfo) {
+      recentNewUserSignIns.set(result.user.uid, Boolean(additionalInfo.isNewUser));
+    }
     return result.user;
   } catch (error) {
     if (error?.code === 'auth/unauthorized-domain' || (error?.message && error.message.includes('auth/unauthorized-domain'))) {

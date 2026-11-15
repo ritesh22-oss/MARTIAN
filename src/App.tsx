@@ -5,6 +5,7 @@ import { MissionRecordProvider } from './context/MissionRecordContext';
 import { WorkspaceProvider, useWorkspace, WorkspaceId } from './context/WorkspaceContext';
 import { TerrainAnalysisProvider } from './context/TerrainAnalysisContext';
 import { AstronautExplorationProvider } from './context/AstronautExplorationContext';
+import { OnboardingProvider, useOnboarding } from './context/OnboardingContext';
 import BootScreen from './components/BootScreen';
 import AppSidebar from './components/shell/AppSidebar';
 import AppTopBar from './components/shell/AppTopBar';
@@ -41,6 +42,7 @@ import FieldNotebook from './components/FieldNotebook';
 import SavedMissionsModal from './components/SavedMissionsModal';
 import MarsNavGuide from './components/MarsNavGuide';
 import OrbitChat from './components/OrbitChat';
+import GuidedTourOverlay from './components/onboarding/GuidedTourOverlay';
 
 import { useNetworkStatus } from './hooks/useNetworkStatus';
 import OfflineScreen from './components/OfflineScreen';
@@ -62,6 +64,7 @@ class InlinedErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
 function WorkstationMain() {
   const { activeWorkspace, setActiveWorkspace, commandPaletteOpen, setCommandPaletteOpen } = useWorkspace();
+  const { isActive: isOnboardingActive, startManualTour } = useOnboarding();
   const [missionsModalOpen, setMissionsModalOpen] = useState(false);
   const [guideModalOpen, setGuideModalOpen] = useState(false);
   
@@ -239,8 +242,28 @@ function WorkstationMain() {
         </div>
 
         {/* Central Active Engineering Workspace */}
-        <main className="flex-1 overflow-y-auto bg-[#070913] relative">
-          {renderWorkspace()}
+        <main
+          data-marsnav-main="true"
+          className="flex-1 overflow-y-auto bg-[#070913] relative"
+        >
+          {[
+            'astronaut-exploration',
+            'surface-dashboard',
+            'science-planner',
+            'surface-explorer',
+            'multilayer-map',
+            'safety-monitoring',
+            'geological-targets',
+            'suit-mobility',
+            'astronaut-route-planner',
+            'radiation-monitor',
+          ].includes(activeWorkspace) ? (
+            renderWorkspace()
+          ) : (
+            <div data-active-workspace={activeWorkspace} className="w-full min-h-full">
+              {renderWorkspace()}
+            </div>
+          )}
         </main>
       </div>
 
@@ -257,12 +280,15 @@ function WorkstationMain() {
         onClose={() => setGuideModalOpen(false)}
         onStartTour={() => {
           setGuideModalOpen(false);
-          setActiveWorkspace('explorer-3d');
+          startManualTour();
         }}
       />
 
-      {/* Floating ORBIT Assistant (always available in any workspace) */}
-      <OrbitChat onOpenGuide={() => setGuideModalOpen(true)} />
+      {/* ORBIT Interactive Onboarding & Mission Guide Overlay */}
+      <GuidedTourOverlay />
+
+      {/* Floating ORBIT Assistant (always available in any workspace outside active tour) */}
+      {!isOnboardingActive && <OrbitChat onOpenGuide={() => setGuideModalOpen(true)} />}
 
       {/* Network Status Overlays */}
       {forceOfflineView && (
@@ -299,7 +325,9 @@ export default function App() {
         <WorkspaceProvider>
           <TerrainAnalysisProvider>
             <AstronautExplorationProvider>
-              <WorkstationMain />
+              <OnboardingProvider>
+                <WorkstationMain />
+              </OnboardingProvider>
             </AstronautExplorationProvider>
           </TerrainAnalysisProvider>
         </WorkspaceProvider>

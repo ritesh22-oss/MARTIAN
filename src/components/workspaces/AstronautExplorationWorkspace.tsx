@@ -108,7 +108,10 @@ const AstronautExplorationInner: React.FC = () => {
   };
 
   return (
-    <div className="p-4 lg:p-6 max-w-[1800px] mx-auto w-full space-y-6">
+    <div
+      data-active-workspace={activeSubmodule}
+      className="p-4 lg:p-6 max-w-[1800px] mx-auto w-full space-y-6"
+    >
       {/* Top 10 Submodules Navigation Ribbon */}
       <div className="bg-[#080B14] border border-slate-800/80 rounded-2xl p-2 shadow-2xl overflow-x-auto scrollbar-none">
         <div className="flex items-center gap-1 min-w-max">

@@ -28,12 +28,33 @@ service cloud.firestore {
 
     function isValidUserProfile(data, userId) {
       return data.keys().hasAll(['uid', 'email', 'createdAt']) &&
-             data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'createdAt']) &&
+             data.keys().hasOnly([
+               'uid',
+               'email',
+               'displayName',
+               'photoURL',
+               'role',
+               'createdAt',
+               'updatedAt',
+               'onboarding_completed',
+               'onboarding_skipped',
+               'onboarding_version',
+               'onboarding_completed_at',
+               'onboarding_current_step'
+             ]) &&
+             isValidId(userId) &&
              data.uid == userId &&
              data.email is string && data.email.size() <= 254 &&
              (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
              (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2000)) &&
-             data.createdAt is string;
+             (!('role' in data) || (data.role is string && data.role.size() <= 64)) &&
+             data.createdAt is string && data.createdAt.size() <= 64 &&
+             (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64)) &&
+             (!('onboarding_completed' in data) || data.onboarding_completed is bool) &&
+             (!('onboarding_skipped' in data) || data.onboarding_skipped is bool) &&
+             (!('onboarding_version' in data) || (data.onboarding_version is string && data.onboarding_version.size() <= 32)) &&
+             (!('onboarding_completed_at' in data) || data.onboarding_completed_at == null || (data.onboarding_completed_at is string && data.onboarding_completed_at.size() <= 64)) &&
+             (!('onboarding_current_step' in data) || (data.onboarding_current_step is int && data.onboarding_current_step >= 0 && data.onboarding_current_step <= 14));
     }
 
     function isValidMission(data, userId) {
@@ -99,7 +120,10 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isOwner(userId);
       allow create: if isOwner(userId) && isValidUserProfile(incoming(), userId);
-      allow update: if isOwner(userId) && isValidUserProfile(incoming(), userId) && incoming().uid == existing().uid;
+      allow update: if isOwner(userId) &&
+                       isValidUserProfile(incoming(), userId) &&
+                       incoming().uid == existing().uid &&
+                       incoming().createdAt == existing().createdAt;
 
       // Saved Missions Subcollection
       match /missions/{missionId} {

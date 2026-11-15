@@ -23,9 +23,11 @@ import {
   Footprints,
   Target,
   Activity,
-  Sun
+  Sun,
+  Sparkles
 } from 'lucide-react';
 import { useWorkspace, WorkspaceId } from '../../context/WorkspaceContext';
+import { useOnboarding } from '../../context/OnboardingContext';
 import { PWAInstallButton } from '../PWAInstallButton';
 import MarsNavLogo from '../MarsNavLogo';
 
@@ -50,23 +52,9 @@ export default function AppSidebar() {
     setSidebarCollapsed,
     systemStatus
   } = useWorkspace();
+  const { startManualTour, isActive: isOnboardingActive, phase, currentStep } = useOnboarding();
 
   const groups: NavGroup[] = [
-    {
-      name: 'Astronaut Exploration',
-      items: [
-        { id: 'astronaut-exploration', label: 'Astronaut Surface Suite', icon: <Footprints className="w-4 h-4 text-orange-400" />, badge: 'CREW' },
-        { id: 'surface-dashboard', label: 'Surface Mission Dashboard', icon: <LayoutDashboard className="w-4 h-4 text-cyan-400" /> },
-        { id: 'science-planner', label: 'Mission Science Planner', icon: <Target className="w-4 h-4 text-cyan-400" /> },
-        { id: 'surface-explorer', label: 'Mars Surface Explorer', icon: <Compass className="w-4 h-4 text-orange-400" /> },
-        { id: 'multilayer-map', label: 'Multilayer Scientific Map', icon: <Layers className="w-4 h-4 text-blue-400" /> },
-        { id: 'safety-monitoring', label: 'Safety & Environment', icon: <ShieldAlert className="w-4 h-4 text-amber-400" /> },
-        { id: 'geological-targets', label: 'Geological Targets', icon: <Activity className="w-4 h-4 text-emerald-400" /> },
-        { id: 'suit-mobility', label: 'Suit Mobility Analysis', icon: <Footprints className="w-4 h-4 text-purple-400" /> },
-        { id: 'astronaut-route-planner', label: 'Astronaut Route Planner', icon: <Compass className="w-4 h-4 text-rose-400" /> },
-        { id: 'radiation-monitor', label: 'Radiation & Space Weather', icon: <Sun className="w-4 h-4 text-yellow-400" /> }
-      ]
-    },
     {
       name: 'Mission',
       items: [
@@ -88,6 +76,21 @@ export default function AppSidebar() {
         { id: 'dataset-catalogue', label: 'Dataset Catalogue', icon: <Database className="w-4 h-4 text-emerald-400" />, shortcut: '3' },
         { id: 'hazard-analysis', label: 'Hazard Analysis', icon: <ShieldAlert className="w-4 h-4 text-amber-400" /> },
         { id: 'risk-assessment', label: 'Risk Assessment', icon: <ShieldCheck className="w-4 h-4 text-emerald-400" /> }
+      ]
+    },
+    {
+      name: 'Astronaut Exploration',
+      items: [
+        { id: 'astronaut-exploration', label: 'Astronaut Surface Suite', icon: <Footprints className="w-4 h-4 text-orange-400" />, badge: 'CREW' },
+        { id: 'surface-dashboard', label: 'Surface Mission Dashboard', icon: <LayoutDashboard className="w-4 h-4 text-cyan-400" /> },
+        { id: 'science-planner', label: 'Mission Science Planner', icon: <Target className="w-4 h-4 text-cyan-400" /> },
+        { id: 'surface-explorer', label: 'Mars Surface Explorer', icon: <Compass className="w-4 h-4 text-orange-400" /> },
+        { id: 'multilayer-map', label: 'Multilayer Scientific Map', icon: <Layers className="w-4 h-4 text-blue-400" /> },
+        { id: 'safety-monitoring', label: 'Safety & Environment', icon: <ShieldAlert className="w-4 h-4 text-amber-400" /> },
+        { id: 'geological-targets', label: 'Geological Targets', icon: <Activity className="w-4 h-4 text-emerald-400" /> },
+        { id: 'suit-mobility', label: 'Suit Mobility Analysis', icon: <Footprints className="w-4 h-4 text-purple-400" /> },
+        { id: 'astronaut-route-planner', label: 'Astronaut Route Planner', icon: <Compass className="w-4 h-4 text-rose-400" /> },
+        { id: 'radiation-monitor', label: 'Radiation & Space Weather', icon: <Sun className="w-4 h-4 text-yellow-400" /> }
       ]
     },
     {
@@ -118,6 +121,7 @@ export default function AppSidebar() {
 
   return (
     <aside
+      data-marsnav-sidebar="true"
       className={`h-screen bg-[#080B14] border-r border-slate-800/80 flex flex-col shrink-0 select-none z-30 transition-all duration-200 relative overflow-y-auto overflow-x-visible ${
         sidebarCollapsed ? 'w-[58px]' : 'w-[230px]'
       }`}
@@ -153,12 +157,14 @@ export default function AppSidebar() {
             <div className="space-y-1">
               {group.items.map((item) => {
                 const isActive = activeWorkspace === item.id;
+                const isTourHighlighted = phase === 'tour' && currentStep?.workspaceId === item.id;
                 return (
                   <button
                     key={item.id}
+                    data-tour-nav={item.id}
                     onClick={() => setActiveWorkspace(item.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer group relative ${
-                      isActive
+                      isActive || isTourHighlighted
                         ? 'bg-gradient-to-r from-orange-600/20 via-amber-600/10 to-transparent text-white border-l-2 border-orange-500 font-semibold shadow-inner'
                         : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
                     }`}
@@ -191,6 +197,34 @@ export default function AppSidebar() {
                   </button>
                 );
               })}
+
+              {group.name === 'Assistance' && (
+                <button
+                  type="button"
+                  data-tour-nav="mission-guide-launcher"
+                  onClick={startManualTour}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer group relative ${
+                    isOnboardingActive
+                      ? 'bg-gradient-to-r from-cyan-600/20 via-orange-600/10 to-transparent text-white border-l-2 border-cyan-400 font-semibold shadow-inner'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                  }`}
+                  title={sidebarCollapsed ? 'Mission Guide' : undefined}
+                >
+                  <span className="shrink-0 group-hover:scale-110 transition-transform">
+                    <Sparkles className="w-4 h-4 text-cyan-400" />
+                  </span>
+                  {!sidebarCollapsed && (
+                    <span className="truncate flex-1 text-left">
+                      Mission Guide
+                    </span>
+                  )}
+                  {!sidebarCollapsed && (
+                    <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                      TOUR
+                    </span>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         ))}

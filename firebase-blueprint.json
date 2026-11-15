@@ -2,14 +2,21 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "User profile with display name and email",
+      "description": "User profile with display name, email, and ORBIT onboarding status",
       "type": "object",
       "properties": {
-        "uid": { "type": "string" },
-        "email": { "type": "string" },
-        "displayName": { "type": "string" },
-        "photoURL": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 254 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "photoURL": { "type": "string", "maxLength": 2000 },
+        "role": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "updatedAt": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "onboarding_completed": { "type": "boolean" },
+        "onboarding_skipped": { "type": "boolean" },
+        "onboarding_version": { "type": "string", "maxLength": 32 },
+        "onboarding_completed_at": { "type": ["string", "null"], "maxLength": 64 },
+        "onboarding_current_step": { "type": "integer" }
       },
       "required": ["uid", "email", "createdAt"]
     },
